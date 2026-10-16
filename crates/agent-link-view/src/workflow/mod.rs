@@ -18,8 +18,8 @@
 //! use agent_link_view::card_entries::prepare_view;
 //! # fn f(store: &agent_link_engine::db::SaiStore) {
 //! let prep = prepare_view(store);
-//! let src = load_workflow(store, &prep);
-//! let (dag, layout_graph) = build_block_graph(&src.blocks, &src.connections, &src.finalized_runs);
+//! let src = load_workflow(store, &prep, false);
+//! let (dag, layout_graph) = build_block_graph(&src.blocks, &src.connections);
 //! let layout = calculate_layout(&layout_graph, true);
 //! # let _ = (dag, layout);
 //! # }

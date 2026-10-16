@@ -4,11 +4,11 @@
 //!
 //! - **行** = 同じ日付（`yymmdd`）の親ブロックのグループ。日付昇順で上から並ぶ
 //! - **列** = 同一行内の DATE（作成日時）順。左から右へ並ぶ
-//! - **サブブロック（sb）** = フェーズノードの右側に**横並びチェーン**で配置
-//!   （`mb → sb1 → sb2 → ...`。同じバッチのサブは同じ段に並べる）
+//! - **サブブロック（sb）** = 親の右側に配置。`task create` 1 回分（バッチ）を 1 段として
+//!   横一列に並べ、次のバッチは 1 段下へ置く（孫も同じ親 run の段に入る）
 //! - 日付ごとの行グループの上に **区切り線（日付）** を描画するための座標を保持
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use petgraph::graph::NodeIndex;
 
@@ -128,11 +128,8 @@ pub struct LayoutNode {
     pub created_at: String,
     /// 親実行 ID（サブブロックの場合）。main ブロックの右側に配置する
     pub parent_id: Option<NodeId>,
-    /// P3-B: フェーズ親（実メイン実行 ID）。フェーズ合成ノード（小ブロック）の場合に設定
-    pub phase_parent: Option<NodeId>,
-    /// P3-B: フェーズ番号（0 = 実メイン、>=1 = 合成小ブロック）
-    pub phase: Option<u32>,
-    /// P3-B: サブが所属するタスクバッチ順序（1 始まり）。バッチサブのみ設定
+    /// 子が置かれる段の番号（1 始まり。`task create` 1 回 = 1 段）。子のみ設定。
+    /// 未設定の子は段 1 に置く
     pub batch_group: Option<u32>,
 }
 
@@ -171,26 +168,14 @@ impl LayoutGraph {
             date,
             created_at,
             parent_id,
-            phase_parent: None,
-            phase: None,
             batch_group: None,
         });
     }
 
-    /// P3-B: フェーズ情報（フェーズ親・フェーズ番号・バッチ順序）を設定する。
-    ///
-    /// `add_node` 後に呼び出し、ノードのレイアウト上の扱いを決める。
-    pub fn set_phase(
-        &mut self,
-        id: NodeId,
-        phase_parent: Option<NodeId>,
-        phase: Option<u32>,
-        batch_group: Option<u32>,
-    ) {
+    /// 子の段の番号（1 始まり）を設定する。`add_node` 後に呼び出す。
+    pub fn set_batch_row(&mut self, id: NodeId, row: u32) {
         if let Some(node) = self.nodes.iter_mut().find(|n| n.id == id) {
-            node.phase_parent = phase_parent;
-            node.phase = phase;
-            node.batch_group = batch_group;
+            node.batch_group = Some(row);
         }
     }
 
@@ -206,8 +191,8 @@ impl LayoutGraph {
 
 /// レイアウトを計算する（TUI が使う既定の間隔）。
 ///
-/// 行 = (GR, LR) グループ（GR 昇順 → LR 昇順）、列 = DATE 順。
-/// サブブロックは main ブロックの右側に縦積みで配置する。
+/// 行 = 日付グループ（日付昇順）、列 = DATE 順。
+/// サブブロックは main ブロックの右側に、バッチごとに 1 段ずつ積んで配置する。
 pub fn calculate_layout(graph: &LayoutGraph, _top_down: bool) -> DagLayout {
     calculate_layout_with(graph, &LayoutOptions::default())
 }
@@ -221,16 +206,28 @@ pub fn calculate_layout_with(graph: &LayoutGraph, opts: &LayoutOptions) -> DagLa
         return DagLayout::default();
     }
 
-    // P3-B: フェーズ合成ノード（phase_parent が Some）とそれ以外を分離する。
-    // フェーズノードは通常の行グループには配置せず、
-    // 実メイン実行を縦に分割した専用の列として扱う。
-    let (phase_nodes, rest): (Vec<&LayoutNode>, Vec<&LayoutNode>) =
-        graph.nodes.iter().partition(|n| n.phase_parent.is_some());
-
     // メイン（親なし）とサブ（親あり）に分離。
-    // バッチサブ（batch_group あり）も通常サブも親の右側に配置する。
     let (mains, subs): (Vec<&LayoutNode>, Vec<&LayoutNode>) =
-        rest.iter().partition(|n| n.parent_id.is_none());
+        graph.nodes.iter().partition(|n| n.parent_id.is_none());
+
+    // サブ（子・孫…）を、親をたどって着く一番上の親（main）ごとにまとめる。
+    let parent_of: HashMap<NodeId, NodeId> = graph
+        .nodes
+        .iter()
+        .filter_map(|n| n.parent_id.map(|p| (n.id, p)))
+        .collect();
+    let mut subs_by_main: HashMap<NodeId, Vec<&LayoutNode>> = HashMap::new();
+    for sub in &subs {
+        let mut root = sub.id;
+        // 循環しても止まるよう、たどる回数はノード数までにする
+        for _ in 0..graph.nodes.len() {
+            match parent_of.get(&root) {
+                Some(&p) => root = p,
+                None => break,
+            }
+        }
+        subs_by_main.entry(root).or_default().push(sub);
+    }
 
     let mut positions: Vec<NodePosition> = Vec::with_capacity(graph.nodes.len());
     let mut separators: Vec<SeparatorLine> = Vec::new();
@@ -282,7 +279,7 @@ pub fn calculate_layout_with(graph: &LayoutGraph, opts: &LayoutOptions) -> DagLa
             // （接続線がブロックに遮断されないように）
             x = avoid_paths(x, main.width, &path_xs);
 
-            // main ブロック本体（フェーズ 0）
+            // main ブロック本体
             positions.push(NodePosition {
                 index: main.index,
                 node_id: main.id,
@@ -293,118 +290,42 @@ pub fn calculate_layout_with(graph: &LayoutGraph, opts: &LayoutOptions) -> DagLa
             });
             row_height = row_height.max(i32::from(main.height));
 
-            // この main のフェーズノード（phase_parent == main.id、フェーズ昇順）
-            let mut my_phases: Vec<&LayoutNode> = phase_nodes
-                .iter()
-                .filter(|n| n.phase_parent == Some(main.id))
-                .copied()
-                .collect();
-            my_phases.sort_by_key(|n| n.phase.unwrap_or(0));
+            // この main の子孫（段 → ID 順）
+            let mut my_subs: Vec<&LayoutNode> =
+                subs_by_main.get(&main.id).cloned().unwrap_or_default();
+            my_subs.sort_by_key(|s| (s.batch_group.unwrap_or(1), s.id));
 
-            // この main のサブブロック（バッチ順 → DATE 順）
-            let mut my_subs: Vec<&LayoutNode> = subs
-                .iter()
-                .filter(|s| s.parent_id == Some(main.id))
-                .copied()
-                .collect();
-            my_subs.sort_by(|a, b| {
-                (a.batch_group.unwrap_or(0), a.created_at.as_str())
-                    .cmp(&(b.batch_group.unwrap_or(0), b.created_at.as_str()))
-            });
-
-            if my_phases.is_empty() {
-                // ── フェーズなし: サブを main の右側に横並びチェーンで配置 ──
-                // （mb → sb1 → sb2 → ... と同じ段に並べる）
-                if my_subs.is_empty() {
-                    x += i32::from(main.width) + opts.horizontal_gap;
-                    continue;
+            // 子は main の右側から横一列。段が変わるたびに 1 段下へ置く
+            let sub_x0 = x + i32::from(main.width) + opts.horizontal_gap;
+            let mut right_max = x + i32::from(main.width);
+            let mut stack_y = row_y; // 今の段の上端
+            let mut stack_h = i32::from(main.height); // 今の段の高さ（段 1 は main を含む）
+            let mut cur_row: Option<u32> = None;
+            let mut sub_x = sub_x0;
+            for sub in &my_subs {
+                let r = sub.batch_group.unwrap_or(1);
+                if cur_row.is_some_and(|c| c != r) {
+                    stack_y += stack_h + opts.vertical_gap;
+                    stack_h = 0;
+                    sub_x = sub_x0;
                 }
-
-                // サブ行: main ブロックの右側に横並び（縦積みではなくチェーン）
-                let mut sub_x = x + i32::from(main.width) + opts.horizontal_gap;
-                let mut sub_right_max = sub_x;
-                for sub in &my_subs {
-                    positions.push(NodePosition {
-                        index: sub.index,
-                        node_id: sub.id,
-                        x: sub_x,
-                        y: row_y,
-                        width: sub.width,
-                        height: sub.height,
-                    });
-                    sub_right_max = sub_x + i32::from(sub.width);
-                    // 行の高さにサブの高さも含める（次の行との重なり防止）
-                    row_height = row_height.max(i32::from(sub.height));
-                    // 次のサブは右隣に横並び
-                    sub_x = sub_right_max + opts.horizontal_gap;
-                }
-                // 次の main はサブ列の右側から始める
-                x = sub_right_max + opts.horizontal_gap;
-                continue;
-            }
-
-            // ── P3-B: フェーズ列モード ──
-            // フェーズ行 k: フェーズノード（左・main と同じ X） +
-            // バッチ k+1 のサブ群（右・横並びチェーン）。
-            // P_0 = main、P_k (k>=1) = 合成小ブロック（最終行はサブなし）。
-            let mut sub_right_max = x + i32::from(main.width);
-            let mut cursor_y: i32;
-
-            // フェーズ行 0（main + バッチ1 のサブ群: 横並びチェーン）
-            let mut row_h = i32::from(main.height);
-            let mut sub_x = x + i32::from(main.width) + opts.horizontal_gap;
-            for sub in my_subs.iter().filter(|s| s.batch_group == Some(1)) {
+                cur_row = Some(r);
                 positions.push(NodePosition {
                     index: sub.index,
                     node_id: sub.id,
                     x: sub_x,
-                    y: row_y,
+                    y: stack_y,
                     width: sub.width,
                     height: sub.height,
                 });
-                sub_right_max = sub_x + i32::from(sub.width);
-                row_h = row_h.max(i32::from(sub.height));
-                sub_x = sub_right_max + opts.horizontal_gap;
+                stack_h = stack_h.max(i32::from(sub.height));
+                right_max = right_max.max(sub_x + i32::from(sub.width));
+                sub_x += i32::from(sub.width) + opts.horizontal_gap;
             }
-            cursor_y = row_y + row_h + opts.vertical_gap;
-
-            // フェーズ行 k (k>=1): P_k + バッチ k+1 のサブ群（横並びチェーン）
-            for (k, phase_node) in my_phases.iter().enumerate() {
-                let phase_y = cursor_y;
-                positions.push(NodePosition {
-                    index: phase_node.index,
-                    node_id: phase_node.id,
-                    x,
-                    y: phase_y,
-                    width: phase_node.width,
-                    height: phase_node.height,
-                });
-                let mut phase_row_h = i32::from(phase_node.height);
-                let mut sub_x = x + i32::from(phase_node.width) + opts.horizontal_gap;
-                // バッチ k+1 のサブ群（P_k の右側。k は 0 始まりなので batch_group = k+2）
-                for sub in my_subs
-                    .iter()
-                    .filter(|s| s.batch_group == Some(k as u32 + 2))
-                {
-                    positions.push(NodePosition {
-                        index: sub.index,
-                        node_id: sub.id,
-                        x: sub_x,
-                        y: phase_y,
-                        width: sub.width,
-                        height: sub.height,
-                    });
-                    sub_right_max = sub_x + i32::from(sub.width);
-                    phase_row_h = phase_row_h.max(i32::from(sub.height));
-                    sub_x = sub_right_max + opts.horizontal_gap;
-                }
-                cursor_y = phase_y + phase_row_h + opts.vertical_gap;
-            }
-
-            // フェーズ列全体の高さを行の高さに反映（次の行との重なり防止）
-            row_height = row_height.max(cursor_y - row_y);
-            // 次の main はサブ列の右側から始める
-            x = sub_right_max + opts.horizontal_gap;
+            // 親 1 つ分の高さを行の高さに反映（次の行との重なり防止）
+            row_height = row_height.max(stack_y + stack_h - row_y);
+            // 次の main はこの列の右側から始める
+            x = right_max + opts.horizontal_gap;
         }
 
         // この行から出る縦エッジ（上下辺接地）の経路を追加する
@@ -718,90 +639,56 @@ mod tests {
         assert_eq!(p4.x, p3.x + i32::from(p3.width) + HORIZONTAL_GAP);
     }
 
-    /// P3-B: フェーズ列モードでは、フェーズノードがメインの下に縦に並び、
-    /// 各フェーズの右側にそのバッチのサブ群が配置されること。
+    /// 子は task create 1 回ごとに 1 段。段 1 は親と同じ y で親の右、段 2 は 1 段下で同じ x から。
     #[test]
-    fn test_phase_columns_stack_vertically() {
+    fn test_children_stack_one_row_per_batch() {
         let mut g = LayoutGraph::new();
-        // メイン（フェーズ0）
-        let _m_idx = add(&mut g, 10, "261001", "2026-08-01T10:00:00", None);
-        // 合成フェーズノード P_1 / P_2（phase_parent = 10）
-        let _p1_idx = add(
-            &mut g,
-            100_001,
-            "261001",
-            "2026-08-01T10:00:00",
-            Some(10),
-        );
-        let _p2_idx = add(
-            &mut g,
-            100_002,
-            "261001",
-            "2026-08-01T10:00:00",
-            Some(10),
-        );
-        // バッチサブ: バッチ1（11, 12）・バッチ2（13）
-        let _s11 = add(
-            &mut g,
-            11,
-            "261001",
-            "2026-08-01T10:01:00",
-            Some(10),
-        );
-        let _s12 = add(
-            &mut g,
-            12,
-            "261001",
-            "2026-08-01T10:02:00",
-            Some(10),
-        );
-        let _s13 = add(
-            &mut g,
-            13,
-            "261001",
-            "2026-08-01T10:03:00",
-            Some(10),
-        );
-
-        g.set_phase(100_001, Some(10), Some(1), None);
-        g.set_phase(100_002, Some(10), Some(2), None);
-        g.set_phase(11, None, None, Some(1));
-        g.set_phase(12, None, None, Some(1));
-        g.set_phase(13, None, None, Some(2));
+        add(&mut g, 10, "261001", "2026-08-01T10:00:00", None);
+        add(&mut g, 11, "261001", "2026-08-01T10:01:00", Some(10));
+        add(&mut g, 12, "261001", "2026-08-01T10:02:00", Some(10));
+        add(&mut g, 13, "261001", "2026-08-01T10:03:00", Some(10));
+        // 孫（12 の子）も親 10 の段に入る（段 2）
+        add(&mut g, 14, "261001", "2026-08-01T10:04:00", Some(12));
+        g.set_batch_row(11, 1);
+        g.set_batch_row(12, 1);
+        g.set_batch_row(13, 2);
+        g.set_batch_row(14, 2);
 
         let layout = calculate_layout(&g, true);
-
         let m = find_pos(&layout, 10);
-        let p1 = find_pos(&layout, 100_001);
-        let p2 = find_pos(&layout, 100_002);
         let s11 = find_pos(&layout, 11);
         let s12 = find_pos(&layout, 12);
         let s13 = find_pos(&layout, 13);
+        let s14 = find_pos(&layout, 14);
 
-        // フェーズノードはメインと同じ X で縦に並ぶ
-        assert_eq!(p1.x, m.x, "フェーズ1 はメインと同じ X");
-        assert_eq!(p2.x, m.x, "フェーズ2 もメインと同じ X");
-        assert!(p1.y > m.y, "フェーズ1 はメインの下");
-        assert!(p2.y > p1.y, "フェーズ2 はフェーズ1 の下");
+        assert_eq!(s11.y, m.y, "段 1 は親と同じ y");
+        assert_eq!(s11.x, m.x + i32::from(m.width) + HORIZONTAL_GAP, "親の右から");
+        assert_eq!(s12.y, s11.y, "段 1 の 2 人目は同じ y");
+        assert!(s12.x > s11.x, "段 1 は横一列");
+        assert_eq!(
+            s13.y,
+            s11.y + i32::from(s11.height) + VERTICAL_GAP,
+            "段 2 は段 1 の下"
+        );
+        assert_eq!(s13.x, s11.x, "段 2 は段 1 と同じ x から");
+        assert_eq!(s14.y, s13.y, "孫も同じ段");
+        assert!(s14.x > s13.x);
+    }
 
-        // バッチ1 のサブはフェーズ0（メイン）の右側に横並びチェーン、バッチ2 はフェーズ1 の右側
-        assert!(s11.x > m.x + i32::from(m.width), "バッチ1 はメインの右側");
-        assert!(s12.x > s11.x, "同一バッチのサブは右に横並びチェーン");
-        assert_eq!(s11.y, s12.y, "同一バッチのサブは同じ段（縦積みではない）");
-        assert!(
-            s13.x > p1.x + i32::from(p1.width),
-            "バッチ2 はフェーズ1 の右側"
-        );
-        assert!(s13.y >= p1.y, "バッチ2 はフェーズ1 と同じ行");
+    /// 次の親は、子の列の右端より右から始まる。
+    #[test]
+    fn test_next_main_starts_right_of_children() {
+        let mut g = LayoutGraph::new();
+        add(&mut g, 10, "261001", "2026-08-01T10:00:00", None);
+        add(&mut g, 11, "261001", "2026-08-01T10:01:00", Some(10));
+        add(&mut g, 12, "261001", "2026-08-01T10:02:00", Some(10));
+        add(&mut g, 20, "261001", "2026-08-01T11:00:00", None);
+        g.set_batch_row(11, 1);
+        g.set_batch_row(12, 1);
 
-        // フェーズノードはメインと重ならない（縦に積まれている）
-        assert!(
-            p1.y >= m.y + i32::from(m.height),
-            "フェーズ1 はメインの下端より下"
-        );
-        assert!(
-            p2.y >= p1.y + i32::from(p1.height),
-            "フェーズ2 はフェーズ1 の下端より下"
-        );
+        let layout = calculate_layout(&g, true);
+        let s12 = find_pos(&layout, 12);
+        let m2 = find_pos(&layout, 20);
+        assert_eq!(m2.x, s12.x + i32::from(s12.width) + HORIZONTAL_GAP);
     }
 }

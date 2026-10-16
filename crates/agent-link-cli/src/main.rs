@@ -77,7 +77,7 @@ fn main() {
         Cmd::Def { cmd } => run_new(cmd_def::run(cmd)),
         Cmd::Project { cmd } => run_new(cmd_project::run(cmd)),
         Cmd::Session { cmd } => run_new(cmd_project::run_session(cmd)),
-        Cmd::Workflow { json: _ } => run_new(cmd_run::run_workflow()),
+        Cmd::Workflow { json: _, subtasks } => run_new(cmd_run::run_workflow(subtasks)),
         Cmd::Schema { json } => run_new(cmd_schema::run(json)),
         Cmd::Task { cmd } => run_new(cmd_task::run(cmd)),
         Cmd::Daemon { cmd } => match cmd {

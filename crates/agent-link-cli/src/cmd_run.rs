@@ -134,8 +134,8 @@ pub(crate) fn run(cmd: RunCmd) -> Result<(), CmdError> {
 }
 
 /// `run workflow`（トップの `workflow`）: メイン画面の DAG を JSON で返す。
-pub(crate) fn run_workflow() -> Result<(), CmdError> {
-    print_phone(PhoneCmd::Workflow)
+pub(crate) fn run_workflow(subtasks: bool) -> Result<(), CmdError> {
+    print_phone(PhoneCmd::Workflow { subtasks })
 }
 
 /// `run list --json`: `{"runs":[…]}` の形。

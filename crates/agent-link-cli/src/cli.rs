@@ -124,6 +124,9 @@ pub enum Cmd {
     Workflow {
         #[arg(long, default_value_t = false)]
         json: bool,
+        /// task create で作った子の run も載せる（既定は親だけ）
+        #[arg(long, default_value_t = false)]
+        subtasks: bool,
     },
     /// CLI の命令一覧（Web の「コマンド」画面が読む）
     ///
@@ -890,14 +893,20 @@ pub enum PhoneCmd {
     /// メイン画面（Workflow の実行ブロック線図）の DAG を JSON で返す
     ///
     /// - `nodes`: TUI が描くのと同じ座標（文字マス単位・`x` `y` `w` `h`）で返す
-    /// - `edges`: 接続線（`kind` = phase_chain / delegation / task_output /
-    ///   waggle_token / git_commit / other・`side` = 左右辺接地か）
+    /// - `edges`: 接続線（`kind` = delegation / waggle_token・`side` = 左右辺接地か）
     /// - `separators`: 日付の区切り線（`y`・`label`）
     /// - `lanes`: Kanban の 3 レーン（todo / running / review）の札
     ///
+    /// 既定は親の札だけ。`--subtasks` で task create で作った子の札も載せる
+    /// （子は task create 1 回ごとに 1 段下へ並ぶ）。
+    ///
     /// 座標の縮め方（横 1 マス = 何 px）は Web 側の取り決めであり、
     /// agent-link は文字マスのまま返す。DB が開けない場合は終了コード 4。
-    Workflow,
+    Workflow {
+        /// task create で作った子の run も載せる（既定は親だけ）
+        #[arg(long, default_value_t = false)]
+        subtasks: bool,
+    },
 
     /// 定義ファイル（block / template / settings）の一覧・読み書き・削除
     ///

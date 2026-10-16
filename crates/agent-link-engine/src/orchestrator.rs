@@ -2069,69 +2069,13 @@ pub fn execute_block_pipeline_full(
     }
 }
 
-// ============================================================================
-// Reflection 記録ファイル（R8 / R10 / R11 / R13）
-// ============================================================================
-
-/// Reflection 記録ファイルを置くディレクトリ（プロジェクトルート基準）。
-/// ブロック 1 実行につき `<run_id>.md` の 1 ファイルを対応付ける（R10）。
-pub const REFLECTION_DIR: &str = ".agent-link/reflection";
-
-/// 指定実行 ID に対応する Reflection 記録ファイルの絶対パスを返す。
-///
-/// `.agent-link` 配下のパス解決は既存の `project_root` / `sai_path` に従う（D15）。
-pub fn reflection_path(run_id: i64) -> PathBuf {
-    crate::project::sai_path(REFLECTION_DIR).join(format!("{}.md", run_id))
-}
-
-/// ブロック実行完了後に Reflection 記録ファイルを初期テンプレートで生成する（R8 / R11）。
-///
-/// 将来の開発者向けの記録として、ブロック名・実行日時・実行 ID のフロントマターと
-/// `## Run Reason` / `## Run Evaluation` / `## Run Next` の 3 セクションを初期状態で書き出す。
-///
-/// **冪等**: 既存ファイルが存在する場合は上書きせずそのまま返す。
-///
-/// # 引数
-///
-/// * `run_id` — 実行 ID（`.agent-link/reflection/<run_id>.md` のファイル名に使用）
-/// * `block_name` — ブロック名（フロントマターの `block` に使用）
-///
-/// # 戻り値
-///
-/// 生成（または既存）の Reflection 記録ファイルのパス。
-pub fn write_reflection_template(run_id: i64, block_name: &str) -> std::io::Result<PathBuf> {
-    let path = reflection_path(run_id);
-    if path.exists() {
-        // R11: 既存ファイルは上書きしない
-        return Ok(path);
-    }
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    // 実行日時（フロントマターの `date` に使用）
-    let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
-    // 統一書式（R14）: `r` で開く側のテンプレートと同じ書式に統一し、
-    // 末尾に確認メモ用の `## Review` セクションを含める（Review 項目は空で用意する）
-    let body = format!(
-        "---\nblock: {}\ndate: {}\nrun_id: {}\n---\n\n## Run Reason\n\n\n## Run Evaluation\n\n\n## Run Next\n\n\n## Review\n\n",
-        block_name, now, run_id
-    );
-    std::fs::write(&path, body)?;
-    Ok(path)
-}
-
 /// 指定実行 ID に対応する run フォルダを削除する（R603）。
 ///
 /// ブロック履歴の削除（`delete_execution_cascade`）と同時に呼び出し、
 /// 対応する run フォルダ（task/review/message/session/成果物）を丸ごと消す。
-/// 旧 reflection ファイルもあれば併せて消す（移行期のみ）。
 /// フォルダが存在しない場合は正常に無視して続行する。
 pub fn remove_run_dir_files(run_id: i64) -> std::io::Result<()> {
     let _ = crate::run_dir::remove_run_dir(run_id)?;
-    let legacy = reflection_path(run_id);
-    if legacy.exists() {
-        std::fs::remove_file(legacy)?;
-    }
     // 旧 message も残っていれば消す（移行漏れ掃除）
     let old_message = crate::project::sai_path(MESSAGE_DIR).join(format!("{}.md", run_id));
     if old_message.exists() {
@@ -2139,26 +2083,6 @@ pub fn remove_run_dir_files(run_id: i64) -> std::io::Result<()> {
     }
     Ok(())
 }
-
-/// 指定実行 ID に対応する Reflection 記録ファイルを削除する（R13・旧式）。
-///
-/// outputs 統一後は [`remove_run_dir_files`] を使うこと。旧コード互換のため残す。
-///
-/// ブロック履歴の削除（`delete_execution_cascade`）と同時に呼び出し、
-/// 対応する記録ファイルも削除する。
-///
-/// ファイルが存在しない場合はエラーにせず正常に無視して続行する（ファイル不在でも削除が失敗しない）。
-pub fn remove_reflection_file(run_id: i64) -> std::io::Result<()> {
-    let path = reflection_path(run_id);
-    if !path.exists() {
-        return Ok(());
-    }
-    std::fs::remove_file(path)
-}
-
-// ============================================================================
-// Review 記録ファイル（新形式・`.agent-link/review/<run_id>.md`）
-// ============================================================================
 
 // ============================================================================
 // message 記録ファイル（`.agent-link/message/<run_id>.md`）

@@ -1,19 +1,12 @@
-//! Workflow（実行グラフ）の**移設リグレッションテスト**。
+//! Workflow（実行グラフ）の組み立て（`build_block_graph`）と配置（`calculate_layout`）のテスト。
 //!
-//! 旧 TUI の `ui/main_panel.rs` から `agent-link-view::workflow` へ
-//! 移した `build_block_graph` と `calculate_layout` が、**移す前とまったく同じ
-//! 結果**を返すことを固定値で確かめる。
-//!
-//! 固定値: 移設前（`main` の `main_panel.rs` + `graph_layout/`）で
-//! 同じ入力で流して得た値をそのまま書いてある。処理を変えるときは
-//! 出力が変わることを確認したうえで、この値も更新すること。
-
-use std::collections::HashSet;
+//! 子の段（`task create` 1 回 = 1 段）・委譲の線（必ず親 → 子）・座標を固定値で確かめる。
 
 use super::*;
 use crate::workflow::{BlockDisplayData, ConnectionDisplayData, EdgeKind};
+use crate::workflow::layered_layout::{DagLayout, NodePosition};
 
-/// テスト用の実ノードを作る（`description` / `reflection_status` 以外の全項目を指定）。
+/// テスト用の実ノードを作る（`description` / `model` / `thinking` 以外の全項目を指定）。
 fn block(
     exec_id: i64,
     block_id: i64,
@@ -30,12 +23,12 @@ fn block(
         date: date.to_string(),
         parent_exec_id: parent,
         batch_id: batch_id.map(|s| s.to_string()),
-        phase: None,
         last_status: "completed".to_string(),
         last_duration_ms: Some(1000),
         created_at: created_at.to_string(),
         description: String::new(),
-        reflection_status: None,
+        model: None,
+        thinking: None,
     }
 }
 
@@ -47,189 +40,90 @@ fn conn(from: i64, to: i64, ty: &str) -> ConnectionDisplayData {
     }
 }
 
-/// 固定入力（フェーズ合成・複数の日付・main 同士の waggle を含む）。
+/// 親 10（日付 261001）に、バッチ A（子 11・12）とバッチ B（子 13）。
+/// バッチ ID の `_r<N>_` は段の順に関係しない（B の方が r の数字は小さい）。
+/// 別の親 20 にはバッチなしの子 21 と、その子（孫）22。
 fn fixture_blocks() -> Vec<BlockDisplayData> {
     vec![
-        // 日付 261001 の実メイン
         block(10, 1, "plan", "261001", None, None, "2026-09-26T10:00:00"),
-        // 10 のバッチ 1 サブ（2 件）
-        block(
-            11,
-            2,
-            "code",
-            "261001",
-            Some(10),
-            Some("batch_20260926_r1_aaa"),
-            "2026-09-26T10:01:00",
-        ),
-        block(
-            12,
-            2,
-            "code",
-            "261001",
-            Some(10),
-            Some("batch_20260926_r1_aaa"),
-            "2026-09-26T10:02:00",
-        ),
-        // 10 のバッチ 2 サブ
-        block(
-            13,
-            3,
-            "reviewer",
-            "261001",
-            Some(10),
-            Some("batch_20260926_r2_bbb"),
-            "2026-09-26T10:03:00",
-        ),
-        // 日付 261002 の別メイン（main 同士は waggle_token でつながる）
+        block(11, 2, "code", "261001", Some(10), Some("batch_a_r2_x"), "2026-09-26T10:01:00"),
+        block(12, 2, "code", "261001", Some(10), Some("batch_a_r2_x"), "2026-09-26T10:02:00"),
+        block(13, 3, "reviewer", "261001", Some(10), Some("batch_b_r1_y"), "2026-09-26T10:03:00"),
         block(20, 4, "kantoku", "261002", None, None, "2026-09-26T11:00:00"),
-        // 20 のサブ（batch_id なし = レガシー。フェーズ合成はしない）
-        block(
-            21,
-            5,
-            "legacy-sub",
-            "261002",
-            Some(20),
-            None,
-            "2026-09-26T11:01:00",
-        ),
+        block(21, 5, "worker", "261002", Some(20), None, "2026-09-26T11:01:00"),
+        block(22, 6, "explore", "261002", Some(21), None, "2026-09-26T11:02:00"),
     ]
 }
 
-fn fixture_connections() -> Vec<ConnectionDisplayData> {
-    vec![
-        conn(11, 10, "task_output"),
-        conn(12, 10, "task_output"),
-        conn(13, 10, "task_output"),
-        conn(21, 20, "task_output"),
-        conn(10, 20, "waggle_token"),
-    ]
+fn pos(layout: &DagLayout, id: u64) -> NodePosition {
+    layout.nodes.iter().find(|p| p.node_id == id).copied().expect("ノードが配置されている")
 }
 
-/// 移設前の実装が返した値を固定したもの（`main` の `main_panel.rs:934-` と
-/// `graph_layout/layered_layout.rs` で得た結果を 2026-09-27 に記録）。
-const EXPECTED_NODES: &[(u64, i32, i32, u16, u16)] = &[
-    // (node_id, x, y, width, height)
-    (10, 0, 3, 27, 6),
-    (11, 31, 3, 27, 6),
-    (12, 62, 3, 27, 6),
-    // フェーズ合成: 10 * 10_000 + 1 = 100001
-    (100001, 0, 11, 27, 6),
-    (13, 31, 11, 27, 6),
-    // 10 * 10_000 + 2 = 100002（finalized のときだけ作られる）
-    (100002, 0, 19, 27, 6),
-    (20, 14, 32, 27, 6),
-    (21, 45, 32, 27, 6),
-];
-
+/// 親 1・バッチ 2（子 2 人 + 子 1 人）: 1 つ目の子は親と同じ y で親の右、
+/// 2 つ目の子は 1 段下で 1 つ目の子と同じ x から始まる。辺は親 → 各子の委譲 3 本だけ。
 #[test]
-fn layout_matches_pre_move_values() {
-    let blocks = fixture_blocks();
-    let connections = fixture_connections();
-    // 10 を finalized とみなす（実メインの最終フェーズ P_2 が合成される条件）
-    let finalized: HashSet<i64> = [10].into_iter().collect();
+fn children_stack_one_row_per_task_create() {
+    let blocks: Vec<_> = fixture_blocks().into_iter().filter(|b| b.exec_id < 20).collect();
+    // 子どうしの waggle_token 以外の接続（task_output）は線にしない
+    let connections = vec![conn(11, 10, "task_output"), conn(13, 10, "task_output")];
+    let (dag, lg) = build_block_graph(&blocks, &connections);
+    let layout = calculate_layout(&lg, true);
 
-    let (dag, layout_graph) = build_block_graph(&blocks, &connections, &finalized);
-    let layout = calculate_layout(&layout_graph, true);
+    let (p, a1, a2, b1) = (pos(&layout, 10), pos(&layout, 11), pos(&layout, 12), pos(&layout, 13));
+    assert_eq!(a1.y, p.y, "1 つ目の子は親と同じ y");
+    assert_eq!(a2.y, p.y);
+    assert!(a1.x > p.x + i32::from(p.width), "親の右");
+    assert!(a2.x > a1.x, "同じ段は横一列");
+    assert!(b1.y > a1.y, "2 つ目の子は 1 段下");
+    assert_eq!(b1.x, a1.x, "1 つ目の子と同じ x から");
 
-    // ノード位置（node_id 順に並べる。順序は layout.nodes の順）
-    let got: Vec<(u64, i32, i32, u16, u16)> = layout
-        .nodes
-        .iter()
-        .map(|p| (p.node_id, p.x, p.y, p.width, p.height))
-        .collect();
-    assert_eq!(got, EXPECTED_NODES, "DAG の座標が移設前から変わった");
-
-    // コンテンツサイズ
-    assert_eq!(layout.content_width, 89);
-    assert_eq!(layout.content_height, 38);
-}
-
-/// フェーズ合成ノード（`メイン実行ID * 10_000 + k`）が DAG の形のまま出ること。
-#[test]
-fn phase_synthetic_nodes_have_expected_ids_and_phase() {
-    let blocks = fixture_blocks();
-    let connections = fixture_connections();
-    let finalized: HashSet<i64> = [10].into_iter().collect();
-    let (dag, _) = build_block_graph(&blocks, &connections, &finalized);
-
-    for (node_id, phase, parent) in [
-        (10u64, None, None),
-        (100001, Some(1u32), Some(10)),
-        (100002, Some(2), Some(10)),
-    ] {
-        let b = dag
-            .get(dag.index_of(node_id).expect("ノードが存在する"))
-            .unwrap_or_else(|| panic!("ノード {node_id} が無い"));
-        assert_eq!(b.exec_id as u64, node_id);
-        assert_eq!(b.phase, phase, "node_id={node_id} の phase");
-        assert_eq!(b.parent_exec_id, parent, "node_id={node_id} の親");
-    }
-
-    // finalized でないメインは最終フェーズを作らない（バッチ数 - 1 まで）
-    let (dag2, _) = build_block_graph(&blocks, &connections, &HashSet::new());
-    assert!(dag2.index_of(100001).is_some(), "P_1 は finalized に関係なく合成する");
-    assert!(
-        dag2.index_of(100002).is_none(),
-        "P_2 は sai-write 検出済み（finalized）のときだけ合成する"
-    );
-}
-
-/// 辺の種類（`EdgeKind`）と接地方法（`side`）が移設前と同じこと。
-#[test]
-fn edge_kinds_and_sides_match_pre_move_values() {
-    let blocks = fixture_blocks();
-    let connections = fixture_connections();
-    let finalized: HashSet<i64> = [10].into_iter().collect();
-    let (dag, _) = build_block_graph(&blocks, &connections, &finalized);
-
-    // (from_id, to_id, kind, side)
     let mut got: Vec<(u64, u64, EdgeKind, bool)> = dag
         .all_edges()
         .into_iter()
-        .map(|(from, to, e)| (from.exec_id as u64, to.exec_id as u64, e.kind, e.side))
+        .map(|(f, t, e)| (f.exec_id as u64, t.exec_id as u64, e.kind, e.side))
         .collect();
     got.sort();
-
-    let expected: Vec<(u64, u64, EdgeKind, bool)> = vec![
-        // 委譲: 実メイン → バッチ 1 の先頭サブ、バッチ内は横チェーン（左右辺接地）
-        (10, 11, EdgeKind::Delegation, true),
-        // main 同士の waggle_token（上下辺接地）
-        (10, 20, EdgeKind::WaggleToken, false),
-        // フェーズ縦鎖（上下辺接地）
-        (10, 100001, EdgeKind::PhaseChain, false),
-        (11, 12, EdgeKind::Delegation, true),
-        // task_output: バッチサブ → 該当フェーズ（上下辺接地）
-        (11, 100001, EdgeKind::TaskOutput, false),
-        (12, 100001, EdgeKind::TaskOutput, false),
-        (13, 100002, EdgeKind::TaskOutput, false),
-        // レガシーサブ（batch_id なし）→ 実メイン（左右辺接地）
-        (20, 21, EdgeKind::Delegation, true),
-        (21, 20, EdgeKind::TaskOutput, true),
-        // バッチ 2 は P_1 から委譲（左右辺接地）
-        (100001, 13, EdgeKind::Delegation, true),
-        (100001, 100002, EdgeKind::PhaseChain, false),
-    ];
-    assert_eq!(got, expected, "辺の種類・接地方法が移設前から変わった");
-}
-
-/// 日付区切り線（`SeparatorLine`）の label と座標。
-#[test]
-fn separators_match_pre_move_values() {
-    let blocks = fixture_blocks();
-    let connections = fixture_connections();
-    let finalized: HashSet<i64> = [10].into_iter().collect();
-    let (_, layout_graph) = build_block_graph(&blocks, &connections, &finalized);
-    let layout = calculate_layout(&layout_graph, true);
-
-    let got: Vec<(i32, String)> = layout
-        .separators
-        .iter()
-        .map(|s| (s.y, s.label.clone()))
-        .collect();
     assert_eq!(
         got,
-        vec![(0, "261001".to_string()), (29, "261002".to_string())],
-        "区切り線が移設前から変わった"
+        vec![
+            (10, 11, EdgeKind::Delegation, true),
+            (10, 12, EdgeKind::Delegation, true),
+            (10, 13, EdgeKind::Delegation, true),
+        ],
+        "辺は親 → 各子の委譲だけ"
     );
+}
+
+/// 段は `batch_id` の `_r<N>_` ではなく、組の最小 exec_id の順で決まる。
+/// 孫は線を本当の親（子）から引き、配置は一番上の親の段に入る。
+#[test]
+fn rows_follow_exec_id_and_grandchildren_join_root_rows() {
+    let blocks = fixture_blocks();
+    let (dag, lg) = build_block_graph(&blocks, &[]);
+    let layout = calculate_layout(&lg, true);
+
+    // 親 10: バッチ A（最小 id 11）が段 1、バッチ B（13）が段 2（r の数字は B の方が小さい）
+    assert!(pos(&layout, 13).y > pos(&layout, 11).y);
+    // 親 20: 子 21 が段 1、孫 22 が段 2
+    assert_eq!(pos(&layout, 21).y, pos(&layout, 20).y);
+    assert!(pos(&layout, 22).y > pos(&layout, 21).y);
+
+    let has = |f: i64, t: i64| {
+        dag.all_edges()
+            .iter()
+            .any(|(a, b, e)| a.exec_id == f && b.exec_id == t && e.kind == EdgeKind::Delegation)
+    };
+    assert!(has(21, 22), "孫の線は本当の親（21）から");
+    assert!(!has(20, 22));
+    assert!(!has(11, 12), "子どうしの鎖は作らない");
+}
+
+/// 日付ごとに区切り線が 1 本、ラベルは `yymmdd`。親が増えた分、次の行は下へ下がる。
+#[test]
+fn separators_per_date() {
+    let (_, lg) = build_block_graph(&fixture_blocks(), &[]);
+    let layout = calculate_layout(&lg, true);
+    let labels: Vec<_> = layout.separators.iter().map(|s| s.label.as_str()).collect();
+    assert_eq!(labels, vec!["261001", "261002"]);
+    assert!(layout.separators[1].y > layout.separators[0].y);
 }

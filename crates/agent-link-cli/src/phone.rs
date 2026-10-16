@@ -245,7 +245,7 @@ pub(crate) fn run(cmd: PhoneCmd) -> PhoneResult<PhoneOut> {
             to_id,
             limit,
         })),
-        PhoneCmd::Workflow => val(workflow()),
+        PhoneCmd::Workflow { subtasks } => val(workflow(subtasks)),
         PhoneCmd::Def { cmd } => val(crate::phone_def::run(cmd)),
     }
 }
@@ -262,23 +262,21 @@ fn open_store() -> PhoneResult<SaiStore> {
 /// `phone workflow`: TUI が描くのと同じ DAG を JSON で返す。
 ///
 /// - `width` / `height`: コンテンツサイズ（文字マス単位）
-/// - `nodes`: 実行単位のノード。実ノードの `id` は実行 ID、
-///   フェーズ合成ノードは `メイン実行ID * 10_000 + k`（`phase` に 1, 2, …）。
-///   `run_id` は「押したときに開く run」で、合成ノードは親（メイン）の実行 ID
-/// - `edges`: 接続線。`kind` は接続の種別、`side` は左右辺接地か（上下辺接地か）
+/// - `subtasks`: 偽（既定）なら親の札だけ。真なら `task create` で作った子の札も載せる
+/// - `nodes`: 実行単位のノード。`id` と `run_id` は実行 ID（同じ値）。
+///   `model` / `thinking` は札に出す（無ければ `null`）
+/// - `edges`: 接続線。`kind` は `delegation`（親 → 子）か `waggle_token`、
+///   `side` は左右辺接地か（上下辺接地か）
 /// - `separators`: 日付の区切り線（`y`・`label`。`label` は `yymmdd`）
 /// - `lanes`: Kanban の 3 レーンの札
 ///
 /// DB が開けないときは終了コード 4。実行が 0 件でも空の配列で成功する。
-fn workflow() -> PhoneResult<Value> {
+fn workflow(include_subtasks: bool) -> PhoneResult<Value> {
     let store = open_store()?;
     let prep = card_entries::prepare_view(&store);
-    let src = agent_link_view::workflow::load_workflow(&store, &prep);
-    let (dag, layout_graph) = agent_link_view::workflow::build_block_graph(
-        &src.blocks,
-        &src.connections,
-        &src.finalized_runs,
-    );
+    let src = agent_link_view::workflow::load_workflow(&store, &prep, include_subtasks);
+    let (dag, layout_graph) =
+        agent_link_view::workflow::build_block_graph(&src.blocks, &src.connections);
     // Web の文字マスは 10×20px と大きく、同じ間隔では札どうしが詰まって見える。
     // ここだけが TUI の既定より広く取る（TUI の座標は変わらない）。
     let layout = agent_link_view::workflow::calculate_layout_with(
@@ -290,27 +288,21 @@ fn workflow() -> PhoneResult<Value> {
         },
     );
 
-    // 座標（文字マス）＋表示データ。孤立ノードの_layout.nodes に無い場合は無いので、
-    // フェーズ合成ノードを含め全てここに載る。
+    // 座標（文字マス）＋表示データ
     let mut nodes: Vec<Value> = Vec::new();
     for pos in &layout.nodes {
         let Some(b) = dag.get(pos.index) else { continue };
-        let run_id = match b.phase {
-            // フェーズ合成ノードは親（メイン）の実行 run を開く
-            Some(_) => b.parent_exec_id.unwrap_or(b.exec_id),
-            None => b.exec_id,
-        };
         nodes.push(json!({
             "id": pos.node_id,
-            "run_id": run_id,
-            "phase": b.phase,
+            "run_id": b.exec_id,
             "name": b.name,
             "status": b.last_status,
             "created_at": b.created_at,
             "description": b.description,
             "cost": src.cost_labels.get(&b.exec_id),
             "orphaned": src.orphaned_runs.contains(&b.exec_id),
-            "review": b.reflection_status.map(|s| reflection_name(s).to_string()),
+            "model": b.model,
+            "thinking": b.thinking,
             "parent_run_id": b.parent_exec_id,
             "batch_id": b.batch_id,
             "x": pos.x,
@@ -351,25 +343,11 @@ fn workflow() -> PhoneResult<Value> {
     }))
 }
 
-/// review の記入状況（`ReflectionStatus`）を JSON 用の名前にする。
-fn reflection_name(s: agent_link_engine::reflection_status::ReflectionStatus) -> &'static str {
-    use agent_link_engine::reflection_status::ReflectionStatus as R;
-    match s {
-        R::Empty => "empty",
-        R::ReviewOnly => "review_only",
-        R::ContentOnly => "content_only",
-        R::Complete => "complete",
-    }
-}
-
 /// 接続の種別（`EdgeKind`）を JSON 用の名前にする。
 fn edge_kind_name(k: agent_link_view::workflow::EdgeKind) -> &'static str {
     use agent_link_view::workflow::EdgeKind as K;
     match k {
-        K::Other => "other",
-        K::PhaseChain => "phase_chain",
         K::Delegation => "delegation",
-        K::TaskOutput => "task_output",
         K::WaggleToken => "waggle_token",
     }
 }
@@ -1965,7 +1943,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let _guard = RootGuard::set(tmp.path());
 
-        let out = workflow().expect("phone workflow");
+        let out = workflow(false).expect("phone workflow");
         for key in ["width", "height", "nodes", "edges", "separators", "lanes"] {
             assert!(out.get(key).is_some(), "{key} が無い: {out}");
         }
@@ -1979,38 +1957,63 @@ mod tests {
         assert!(lanes.get("done").is_none(), "lanes.done は廃止");
     }
 
-    /// 実際に 1 件分の実行が DAG に載ったとき、`nodes` / `edges` が
-    /// 契約どおりのキーを持つこと。
-    ///
-    /// DAG に載る条件は `workflow_moved = true` の実行だけなので、
-    /// DB に実行を 1 件作っても載らない場合は鍵の照合を飛ばす
-    /// （DAG の中身そのものは `agent_link_view::workflow::tests` の固定値が保証する）。
+    /// 親 1 件・子 1 件を DAG に載せ、`nodes` / `edges` が契約（C-WF-JSON）どおりの
+    /// 項目を持つこと。`--subtasks` なしでは子が載らないこと。
     #[test]
     fn workflow_node_fields_match_contract() {
         let _env = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let tmp = tempfile::tempdir().unwrap();
         let _guard = RootGuard::set(tmp.path());
 
-        {
+        let (parent, child) = {
             let store = crate::cli::open_db().expect("DB を開く");
-            // block_metadata が無いと外部キー制約で失敗する（作れなくても問題ない）
-            let _ = store.create_execution(1, None);
-        }
-        let out = workflow().expect("phone workflow");
-        let Some(nodes) = out["nodes"].as_array().filter(|a| !a.is_empty()) else {
-            // 実行が `workflow_moved` に入らず DAG に載らなかった（キー照合の対象外）
-            return;
+            let block_id = insert_test_block(&store);
+            let parent = store.create_execution(block_id, None).unwrap();
+            let child = store
+                .create_execution_for_subtask(block_id, None, parent, Some("batch_x"))
+                .unwrap();
+            for id in [parent, child] {
+                store.update_execution_workflow_moved(id, true).unwrap();
+                store
+                    .update_execution_overrides(id, Some("opus"), Some("high"), None)
+                    .unwrap();
+            }
+            (parent, child)
         };
-        for key in [
-            "id", "run_id", "phase", "name", "status", "created_at",
-            "description", "cost", "orphaned", "review", "parent_run_id",
-            "batch_id", "x", "y", "w", "h",
-        ] {
-            assert!(nodes[0].get(key).is_some(), "nodes[].{key} が無い: {}", nodes[0]);
+
+        // 既定は親だけ
+        let out = workflow(false).expect("phone workflow");
+        let nodes = out["nodes"].as_array().expect("nodes");
+        assert_eq!(nodes.len(), 1, "子は載らない: {out}");
+        assert_eq!(nodes[0]["id"], parent);
+        assert!(nodes[0]["parent_run_id"].is_null());
+        assert!(out["edges"].as_array().unwrap().is_empty());
+
+        // --subtasks で子も載り、親 → 子の委譲が 1 本
+        let out = workflow(true).expect("phone workflow --subtasks");
+        let nodes = out["nodes"].as_array().expect("nodes");
+        assert_eq!(nodes.len(), 2, "{out}");
+        let want = [
+            "id", "run_id", "name", "status", "created_at", "description", "cost",
+            "orphaned", "model", "thinking", "parent_run_id", "batch_id", "x", "y", "w", "h",
+        ];
+        for n in nodes {
+            let keys: std::collections::BTreeSet<&str> =
+                n.as_object().unwrap().keys().map(|k| k.as_str()).collect();
+            let want: std::collections::BTreeSet<&str> = want.iter().copied().collect();
+            assert_eq!(keys, want, "nodes[] の項目: {n}");
+            assert_eq!(n["id"], n["run_id"]);
+            assert_eq!(n["model"], "opus");
+            assert_eq!(n["thinking"], "high");
         }
-        for key in ["from", "to", "kind", "side"] {
-            assert!(out["edges"][0].get(key).is_some(), "edges[].{key} が無い");
-        }
+        let c = nodes.iter().find(|n| n["id"] == child).expect("子の札");
+        assert_eq!(c["parent_run_id"], parent);
+        let edges = out["edges"].as_array().unwrap();
+        assert_eq!(edges.len(), 1, "{out}");
+        assert_eq!(edges[0]["from"], parent);
+        assert_eq!(edges[0]["to"], child);
+        assert_eq!(edges[0]["kind"], "delegation");
+        assert_eq!(edges[0]["side"], true);
     }
 
     /// 対象の選び方と見つからないときの終了コードをまとめて検証する。

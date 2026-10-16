@@ -15,27 +15,20 @@ use petgraph::{
 pub type NodeId = u64;
 
 /// エッジの接続種別。バス行の割り当て（接続種別ごとに段差させて重なりを防ぐ）に使用する。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum EdgeKind {
-    /// 不明・その他
-    #[default]
-    Other,
-    /// フェーズ縦接続鎖（mb1 → P_1 → P_2 → ...）
-    PhaseChain,
-    /// task_delegation（main→sub 委譲、左右辺接地）
+    /// task_delegation（親→子の委譲、左右辺接地）
     Delegation,
-    /// task_output（sub→main 返却）
-    TaskOutput,
     /// waggle_token（文書の受け渡し）
     WaggleToken,
 }
 
 /// エッジデータ。端点以外の属性（接地する辺・接続種別）を保持する。
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct EdgeData {
     /// 左右辺（ブロック-サブブロック）接続かどうか。
     ///
-    /// `true`: 長方形の左右辺の中点で接地（task_delegation / task_output、
+    /// `true`: 長方形の左右辺の中点で接地（task_delegation、
     /// および端点にサブブロックを含む接続）
     /// `false`: 長方形の上下辺の中点で接地（main 同士の waggle_token 等）
     pub side: bool,

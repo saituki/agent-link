@@ -11,7 +11,6 @@ use std::collections::{HashMap, HashSet};
 
 use agent_link_engine::db::models::ExecutionHistory;
 use agent_link_engine::db::SaiStore;
-use agent_link_engine::reflection_status::ReflectionStatus;
 
 use super::build::{BlockDisplayData, ConnectionDisplayData};
 use crate::card_entries::{description_for_execution_cached, ViewPrep};
@@ -23,14 +22,10 @@ pub struct WorkflowSource {
     pub blocks: Vec<BlockDisplayData>,
     /// 実行単位の接続（waggle_token / task_delegation / task_output / git_commit）
     pub connections: Vec<ConnectionDisplayData>,
-    /// sai-write 検出済み（finalized の run_batch を持つ）実メインの実行 ID
-    pub finalized_runs: HashSet<i64>,
     /// `status=running` の取り残し（幽霊）の実行 ID
     pub orphaned_runs: HashSet<i64>,
     /// 完了した実行の費用の札（例 `'$0.42'` / `費用不明`）
     pub cost_labels: HashMap<i64, String>,
-    /// 全実行（DAG 載否を問わず）の review の記入状況
-    pub reflection: HashMap<i64, ReflectionStatus>,
 }
 
 /// 実行が Kanban の所有か（Workflow との排他判定）。
@@ -41,43 +36,18 @@ fn is_kanban_owned(e: &ExecutionHistory) -> bool {
     !e.workflow_moved
 }
 
-/// review（`reflection`）の記入状況（`.agent-link/reflection/<run_id>.md`）を判定する。
-///
-/// 完了・失敗など**終端ステータスの実行のみ**判定する（実行中・待機中は
-/// 色分け対象外のため `None` 扱い = 辞書に載せない）。
-fn judge_reflection_statuses(
-    executions: &[ExecutionHistory],
-) -> HashMap<i64, ReflectionStatus> {
-    let mut out: HashMap<i64, ReflectionStatus> = HashMap::new();
-    for e in executions {
-        let Some(id) = e.id else { continue };
-        if e.status != "completed" && e.status != "failed" {
-            continue;
-        }
-        let path = agent_link_engine::orchestrator::reflection_path(id);
-        out.insert(id, ReflectionStatus::judge_file(&path));
-    }
-    out
-}
-
 /// Workflow の DAG の材料を DB から集める（TUI の `load_data` と同じ手順・同じ条件）。
 ///
-/// - mb 複製の実行 ID と finalized 親（`list_all_run_batch` の `Finalized`）、
-///   幽霊（`list_running_executions`）を集め、実行一覧は `prep.executions` を再利用する
+/// - 幽霊（`list_running_executions`）を集め、実行一覧は `prep.executions` を再利用する
 /// - 費用の札は完了（`completed` か `finalized`）した実行だけ
 /// - `blocks` は `workflow_moved == true` の実行だけ（Kanban との排他）
-/// - `reflection` は全実行を対象にする（DAG 載否にかかわらず sidebar でも色分けする）
-pub fn load_workflow(store: &SaiStore, prep: &ViewPrep) -> WorkflowSource {
-    // sai-write 検出済み（finalized 実行バッチを持つ）実メインの集合。
-    // 最終フェーズノード（P_n = sai-write 由来）を合成する判定に使用。
-    let finalized_runs: HashSet<i64> = store
-        .list_all_run_batches()
-        .unwrap_or_default()
-        .into_iter()
-        .filter(|rb| rb.status == agent_link_engine::db::models::RunBatchStatus::Finalized)
-        .map(|rb| rb.parent_run_id)
-        .collect();
-
+/// - `include_subtasks` が偽のとき、`parent_run_id` がある実行（`task create` で作った子）は
+///   `blocks` に入れない
+pub fn load_workflow(
+    store: &SaiStore,
+    prep: &ViewPrep,
+    include_subtasks: bool,
+) -> WorkflowSource {
     // 幽霊（`status='running'` の取り残し）の実行 ID 集合。
     let orphaned_runs: HashSet<i64> = store
         .list_running_executions()
@@ -105,14 +75,11 @@ pub fn load_workflow(store: &SaiStore, prep: &ViewPrep) -> WorkflowSource {
         cost_labels.insert(id, crate::fmt::format_cost(cost));
     }
 
-    // Notification 判定は全実行対象（DAG 載否にかかわらず覚え置きする）。
-    let reflection = judge_reflection_statuses(executions);
-
     // ブロック名などのキャッシュ（ブロック ID ごと）
     let mut block_name_cache: HashMap<i64, String> = HashMap::new();
     let mut blocks: Vec<BlockDisplayData> = Vec::new();
     for e in executions {
-        if is_kanban_owned(e) {
+        if is_kanban_owned(e) || (!include_subtasks && e.parent_run_id.is_some()) {
             continue;
         }
         let block_id = e.block_id;
@@ -143,14 +110,12 @@ pub fn load_workflow(store: &SaiStore, prep: &ViewPrep) -> WorkflowSource {
             date: agent_link_engine::run_dir::root_run_date(store, e),
             parent_exec_id: e.parent_run_id,
             batch_id: e.batch_id.clone(),
-            // 実実行はフェーズなし（合成ノードのみ設定）
-            phase: None,
             last_status: e.status.clone(),
             last_duration_ms: e.duration_ms,
             created_at: e.created_at.clone(),
             description,
-            // Notification 色分け用の記入状況（実行中・待機中は対象外で None）
-            reflection_status: reflection.get(&e.id.unwrap_or(0)).copied(),
+            model: e.model.clone(),
+            thinking: e.thinking.clone(),
         });
     }
 
@@ -169,9 +134,7 @@ pub fn load_workflow(store: &SaiStore, prep: &ViewPrep) -> WorkflowSource {
     WorkflowSource {
         blocks,
         connections,
-        finalized_runs,
         orphaned_runs,
         cost_labels,
-        reflection,
     }
 }
