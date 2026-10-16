@@ -107,7 +107,7 @@ fn test_cli_version() {
 /// `run list --limit 5` が limit オプションを受け付けること
 #[test]
 fn test_cli_run_list_with_limit() {
-    let dir = create_temp_dir();
+    let dir = create_temp_project();
 
     let output = Command::new(sai_binary())
         .args(["run", "list", "--limit", "5"])
@@ -131,7 +131,7 @@ fn test_cli_run_list_with_limit() {
 /// `run list` が空の DB で「履歴なし」メッセージを表示すること
 #[test]
 fn test_cli_run_list_empty() {
-    let dir = create_temp_dir();
+    let dir = create_temp_project();
 
     let output = Command::new(sai_binary())
         .args(["run", "list"])
@@ -154,7 +154,7 @@ fn test_cli_run_list_empty() {
 /// `run list` がデフォルトで実行履歴なしメッセージを表示すること
 #[test]
 fn test_cli_run_list_default() {
-    let dir = create_temp_dir();
+    let dir = create_temp_project();
 
     let output = Command::new(sai_binary())
         .args(["run", "list"])
@@ -688,14 +688,23 @@ fn test_cli_schema_json() {
     }
 }
 
+/// `card create` の検査を通す最小の block を、一時プロジェクトに書く。
+fn write_card_block(dir: &std::path::Path) {
+    let blocks = dir.join(".agent-link/blocks");
+    std::fs::create_dir_all(&blocks).expect("blocks 作成に失敗");
+    std::fs::write(blocks.join("t.md"), "---\nname: t\nid: t\n---\n本文\n")
+        .expect("block 書き込みに失敗");
+}
+
 /// `card create` の `meta` が task.md の frontmatter に書かれる。
 #[test]
 fn test_cli_card_create_writes_meta() {
     let dir = create_temp_project();
+    write_card_block(&dir);
     let out = run_with_stdin(
         &["card", "create"],
         &dir,
-        br#"{"task_text":"hello","meta":{"note":"n1"}}"#,
+        br#"{"block":"t","task_text":"hello","meta":{"note":"n1"}}"#,
     );
     assert!(
         out.status.success(),
@@ -713,13 +722,55 @@ fn test_cli_card_create_writes_meta() {
 #[test]
 fn test_cli_card_create_rejects_standard_meta() {
     let dir = create_temp_project();
+    write_card_block(&dir);
     let out = run_with_stdin(
         &["card", "create"],
         &dir,
-        br#"{"task_text":"x","meta":{"run_id":"7"}}"#,
+        br#"{"block":"t","task_text":"x","meta":{"run_id":"7"}}"#,
     );
     assert_eq!(out.status.code(), Some(2), "標準のキーは 2");
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(stderr.contains("is reserved"), "理由を出す: {stderr:?}");
+    cleanup_temp_dir(&dir);
+}
+
+/// `card create` は block 無し・知らない model（2）と、無い doc_tokens（3）を断る。標準出力は空。
+#[test]
+fn test_cli_card_create_rejects_bad_input() {
+    let dir = create_temp_project();
+    write_card_block(&dir);
+    let cases: [(&[u8], i32, &str); 3] = [
+        (br#"{"task_text":"x"}"#, 2, "block is required."),
+        (br#"{"block":"t","model":"gpt","task_text":"x"}"#, 2, "Invalid model: gpt."),
+        (
+            br#"{"block":"t","task_text":"x","doc_tokens":["ZZZZZZZZ"]}"#,
+            3,
+            "Document not found: ZZZZZZZZ.",
+        ),
+    ];
+    for (input, code, msg) in cases {
+        let out = run_with_stdin(&["card", "create", "--json"], &dir, input);
+        assert_eq!(out.status.code(), Some(code), "{}", String::from_utf8_lossy(input));
+        assert!(out.stdout.is_empty(), "失敗時の標準出力は空");
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(stderr.trim_end().lines().last().unwrap().starts_with(msg), "{stderr:?}");
+    }
+    cleanup_temp_dir(&dir);
+}
+
+/// `.agent-link/` の無い `AGENT_LINK_PROJECT_ROOT` は 2 で断り、フォルダを作らない。
+#[test]
+fn test_cli_project_root_env_without_agent_link_is_rejected() {
+    let dir = create_temp_dir();
+    let out = Command::new(sai_binary())
+        .args(["run", "list", "--json"])
+        .env("AGENT_LINK_PROJECT_ROOT", &dir)
+        .current_dir(&dir)
+        .output()
+        .expect("実行に失敗");
+    assert_eq!(out.status.code(), Some(2));
+    assert!(out.stdout.is_empty());
+    assert!(String::from_utf8_lossy(&out.stderr).contains("has no .agent-link/"));
+    assert!(!dir.join(".agent-link").exists(), "フォルダを作らない");
     cleanup_temp_dir(&dir);
 }

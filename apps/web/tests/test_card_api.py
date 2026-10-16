@@ -117,7 +117,11 @@ def test_validation(cli: FakeCli) -> None:
     # description は 200 文字までの 1 行（空は通る）
     expect(400, with_payload(description="2 行\nにじむ"))
     expect(400, with_payload(description="あ" * 201))
-    # model は名前として読める文字だけ
+    # block は必須（task_text は空でも通る。カード作成フォームが空のまま送る）
+    expect(400, with_payload(block=""))
+    expect(400, with_payload(block=None))
+    # model は opus / sonnet / haiku（空は通る）
+    expect(400, with_payload(model="gpt"))
     expect(400, with_payload(model="opus; rm -rf"))
     # 形が違うもの
     expect(400, lambda: control.phone_card_create("demo", "这不是对象"))
@@ -125,6 +129,10 @@ def test_validation(cli: FakeCli) -> None:
     control.phone_card_create("demo", good_payload() | {"inputs": {"a/b": "これは形式違反"}})
 
     assert len(cli.calls) == 1, f"inputs を断った: {cli.calls}"
+    # task_text が空・model が空でも通る
+    control.phone_card_create("demo", good_payload() | {"task_text": "", "model": ""})
+    assert len(cli.calls) == 2, cli.calls
+    cli.calls.pop()
 
     # 廃止した項目は，変な値でも 400 にせず無視する（古い画面のキャッシュ用）
     cli.calls.clear()
@@ -163,10 +171,10 @@ def test_create_calls_cli(cli: FakeCli) -> None:
 
     # スキップした項目は空文字のまま送る（agent-link が自動値にする）
     minimal = good_payload()
-    minimal.update({"block": "", "model": "", "thinking": "", "done_ids": [], "inputs": {}})
+    minimal.update({"model": "", "thinking": "", "done_ids": [], "inputs": {}})
     control.phone_card_create("demo", minimal)
     sent = json.loads(cli.last["input_text"])
-    assert sent["model"] == "" and sent["block"] == "", sent
+    assert sent["model"] == "" and sent["block"] == "sub", sent
     assert "inputs" not in sent, sent
 
     # options の呼ぶ形

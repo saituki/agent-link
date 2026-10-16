@@ -63,7 +63,7 @@ _PHONE_CALL_ID_RE = re.compile(r"[A-Za-z0-9_-]{1,80}")
 # thinking は一覧の値だけ
 _CARD_THINKING = ("none", "low", "medium", "high", "xhigh", "max")
 # model に許す文字
-_CARD_NAME_RE = re.compile(r"^[A-Za-z0-9._:/@+-]{1,200}$")
+_CARD_MODELS = ("opus", "sonnet", "haiku")
 # task_text の上限（100KB・UTF-8 のバイト数で数える・計画 15 §3.3）
 _TASK_TEXT_MAX = 100 * 1024
 
@@ -550,7 +550,7 @@ def phone_card_options(name: str) -> dict:
 def _validate_card_payload(payload: dict) -> dict:
     """作成フォームが送る値を CLI を呼ぶ前に確かめる（計画 15 §3.3）。
 
-    - `block` / 入力のキーは英数字と `-_.:` のみ
+    - `block` は必須で、英数字と `-_.:` のみ
     - `task_text` は 100KB（UTF-8 のバイト数）まで
     - `thinking` は一覧の値
     返すのは形をそろえた dict（送る JSON そのもの）。
@@ -588,7 +588,9 @@ def _validate_card_payload(payload: dict) -> dict:
         done_ids.append(v)
 
     block = text("block")
-    if block and not _PHONE_TOKEN_RE.match(block):
+    if not block:
+        raise HTTPException(status_code=400, detail="block is required.")
+    if not _PHONE_TOKEN_RE.match(block):
         raise HTTPException(status_code=400, detail="block is invalid.")
 
     thinking = text("thinking")
@@ -599,8 +601,11 @@ def _validate_card_payload(payload: dict) -> dict:
         )
 
     model = text("model")
-    if model and not _CARD_NAME_RE.match(model):
-        raise HTTPException(status_code=400, detail="model is invalid.")
+    if model and model not in _CARD_MODELS:
+        raise HTTPException(
+            status_code=400,
+            detail="model must be one of opus, sonnet, haiku (empty to skip).",
+        )
 
     # 一覧に出す説明（200 文字までの 1 行）。空なら agent-link が決める
     description = text("description")

@@ -145,9 +145,24 @@ pub struct CardSpec {
 
 /// `phone card create` の検査（TUI の段階入力と同じ規則）。
 ///
+/// - block は必須（無いと `card run` が必ず失敗する）
+/// - model は空（= 自動）か `normalize_model` が受ける値
 /// - thinking は一覧の値（空 = スキップは許容）
-/// - block が指定されていれば存在する定義であること
+/// - block は存在して読める定義であること
 pub fn validate_card_spec(spec: &CardSpec) -> Result<(), String> {
+    let block = spec.block.trim();
+    if block.is_empty() {
+        let ids: Vec<String> = load_block_choices().into_iter().map(|(_, id)| id).collect();
+        return Err(format!("block is required. Choose one of: {}", ids.join(", ")));
+    }
+    let model = spec.model.trim();
+    if !model.is_empty() && agent_link_engine::cc_command::normalize_model(model).is_none() {
+        return Err(format!(
+            "Invalid model: {}. Choose one of: {}",
+            model,
+            CC_MODELS.join(", ")
+        ));
+    }
     let thinking = spec.thinking.trim();
     if !thinking.is_empty() && !THINKING_OPTIONS.contains(&thinking) {
         return Err(format!(
@@ -155,10 +170,6 @@ pub fn validate_card_spec(spec: &CardSpec) -> Result<(), String> {
             thinking,
             THINKING_OPTIONS.join(", ")
         ));
-    }
-    let block = spec.block.trim();
-    if block.is_empty() {
-        return Ok(());
     }
     let path =
         resolve_block_path(block).ok_or_else(|| format!("Block not found: {}", block))?;
@@ -203,17 +214,35 @@ pub fn create_card(spec: &CardSpec) -> Result<PathBuf, String> {
 mod tests {
     use super::*;
 
+    /// block 必須・model は `normalize_model` が受ける値・thinking は一覧の値だけ。
+    #[test]
+    fn spec_rejects_missing_block_and_unknown_model() {
+        let spec = CardSpec::default();
+        let err = validate_card_spec(&spec).unwrap_err();
+        assert!(err.starts_with("block is required. Choose one of:"), "{err}");
+        let spec = CardSpec {
+            block: "x".to_string(),
+            model: "gpt".to_string(),
+            ..Default::default()
+        };
+        let err = validate_card_spec(&spec).unwrap_err();
+        assert_eq!(err, "Invalid model: gpt. Choose one of: opus, sonnet, haiku");
+    }
+
     /// thinking は一覧の値以外を弾く（空 = スキップは許容）。
     #[test]
     fn spec_rejects_unknown_thinking() {
         let mut spec = CardSpec {
+            block: "x".to_string(),
             thinking: "ultra".to_string(),
             ..Default::default()
         };
-        assert!(validate_card_spec(&spec).is_err());
+        let err = validate_card_spec(&spec).unwrap_err();
+        assert!(err.starts_with("Invalid thinking: ultra."), "{err}");
+        // thinking が通れば次は block の定義の読み出しで落ちる（block "x" は無い）
         spec.thinking = "high".to_string();
-        assert!(validate_card_spec(&spec).is_ok());
+        assert_eq!(validate_card_spec(&spec).unwrap_err(), "Block not found: x");
         spec.thinking = String::new();
-        assert!(validate_card_spec(&spec).is_ok());
+        assert_eq!(validate_card_spec(&spec).unwrap_err(), "Block not found: x");
     }
 }
