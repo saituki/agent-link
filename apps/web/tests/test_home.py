@@ -324,7 +324,8 @@ def test_folder_runs_passes_card() -> None:
         }
     ]
     rows = home._folder_runs(items, "todo")
-    assert rows[0]["card"] == {"creation_date": "2026/09/30 08:25:12", "block": "plan", "runner": "cc", "model": "opus", "description": "議論"}, rows
+    # 古い CLI が runner を付けても返さない
+    assert rows[0]["card"] == {"creation_date": "2026/09/30 08:25:12", "block": "plan", "model": "opus", "description": "議論"}, rows
     assert "card" not in rows[1], rows
 
 

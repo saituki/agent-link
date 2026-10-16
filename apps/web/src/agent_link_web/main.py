@@ -21,12 +21,10 @@ import time
 
 from fastapi import Body, Depends, FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from agent_link_web import (
-    commands,
     control,
     home,
     notify,
@@ -46,25 +44,6 @@ logger = logging.getLogger("agent_link_web")
 
 app = FastAPI(title="agent-link-web")
 
-_bearer = HTTPBearer(auto_error=False)
-
-
-def require_token(
-    creds: HTTPAuthorizationCredentials | None = Depends(_bearer),
-    token: str | None = Query(default=None),
-) -> None:
-    """入口の守り。`AGENT_LINK_WEB_TOKEN` と照合する（未設定なら認証なし）。
-
-    なぜクエリ（?token=）も受け付けるか: iPhone 側でヘッダを付けられない
-    場面（直接URLを開く等）でも開けるようにするため．
-    """
-    if not settings.api_token:
-        return
-    if (creds is not None and creds.credentials == settings.api_token) or token == settings.api_token:
-        return
-    raise HTTPException(status_code=401, detail="認証エラー")
-
-
 def require_internal(request: Request) -> None:
     """フック・拡張からの内部の要求の守り。Mac 自身（127.0.0.1 / ::1）からのみ。"""
     client = request.client.host if request.client else ""
@@ -72,42 +51,10 @@ def require_internal(request: Request) -> None:
         raise HTTPException(status_code=403, detail="内部専用です")
 
 
-def write_token_file() -> None:
-    """合言葉（`AGENT_LINK_WEB_TOKEN`）を `<sai_home>/web/token` に書く（0600）．
-
-    エージェント側の道具 `phone_api.py` はこのファイルから合言葉を読む．
-    設定ファイル（`settings.json` の `env`）ではなくファイルにするのは，
-    `env` は起動コマンドの文字になって pane や記録に残るため（要件 D13）．
-    合言葉が無いときはファイルを消す．書けなくてもサーバは止めず，
-    警告だけログに出す（合言葉の値そのものは決して出さない）．
-    """
-    path = registry.sai_home() / "web" / "token"
-    try:
-        if not settings.api_token:
-            if path.exists():
-                path.unlink()
-            return
-        path.parent.mkdir(parents=True, exist_ok=True)
-        # 既に作られたファイルの桁が 0644 でも 0600 へ戻すため chmod もする
-        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-        try:
-            os.write(fd, settings.api_token.encode("utf-8"))
-        finally:
-            os.close(fd)
-        os.chmod(path, 0o600)
-    except OSError as exc:
-        logger.warning("合言葉のファイル (%s) を書けません: %s", path, exc)
-
-
 @app.on_event("startup")
 def _startup() -> None:
     store.init_db()
     notify.ensure_keys()
-    if not settings.api_token:
-        # トークン無しは開発用．外に公開する前に必ず設定すること．
-        logger.warning("AGENT_LINK_WEB_TOKEN 未設定：認証なしで動作中")
-    # 合言葉をファイルで渡す（`phone_api.py` が読む）。
-    write_token_file()
     # 確かめ用のサーバは見張りを止められる（AGENT_LINK_WEB_NO_WATCH=1）。
     # 見張りは headless の `state.json` を見て iPhone へ通知を送るので，動いているサーバと二重にならないように。
     if os.getenv("AGENT_LINK_WEB_NO_WATCH") == "1":
@@ -150,7 +97,7 @@ _static_dir = Path(__file__).resolve().parent / "static"
 
 
 @app.get("/manifest.json", include_in_schema=False)
-def serve_manifest(_: None = Depends(require_token)) -> FileResponse:
+def serve_manifest() -> FileResponse:
     # PWA の設定ファイル．認証付きでも iPhone が読み込めるよう個別に返す．
     return FileResponse(_static_dir / "manifest.json")
 
@@ -187,7 +134,7 @@ def _withdraw_open_questions(project_name: str, run_id: int, text: str) -> list[
 
 
 @app.get("/api/days")
-def api_days(q: str | None = None, _: None = Depends(require_token)) -> dict:
+def api_days(q: str | None = None) -> dict:
     """日付ごとのまとめ（新しい日が先）．
 
     q を付けたときは検索結果（日付をまたいだ実行の一覧）も返す（02 §3.2）．
@@ -200,14 +147,14 @@ def api_days(q: str | None = None, _: None = Depends(require_token)) -> dict:
 
 
 @app.get("/api/days/{date}")
-def api_day(date: str, _: None = Depends(require_token)) -> dict:
+def api_day(date: str) -> dict:
     """その日の実行一覧（プロジェクトごと，サブタスクは親の直下）．"""
     run_list, qids = _runs_view()
     return runs.build_day(run_list, date, qids)
 
 
 @app.get("/api/runs/{project_name}/{run_id}")
-def api_run(project_name: str, run_id: int, _: None = Depends(require_token)) -> dict:
+def api_run(project_name: str, run_id: int) -> dict:
     """1実行分（stats も含む．04 の統計画面が使う）．"""
     run = _find_run(project_name, run_id)
     _, qids = _runs_view()
@@ -219,7 +166,6 @@ def api_run_items(
     project_name: str,
     run_id: int,
     after: str | None = None,
-    _: None = Depends(require_token),
 ) -> dict:
     """会話の項目（旧 GET /api/sessions/{id} と同じ {items, next_cursor} 形）．
 
@@ -228,10 +174,7 @@ def api_run_items(
     返す形は `{items, next_cursor, live, partial, error}`（共有契約 C6）。
     """
     run = _find_run(project_name, run_id)
-    agent = {"cc": "claude", "pi": "pi"}.get(run.get("runner") or "")
-    if agent is None:
-        # 未対応の runner
-        raise HTTPException(status_code=404, detail="会話の記録が見つかりません")
+    agent = "claude"
     _, qids = _runs_view()
     live = runs.live_status(run, qids)
     st = runs.headless_state(run)
@@ -303,7 +246,7 @@ def api_register_question(req: QuestionRegisterRequest, request: Request) -> dic
 
 
 @app.get("/api/questions/pending")
-def api_pending_questions(_: None = Depends(require_token)) -> dict:
+def api_pending_questions() -> dict:
     return {"questions": store.list_open_questions()}
 
 
@@ -324,7 +267,7 @@ def api_question_resolved(
 
 
 @app.get("/api/push/key")
-def api_push_key(_: None = Depends(require_token)) -> dict:
+def api_push_key() -> dict:
     """iPhone に配る公開鍵．"""
     key = notify.get_public_key()
     if key is None:
@@ -340,7 +283,7 @@ class PushSubscription(BaseModel):
 
 
 @app.post("/api/push/subscribe")
-def api_push_subscribe(sub: PushSubscription, _: None = Depends(require_token)) -> dict:
+def api_push_subscribe(sub: PushSubscription) -> dict:
     info = {"endpoint": sub.endpoint, "keys": sub.keys}
     store.save_subscription(sub.endpoint, info)
     # 登録できたらその場で 1 通送る（届くかどうかを iPhone ですぐ確かめられるように）
@@ -360,7 +303,7 @@ def api_get_question(qid: str, _: None = Depends(require_internal)) -> dict:
 
 @app.get("/api/questions")
 def api_session_questions(
-    session_id: str, _: None = Depends(require_token)
+    session_id: str
 ) -> dict:
     # 質問の登録（POST /api/questions）は必ず登録情報も一緒に保存するので，
     # 登録情報の pane_id だけで対応づける（全 jsonl 走査はやめた・02 §2.3）
@@ -403,7 +346,7 @@ class AnswerRequest(BaseModel):
 
 @app.post("/api/questions/{qid}/answer")
 def api_answer_question(
-    qid: str, req: AnswerRequest, _: None = Depends(require_token)
+    qid: str, req: AnswerRequest
 ) -> dict:
     if req.answers is not None:
         answers = [a.model_dump() for a in req.answers]
@@ -427,7 +370,6 @@ def api_send_text(
     project_name: str,
     run_id: int,
     req: SendRequest,
-    _: None = Depends(require_token),
 ) -> dict:
     """テキスト送信（`agent-link run send <run_id> --json`・共有契約 C2）．
 
@@ -449,7 +391,6 @@ def api_send_text(
 def api_interrupt(
     project_name: str,
     run_id: int,
-    _: None = Depends(require_token),
 ) -> dict:
     """実行中の run を中断する（`agent-link run interrupt <run_id> --json`・C2）．
 
@@ -471,7 +412,7 @@ class WithdrawRequest(BaseModel):
 
 @app.post("/api/questions/{qid}/withdraw")
 def api_withdraw_question(
-    qid: str, req: WithdrawRequest | None = None, _: None = Depends(require_token)
+    qid: str, req: WithdrawRequest | None = None
 ) -> dict:
     """未回答の質問を取り下げる（質問カードの「質問を止める」・U03）。
 
@@ -489,7 +430,7 @@ def api_withdraw_question(
 
 @app.post("/api/runs/{project_name}/{run_id}/finalize")
 def api_run_finalize(
-    project_name: str, run_id: int, _: None = Depends(require_token)
+    project_name: str, run_id: int
 ) -> dict:
     """メッセージ画面の ■ 終了（`agent-link phone finalize <run_id>`・計画書 A の D2）。
 
@@ -512,7 +453,7 @@ class DaemonRequest(BaseModel):
 
 
 @app.get("/api/projects")
-def api_projects(_: None = Depends(require_token)) -> dict:
+def api_projects() -> dict:
     """登録簿のプロジェクト一覧（最後に動いた順）．"""
     projects = control.list_projects()
     return {"projects": projects}
@@ -520,7 +461,7 @@ def api_projects(_: None = Depends(require_token)) -> dict:
 
 @app.get("/api/projects/{name}/dashboard")
 def api_project_dashboard(
-    name: str, period: str = "week", _: None = Depends(require_token)
+    name: str, period: str = "week"
 ) -> dict:
     """カード型 Dashboard（period は week / month / all・既定 week）．"""
     return control.dashboard(name, period)
@@ -528,7 +469,7 @@ def api_project_dashboard(
 
 @app.post("/api/projects/{name}/daemon")
 def api_project_daemon(
-    name: str, req: DaemonRequest, _: None = Depends(require_token)
+    name: str, req: DaemonRequest
 ) -> dict:
     """常駐の起動・停止．"""
     return control.daemon(name, req.action)
@@ -543,7 +484,7 @@ def api_project_daemon(
 
 
 @app.get("/api/projects/{name}/tree")
-def api_project_tree(name: str, _: None = Depends(require_token)) -> dict:
+def api_project_tree(name: str) -> dict:
     """引き出しツリー（`phone tree`・計画 12 §3.2）。"""
     return control.phone_tree(name)
 
@@ -559,7 +500,6 @@ def api_project_search(
     from_id: int | None = None,
     to_id: int | None = None,
     limit: int = 50,
-    _: None = Depends(require_token),
 ) -> dict:
     """文書（task / message / waggle）の検索（`phone search`・会話検索の画面の文書の検索）。
 
@@ -571,7 +511,7 @@ def api_project_search(
 
 @app.get("/api/projects/{name}/runs/{run_id:int}/view/{view}")
 def api_project_run_view(
-    name: str, run_id: int, view: str, _: None = Depends(require_token)
+    name: str, run_id: int, view: str
 ) -> dict:
     """run の中身（Log / Stats / History・計画 12 §3.2）。"""
     return control.phone_run_view(name, run_id, view)
@@ -579,7 +519,7 @@ def api_project_run_view(
 
 @app.get("/api/projects/{name}/runs/{run_id:int}/history/calls/{call_id}")
 def api_project_run_history_call(
-    name: str, run_id: int, call_id: str, _: None = Depends(require_token)
+    name: str, run_id: int, call_id: str
 ) -> dict:
     """History の 1 呼び出しの全文（`agent-link run history <id> --call <call_id>`・C11）。"""
     return control.phone_run_call(name, run_id, call_id)
@@ -587,7 +527,7 @@ def api_project_run_history_call(
 
 @app.get("/api/projects/{name}/runs/{run_id:int}/md/{kind}")
 def api_project_run_md(
-    name: str, run_id: int, kind: str, _: None = Depends(require_token)
+    name: str, run_id: int, kind: str
 ) -> dict:
     """run の md（task / message / report / system・無いときは 404・計画 12 §3.2）。"""
     return control.phone_md(name, run_id, kind)
@@ -599,7 +539,6 @@ def api_project_run_md_save(
     run_id: int,
     kind: str,
     payload: dict = Body(...),
-    _: None = Depends(require_token),
 ) -> dict:
     """task（未実行の todo カードだけ）の保存（body は `{"text": …}`）。"""
     return control.phone_md_save(name, run_id, kind, payload.get("text"))
@@ -607,7 +546,7 @@ def api_project_run_md_save(
 
 @app.get("/api/projects/{name}/runs/{run_id:int}/waggle")
 def api_project_run_waggle(
-    name: str, run_id: int, _: None = Depends(require_token)
+    name: str, run_id: int
 ) -> dict:
     """run が保存した成果物の一覧（計画 12 §3.2）。"""
     return control.phone_waggle(name, run_id)
@@ -615,13 +554,12 @@ def api_project_run_waggle(
 
 @app.get("/api/projects/{name}/runs/{run_id:int}/waggle/{waggle_token}")
 def api_project_run_waggle_item(
-    name: str, run_id: int, waggle_token: str, _: None = Depends(require_token)
+    name: str, run_id: int, waggle_token: str
 ) -> dict:
     """成果物 1 件の本文（計画 12 §3.2）．
 
     住所の名前は計画 12 §3.3 の `{token}` と同じ形（URL のセグメント 1 つ）だが，
-    変数名は `waggle_token`。`token` は合言葉の `?token=`（require_token の Query）と
-    衝突し，FastAPI が path パラメータと解釈できなくなるため。
+    変数名は `waggle_token`（`token` という名前のクエリと混ざらないように）。
     """
     return control.phone_waggle(name, run_id, waggle_token)
 
@@ -633,15 +571,15 @@ def api_project_run_waggle_item(
 
 @app.get("/api/projects/{name}/card/options")
 def api_project_card_options(
-    name: str, _: None = Depends(require_token)
+    name: str
 ) -> dict:
-    """作成フォームの選択肢（done / runner / block / provider / model / thinking）。"""
+    """作成フォームの選択肢（block / model / thinking）。"""
     return control.phone_card_options(name)
 
 
 @app.post("/api/projects/{name}/card")
 def api_project_card(
-    name: str, payload: dict = Body(...), _: None = Depends(require_token)
+    name: str, payload: dict = Body(...)
 ) -> dict:
     """カード（task.md）の作成（`phone card create`・作成後は todo に配置）。"""
     return control.phone_card_create(name, payload)
@@ -649,7 +587,7 @@ def api_project_card(
 
 @app.post("/api/projects/{name}/runs/{run_id:int}/start")
 def api_project_run_start(
-    name: str, run_id: int, _: None = Depends(require_token)
+    name: str, run_id: int
 ) -> dict:
     """新形式 todo の ▶ 実行（`phone card run <run_id>`・計画 15）。"""
     return control.phone_card_start(name, run_id)
@@ -657,18 +595,15 @@ def api_project_run_start(
 
 @app.post("/api/projects/{name}/runs/{run_id:int}/advance")
 def api_project_run_advance(
-    name: str, run_id: int, _: None = Depends(require_token)
+    name: str, run_id: int
 ) -> dict:
-    """review → done → Workflow の移動（`phone advance <run_id>`・計画書 A の U10）。
-
-    どちらへ移すか（done か R<gr> か）は agent-link が見て決める。
-    """
+    """review → Workflow（日付フォルダ）の移動（`phone advance <run_id>`）。"""
     return control.phone_advance(name, run_id)
 
 
 @app.delete("/api/projects/{name}/runs/{run_id:int}")
 def api_project_run_delete(
-    name: str, run_id: int, _: None = Depends(require_token)
+    name: str, run_id: int
 ) -> dict:
     """List の項目を消す（`phone rm <run_id>`・子の実行と run フォルダも消える）。"""
     return control.phone_rm(name, run_id)
@@ -676,7 +611,7 @@ def api_project_run_delete(
 
 @app.post("/api/projects/{name}/runs/{run_id:int}/schedule")
 def api_project_run_schedule(
-    name: str, run_id: int, payload: dict = Body(...), _: None = Depends(require_token)
+    name: str, run_id: int, payload: dict = Body(...)
 ) -> dict:
     """todo の実行予定時刻（`{"at": "YYYY-MM-DD HH:MM"}`・空で取り消し）。"""
     at = payload.get("at") if isinstance(payload, dict) else None
@@ -687,30 +622,10 @@ def api_project_run_schedule(
 
 @app.get("/api/projects/{name}/card/docs")
 def api_project_card_docs(
-    name: str, _: None = Depends(require_token)
+    name: str
 ) -> dict:
     """最近の文書（task_text に `waggle:<tok>:path:<path>` を貼る候補）。"""
     return control.phone_card_docs(name)
-
-
-# --- Web の「コマンド」画面（U10） ---
-# agent-link の schema から入力欄を作り，命令を実行する。
-# 外から来る値は CLI を呼ぶ前に commands 側で確かめる（通らなければ 400）。
-# `bytes` の命令（ファイルを送る物）は Web には出さず，実行も断る。
-
-
-@app.get("/api/projects/{name}/commands")
-def api_project_commands(name: str, _: None = Depends(require_token)) -> dict:
-    """Web に出せる命令の一覧（`web: true` だけ・sci が無ければ外れる）。"""
-    return commands.list_commands(name)
-
-
-@app.post("/api/projects/{name}/commands/run")
-def api_project_command_run(
-    name: str, payload: dict = Body(...), _: None = Depends(require_token)
-) -> dict:
-    """命令を実行する（共有契約「コマンドの実行の口」）。"""
-    return commands.run_command(name, payload)
 
 
 # --- 会話の検索（U10） ---
@@ -722,21 +637,16 @@ def api_project_command_run(
 def api_project_session_search(
     name: str,
     word: str | None = Query(default=None),
-    global_round: str | None = Query(default=None),
-    round: str | None = Query(default=None),
     id: str | None = Query(default=None),
     block: str | None = Query(default=None),
     date: str | None = Query(default=None),
     status: str | None = Query(default=None),
     type: str | None = Query(default=None),
-    _: None = Depends(require_token),
 ) -> dict:
     """会話の検索（先頭 200 件・`{"items", "truncated"}`）。"""
     return control.phone_session_search(
         name,
         word=word,
-        global_round=global_round,
-        round=round,
         run_id=id,
         block=block,
         on_date=date,
@@ -757,25 +667,24 @@ def api_project_session_search(
 
 
 @app.get("/api/projects/{name}/workflow")
-def api_project_workflow(name: str, _: None = Depends(require_token)) -> dict:
-    """Workflow 盤面（`agent-link phone workflow`）。"""
-    return control.phone_workflow(name)
+def api_project_workflow(name: str, subtasks: bool = Query(default=False)) -> dict:
+    """Workflow 盤面（`agent-link workflow`・`?subtasks=1` で子の実行も含める）。"""
+    return control.phone_workflow(name, subtasks)
 
 
 @app.get("/api/projects/{name}/defs")
-def api_project_defs(name: str, _: None = Depends(require_token)) -> dict:
+def api_project_defs(name: str) -> dict:
     """定義の一覧（`phone def list`・U3 C-A1）。"""
     return control.phone_def_list(name)
 
 
 @app.get("/api/projects/{name}/defs/{kind}/{scope}/{def_name}")
 def api_project_def_show(
-    name: str, kind: str, scope: str, def_name: str, _: None = Depends(require_token)
+    name: str, kind: str, scope: str, def_name: str
 ) -> dict:
     """定義 1 件の中身（`phone def show`）。
 
-    住所の `{def_name}` は変数名も `def_name` にする（`token` は合言葉の
-    `?token=` と衝突し、FastAPI が path パラメータと解釈できなくなるため・main.py のコメント）。
+    住所の `{def_name}` は変数名も `def_name` にする。
     """
     return control.phone_def_show(name, kind, scope, def_name)
 
@@ -787,7 +696,6 @@ def api_project_def_write(
     scope: str,
     def_name: str,
     payload: dict = Body(...),
-    _: None = Depends(require_token),
 ) -> dict:
     """定義の保存（body は `{"text": …, "create": false}`・`create` が真なら `--create`）。"""
     return control.phone_def_write(
@@ -797,20 +705,20 @@ def api_project_def_write(
 
 @app.delete("/api/projects/{name}/defs/{kind}/{scope}/{def_name}")
 def api_project_def_delete(
-    name: str, kind: str, scope: str, def_name: str, _: None = Depends(require_token)
+    name: str, kind: str, scope: str, def_name: str
 ) -> dict:
     """定義の削除（`phone def delete`・settings は 400「settings は消せません」）。"""
     return control.phone_def_delete(name, kind, scope, def_name)
 
 
 @app.get("/api/home")
-def api_home(_: None = Depends(require_token)) -> dict:
+def api_home() -> dict:
     """ホームの集計（質問・承認・プロジェクト・論文の要対応・U3 C-A3）。"""
     return home.build_home()
 
 
 @app.get("/api/home/overview")
-def api_home_overview(period: str = "week", _: None = Depends(require_token)) -> dict:
+def api_home_overview(period: str = "week") -> dict:
     """全プロジェクトの合計のダッシュボード（U02 §1・`period` は week / month / all）。
 
     `/api/home` とは別の住所にしてある。`/api/home` は 15 秒ごとに読み直すので、
@@ -820,46 +728,17 @@ def api_home_overview(period: str = "week", _: None = Depends(require_token)) ->
     return home.build_overview(period)
 
 
-# --- Usage タブ（計画 42 §3.3） ---
-# 外部 API（OpenRouter / DeepSeek）へ行くため `def` で書く（06 §3.4）。
-# 外から来る provider / account は設定にある名前だけ受け付け，それ以外は 404。
+# --- Usage（Claude Code の上限と費用） ---
 
 
 @app.get("/api/usage")
-def api_usage(refresh: int = 0, _: None = Depends(require_token)) -> dict:
-    """Usage タブのカード一覧（cc / OpenRouter 各アカウント / DeepSeek / 設定に無い provider）．
-
-    `?refresh=1` で外部 API を取り直す（↻ ボタン・42 §3.5）。
-    """
-    return usage.summary(refresh=bool(refresh))
-
-
-@app.get("/api/usage/{provider}/{account}/activity")
-def api_usage_activity(
-    provider: str, account: str, _: None = Depends(require_token)
-) -> dict:
-    """日ごと（30 日）とモデル別の集計（provider は openrouter / deepseek・42 §3.3）．"""
-    if not usage.known_target(provider, account):
-        raise HTTPException(status_code=404, detail="そのアカウントはありません")
-    return usage.activity(provider, account)
-
-
-@app.get("/api/usage/{provider}/{account}/logs")
-def api_usage_logs(
-    provider: str,
-    account: str,
-    offset: int = Query(0, ge=0),
-    limit: int = Query(50, ge=1, le=200),
-    _: None = Depends(require_token),
-) -> dict:
-    """1 回ずつの一覧（新しい順・50 件ずつ・42 §3.3）．"""
-    if not usage.known_target(provider, account):
-        raise HTTPException(status_code=404, detail="そのアカウントはありません")
-    return usage.logs(provider, account, offset=offset, limit=limit)
+def api_usage() -> dict:
+    """Claude Code の使用量（上限と費用）。"""
+    return {"cc": usage.cc_card(), "saved_at": int(time.time())}
 
 
 # --- PWA（静的ファイル）の配信 ---
-# API の後に置く．認証は require_token で同じく守る．
+# API の後に置く．
 # 会話データ（/api/…）はキャッシュしない（sw.js 側で通すだけ）．
 app.mount("/", StaticFiles(directory=_static_dir, html=True), name="static")
 

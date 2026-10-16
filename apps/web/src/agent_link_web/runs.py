@@ -14,7 +14,7 @@ import json
 import logging
 import os
 import re
-from collections import Counter, defaultdict
+from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -31,8 +31,6 @@ _VISIBLE_STATUSES = ("running", "completed", "failed", "cancelled")
 # 実行中の失敗・中止の数え方（画面上は failed にまとめて出す）
 _FAILED_STATUSES = ("failed", "cancelled")
 
-# runner の表示順（決め事の例は cc → pi）
-_RUNNER_ORDER = ("cc", "pi", "gl")
 
 # ファイルの読み込み結果（絶対パス → (mtime_ns, Run or None)）。
 # None は「読めなかった／対象外」。壊れたファイルを毎回読み直さないため入れておく。
@@ -110,9 +108,7 @@ def _read_run(path: Path) -> dict | None:
     if not isinstance(raw.get("run_id"), int) or not isinstance(raw.get("project_name"), str):
         logger.warning(f"run_id / project_name が不正（飛ばします）: {path}")
         return None
-    # user 実行と未実行は一覧に出さない（00 §3.2 / 00 §5）
-    if raw.get("runner") == "user":
-        return None
+    # 未実行は一覧に出さない（00 §3.2 / 00 §5）
     if raw.get("status") not in _VISIBLE_STATUSES:
         return None
     return raw
@@ -236,18 +232,14 @@ def run_session_ids(run: dict) -> set[str]:
 
 def question_session_id(run: dict) -> str | None:
     """画面から /api/questions?session_id=… に渡す ID（00 §3.7）．"""
-    if run.get("runner") == "cc":
-        sid = run.get("agent_session_id")
-        if isinstance(sid, str) and sid:
-            return sid
+    sid = run.get("agent_session_id")
+    if isinstance(sid, str) and sid:
+        return sid
     transcript = run.get("transcript_path")
     if isinstance(transcript, str) and transcript:
         ids = sorted(_transcript_session_ids(Path(transcript)))
         if ids:
             return ids[0]
-    sid = run.get("agent_session_id")
-    if isinstance(sid, str) and sid:
-        return sid
     return None
 
 
@@ -353,7 +345,7 @@ def run_to_api(
         "parent_run_id": run.get("parent_run_id"),
         "block_name": run.get("block_name") or "",
         "description": run.get("description") or "",
-        "runner": run.get("runner") or "",
+        "runner": "cc",  # Claude Code だけ（画面の側が runner を読むので項目は残す）
         "status": run.get("status") or "",
         "model": run.get("model"),
         "started_at": run.get("started_at"),
@@ -413,17 +405,8 @@ def build_days(runs: list[dict], question_session_ids=frozenset()) -> list[dict]
 
     days: list[dict] = []
     for date, rs in by_date.items():
-        done_counter = Counter(
-            r.get("runner") for r in rs if r.get("status") == "completed"
-        )
-        # runner 0 の件は出さない（表示順は cc → pi → その他）
-        done: dict[str, int] = {}
-        for runner in _RUNNER_ORDER:
-            if done_counter.get(runner):
-                done[runner] = done_counter.pop(runner)
-        for runner, n in sorted(done_counter.items()):
-            if n:
-                done[runner] = n
+        n_done = sum(1 for r in rs if r.get("status") == "completed")
+        done = {"cc": n_done} if n_done else {}
 
         cost = 0.0
         cost_seen = False

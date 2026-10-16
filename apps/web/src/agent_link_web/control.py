@@ -60,17 +60,12 @@ _PHONE_TOKEN_RE = re.compile(r"^[A-Za-z0-9._:-]{1,128}$")
 _PHONE_CALL_ID_RE = re.compile(r"[A-Za-z0-9_-]{1,80}")
 
 # --- task.md 作成フォーム（計画 15 §1.5・§3.3）で受け取る値の検査 ---
-# runner / thinking は一覧の値だけ（TUI の RUNNER_OPTIONS / THINKING_OPTIONS と同じ）
-_CARD_RUNNERS = ("user", "cc", "gl")
+# thinking は一覧の値だけ
 _CARD_THINKING = ("none", "low", "medium", "high", "xhigh", "max")
-# provider / model に許す文字（`openrouter-xiaomi` / `deepseek/deepseek-v4-flash` など）
+# model に許す文字
 _CARD_NAME_RE = re.compile(r"^[A-Za-z0-9._:/@+-]{1,200}$")
 # task_text の上限（100KB・UTF-8 のバイト数で数える・計画 15 §3.3）
 _TASK_TEXT_MAX = 100 * 1024
-# global_round / round は数字（空 = スキップ）
-_CARD_ROUND_RE = re.compile(r"^\d{1,12}$")
-# tag は frontmatter に 1 行で書くので改行を許さない
-_CARD_TAG_RE = re.compile(r"^[^\r\n]{0,64}$")
 
 
 def _project_summary(name: str, root: str) -> dict:
@@ -456,7 +451,7 @@ def phone_search(
 
 # --- 会話の検索（`agent-link session search`・共有契約「会話の検索の口」・U10） ---
 
-# Round / round / run の番号は N または N-M
+# run の番号は N または N-M
 _SESSION_RANGE_RE = re.compile(r"^\d+(-\d+)?$")
 # ブロック名の部分一致（`.agent-link/blocks/<名前>.md` の形）
 _SESSION_BLOCK_RE = re.compile(r"^[A-Za-z0-9._:-]{1,64}$")
@@ -484,8 +479,6 @@ def _session_subset(label: str, value: str | None, allowed: tuple) -> str | None
 def phone_session_search(
     name: str,
     word: str | None = None,
-    global_round: str | None = None,
-    round: str | None = None,
     run_id: str | None = None,
     block: str | None = None,
     on_date: str | None = None,
@@ -503,14 +496,12 @@ def phone_session_search(
         return text or None
 
     word = norm(word)
-    global_round = norm(global_round)
-    round = norm(round)
     run_id = norm(run_id)
     block = norm(block)
     on_date = norm(on_date)
     status = norm(status)
     sess_type = norm(sess_type)
-    if not any((word, global_round, round, run_id, block, on_date, status, sess_type)):
+    if not any((word, run_id, block, on_date, status, sess_type)):
         raise HTTPException(status_code=400, detail="検索の条件を 1 つ以上入れてください")
 
     if word is not None:
@@ -518,7 +509,7 @@ def phone_session_search(
             raise HTTPException(status_code=400, detail="検索語に改行は入れられません")
         if len(word) > _SESSION_WORD_MAX:
             raise HTTPException(status_code=400, detail=f"検索語は {_SESSION_WORD_MAX} 字までです")
-    for label, value in (("Round", global_round), ("round", round), ("run の番号", run_id)):
+    for label, value in (("run の番号", run_id),):
         if value is not None and not _SESSION_RANGE_RE.match(value):
             raise HTTPException(status_code=400, detail=f"{label}は N または N-M の形にしてください")
     if block is not None and not _SESSION_BLOCK_RE.match(block):
@@ -530,8 +521,6 @@ def phone_session_search(
 
     args = ["session", "search"]
     for flag, value in (
-        ("-R", global_round),
-        ("-r", round),
         ("--id", run_id),
         ("--block", block),
         ("--date", on_date),
@@ -576,11 +565,11 @@ def _validate_card_payload(payload: dict) -> dict:
 
     - `block` / 入力のキーは英数字と `-_.:` のみ
     - `task_text` は 100KB（UTF-8 のバイト数）まで
-    - `runner` / `thinking` は一覧の値
+    - `thinking` は一覧の値
     返すのは形をそろえた dict（送る JSON そのもの）。
 
-    `inputs` は受け取っても検査も送りもしない（入力は task_text に統一した）。
-    古い画面がしばらく送ってくるかもしれないが、断らない。
+    `inputs` と、廃止した runner・provider・tag・round 系の項目は
+    受け取っても検査も送りもしない。古い画面がしばらく送ってくるかもしれないが、断らない。
     """
     if not isinstance(payload, dict):
         raise HTTPException(status_code=400, detail="送る値が正しくありません")
@@ -611,15 +600,6 @@ def _validate_card_payload(payload: dict) -> dict:
             )
         done_ids.append(v)
 
-    runner = text("runner")
-    if runner == "pi":
-        raise HTTPException(status_code=400, detail="runner の pi は廃止しました")
-    if runner and runner not in _CARD_RUNNERS:
-        raise HTTPException(
-            status_code=400,
-            detail="runner は user / cc / gl のいずれか（pi は廃止しました・空でスキップ）",
-        )
-
     block = text("block")
     if block and not _PHONE_TOKEN_RE.match(block):
         raise HTTPException(status_code=400, detail="block の指定が正しくありません")
@@ -631,25 +611,9 @@ def _validate_card_payload(payload: dict) -> dict:
             detail="thinking は none / low / medium / high / xhigh / max のいずれか（空でスキップ）",
         )
 
-    for key in ("provider", "model"):
-        v = text(key)
-        if v and not _CARD_NAME_RE.match(v):
-            raise HTTPException(
-                status_code=400, detail=f"{key} の指定が正しくありません"
-            )
-
-    for key in ("global_round", "round"):
-        v = text(key)
-        if v and not _CARD_ROUND_RE.match(v):
-            raise HTTPException(
-                status_code=400, detail=f"{key} は数字にしてください（空でスキップ）"
-            )
-
-    tag = text("tag")
-    if tag and not _CARD_TAG_RE.match(tag):
-        raise HTTPException(
-            status_code=400, detail="tag は 64 文字までの 1 行にしてください"
-        )
+    model = text("model")
+    if model and not _CARD_NAME_RE.match(model):
+        raise HTTPException(status_code=400, detail="model の指定が正しくありません")
 
     # 一覧に出す説明（200 文字までの 1 行）。空なら agent-link が決める
     description = text("description")
@@ -666,14 +630,9 @@ def _validate_card_payload(payload: dict) -> dict:
 
     return {
         "done_ids": done_ids,
-        "runner": runner,
         "block": block,
-        "provider": text("provider"),
-        "model": text("model"),
+        "model": model,
         "thinking": thinking,
-        "global_round": text("global_round"),
-        "round": text("round"),
-        "tag": tag,
         "description": description,
         "task_text": task_text,
     }
@@ -883,13 +842,14 @@ def _validate_def_text(text) -> str:
     return text
 
 
-def phone_workflow(name: str) -> dict:
-    """Workflow 盤面（`agent-link workflow`・U3 §変更内容 1）。
+def phone_workflow(name: str, subtasks: bool = False) -> dict:
+    """Workflow 盤面（`agent-link workflow`・`subtasks` が真なら `--subtasks` で子の実行も含める）。
 
     実行の記録が要るため、root と DB が両方無いプロジェクトは 404（`_phone_project`）。
     """
     project = _phone_project(name)
-    return _phone_json(["workflow"], root=project["root"], timeout=30.0)
+    argv = ["workflow", "--subtasks"] if subtasks else ["workflow"]
+    return _phone_json(argv, root=project["root"], timeout=30.0)
 
 
 def phone_def_list(name: str) -> dict:

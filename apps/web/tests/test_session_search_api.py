@@ -1,7 +1,7 @@
 """会話の検索 API（`GET /api/projects/{name}/sessions/search`・`control.phone_session_search`）の試験。
 
 確かめること:
-- 条件が 1 つも無い・範囲・日付・状態・種類・block・検索語の長さの検査
+- 条件が 1 つも無い・run の番号・日付・状態・種類・block・検索語の長さの検査
   （外れたら 400・CLI は呼ばない）
 - CLI に渡す argv（共有契約「会話の検索の口」）
 - 先頭 200 件で切り，201 件目があれば `truncated` を真にすること
@@ -52,8 +52,6 @@ def test_validation(cli: FakeCli) -> None:
         {"word": "   "},
         {"word": "あ" * 201},
         {"word": "a\nb"},
-        {"global_round": "x"},
-        {"round": "1-"},
         {"run_id": "-1"},
         {"block": "a b"},
         {"block": "x" * 65},
@@ -76,8 +74,6 @@ def test_calls(cli: FakeCli) -> None:
     control.phone_session_search(
         "demo",
         word="a,b",
-        global_round="2-4",
-        round="1",
         run_id="10-20",
         block="worker",
         on_date="2026/09/01-2026/09/30",
@@ -86,7 +82,7 @@ def test_calls(cli: FakeCli) -> None:
     )
     assert cli.calls[-1] == [
         "agent-link", "session", "search",
-        "-R", "2-4", "-r", "1", "--id", "10-20", "--block", "worker",
+        "--id", "10-20", "--block", "worker",
         "--date", "2026/09/01-2026/09/30", "--status", "todo,running",
         "--type", "user,agent", "-w", "a,b", "--json",
     ], cli.calls[-1]

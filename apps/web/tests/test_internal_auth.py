@@ -1,12 +1,12 @@
-"""内部の要求（localhost だけ）・質問・通知・Usage の鍵・古い DB（単独モード）のテスト。
+"""内部の要求（localhost だけ）・質問・通知・Usage の形・古い DB（単独モード）のテスト。
 
 確かめること:
 - 内部の住所（`POST /api/register`・`POST /api/questions`・`GET /api/questions/{qid}` など）は
   127.0.0.1 / ::1 からだけ通り、ほかの住所からは 403
-- `AGENT_LINK_WEB_INTERNAL_TOKEN` の合言葉は使わない（Authorization を付けても 403 が変わらない）
+- 合言葉は無い（Authorization を付けても 403 が変わらない・内部でない住所は何も付けずに通る）
 - 答えた記録の `answered_by` は `user`
 - 通知は購読をすべてに送る
-- Usage の OpenRouter は環境変数のキーを使う
+- `GET /api/usage` は `{"cc", "saved_at"}` だけを返す（`activity`・`logs` の住所は無い）
 - `owner` の列・`answered_by` の列が無い古い DB を開いても動く
 - 消した住所（`/api/auth/me`・`/api/customer`・`/api/questions/mine`・`/api/paper-projects`・
   `/api/mlflow/…`・`/api/radio/…`）は 404、`/api/days` に `customer` は無い
@@ -29,7 +29,6 @@ from pathlib import Path
 # import より前に一時フォルダを決める（config.DB_PATH は import 時に決まるため）
 _TMP = Path(tempfile.mkdtemp(prefix="agent-link-web-internal-"))
 os.environ["AGENT_LINK_HOME"] = str(_TMP / "sai-home")
-os.environ.pop("AGENT_LINK_WEB_TOKEN", None)
 os.environ.pop("AGENT_LINK_WEB_RUNS_DIR", None)
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
@@ -170,7 +169,7 @@ def test_internal_addresses_localhost_only() -> None:
     status, body = call("POST", "/api/register", json_body=reg, client=REMOTE)
     assert status == 403, (status, body)
 
-    # 一覧（pending）は内部の住所ではなく、合言葉の住所（`AGENT_LINK_WEB_TOKEN` が空なので誰でも通る）
+    # 一覧（pending）は内部の住所ではない（合言葉は無いので誰でも通る）
     status, body = call("GET", "/api/questions/pending", client=REMOTE)
     assert status == 200 and qid in [q["id"] for q in body["questions"]], (status, body)
 
@@ -231,24 +230,17 @@ def test_notify_all_subscriptions() -> None:
         notify.send_to = original
 
 
-def test_usage_key_from_env() -> None:
-    """Usage の OpenRouter は環境変数のキーを使う。"""
-    os.environ["OPENROUTER_API_KEY"] = "env-secret"
-    calls: list[dict] = []
-
-    def fake_get_json(url, headers):
-        calls.append(headers)
-        return {"data": {}}
-
-    original = usage._get_json  # noqa: SLF001
-    usage._get_json = fake_get_json  # noqa: SLF001
-    try:
-        card = usage.openrouter_card("main", "OPENROUTER_API_KEY")
-    finally:
-        usage._get_json = original  # noqa: SLF001
-        os.environ.pop("OPENROUTER_API_KEY", None)
-    assert card.get("error") is None, card
-    assert calls and calls[0]["Authorization"] == "Bearer env-secret", calls
+def test_usage_shape() -> None:
+    """`GET /api/usage` は `cc` と `saved_at` だけを返す（Authorization なしで通る・消した住所は 404）。"""
+    status, body = call("GET", "/api/usage", client=REMOTE)
+    assert status == 200, (status, body)
+    assert set(body) == {"cc", "saved_at"}, body
+    assert body["cc"] == usage.cc_card(), body
+    assert set(body["cc"]["cost"]) == {"today", "month", "sessions"}, body
+    assert isinstance(body["saved_at"], int), body
+    for path in ("/api/usage/openrouter/main/activity", "/api/usage/openrouter/main/logs"):
+        status, _ = call("GET", path)
+        assert status == 404, (path, status)
 
 
 def test_old_db() -> None:
@@ -371,7 +363,7 @@ def main() -> None:
     test_answer_records_user()
     test_removed_addresses()
     test_notify_all_subscriptions()
-    test_usage_key_from_env()
+    test_usage_shape()
     test_old_db()
     test_send_and_interrupt_withdraw_questions()
 

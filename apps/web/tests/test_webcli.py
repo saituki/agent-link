@@ -7,7 +7,7 @@
 
 確かめるもの:
     - 終了コードの読み替え（404 → 3、409 → 4、422 → 2、500 → 1）
-    - 合言葉をヘッダで送り、どこにも出さないこと
+    - 合言葉は無い（Authorization を付けない）
     - `api` の検査（METHOD・path・--data・扱えない応答）
     - `answer` の検査（問いの数と答えの数の照合）
     - `serve` が正しい引数で uvicorn に替わること
@@ -86,7 +86,6 @@ class Handler(BaseHTTPRequestHandler):
                 "path": self.path,
                 "body": body,
                 "content_type": self.headers.get("Content-Type"),
-                # 合言葉は実際にはヘッダで来る（URL には入らない）
                 "authorization": self.headers.get("Authorization"),
             }
         )
@@ -117,7 +116,7 @@ class Handler(BaseHTTPRequestHandler):
         elif self.path == "/api/projects":
             self._send(200, [{"name": "研究A", "root": "/tmp/a", "kind": "link"}])
         elif self.path == "/api/usage":
-            self._send(200, {"cost": 1.5})
+            self._send(200, {"cc": {"limits": None, "cost": {"today": 1.5, "month": 3.0, "sessions": 2}}, "saved_at": 1760000000})
         elif self.path == "/api/status/notfound":
             self._send(404, {"detail": "質問が見つかりません"})
         elif self.path == "/api/status/conflict":
@@ -149,12 +148,11 @@ def run_cli(*args: str, env: dict | None = None) -> tuple[int, str, str]:
     環境変数は呼ぶ前に差し替え、終わったら元に戻す（`webcli` は呼ぶたびに
     環境変数を読む）。`env` の値が `None` の項目は外す。
     """
-    keys = ("AGENT_LINK_WEB_URL", "AGENT_LINK_WEB_TOKEN", "AGENT_LINK_WEB_INTERNAL_TOKEN", "AGENT_LINK_HOME", "AGENT_LINK_WEB_PORT",
+    keys = ("AGENT_LINK_WEB_URL", "AGENT_LINK_WEB_TOKEN", "AGENT_LINK_HOME", "AGENT_LINK_WEB_PORT",
             "AGENT_LINK_PARENT_RUN_ID", "AGENT_LINK_PROJECT_ROOT")
     saved = {key: os.environ.get(key) for key in keys}
     os.environ["AGENT_LINK_WEB_URL"] = BASE["url"]
     os.environ.pop("AGENT_LINK_WEB_TOKEN", None)
-    os.environ.pop("AGENT_LINK_WEB_INTERNAL_TOKEN", None)
     os.environ.pop("AGENT_LINK_PARENT_RUN_ID", None)
     os.environ.pop("AGENT_LINK_PROJECT_ROOT", None)
     os.environ["AGENT_LINK_HOME"] = BASE["home"]
@@ -189,7 +187,7 @@ class WebCliTest(unittest.TestCase):
         cls.thread = threading.Thread(target=cls.server.serve_forever, daemon=True)
         cls.thread.start()
         cls.tmp = tempfile.mkdtemp(prefix="agent-link-webcli-")
-        # 合言葉のファイルを用意する（`apps/web` が起動時に書くのと同じ置き場）
+        # 古い版が書いた合言葉のファイルがあっても読まない（`test_no_authorization_header`）
         os.makedirs(os.path.join(cls.tmp, "web"), exist_ok=True)
         with open(os.path.join(cls.tmp, "web", "token"), "w", encoding="utf-8") as fh:
             fh.write("s3cret-token")
@@ -236,51 +234,20 @@ class WebCliTest(unittest.TestCase):
         self.assertEqual(json.loads(out)[0]["name"], "研究A")
         code, out, err = run_cli("usage")
         self.assertEqual(code, 0, err)
-        self.assertEqual(json.loads(out)["cost"], 1.5)
+        self.assertEqual(json.loads(out)["cc"]["cost"]["today"], 1.5)
 
     def test_questions_filter_by_project(self) -> None:
         code, out, err = run_cli("questions", "--project", "研究A")
         self.assertEqual(code, 0, err)
         self.assertEqual([row["id"] for row in json.loads(out)], ["q1"])
 
-    # --- 合言葉: ヘッダに入り、URL にも出力にも出ない
-    def test_token_from_file_goes_to_header(self) -> None:
-        code, out, err = run_cli("questions")
+    # --- 合言葉は無い: Authorization を付けない（古い `web/token` のファイルや環境変数があっても）
+    def test_no_authorization_header(self) -> None:
+        code, out, err = run_cli("questions", env={"AGENT_LINK_WEB_TOKEN": "old-token"})
         self.assertEqual(code, 0, err)
-        self.assertEqual(RECEIVED[-1]["authorization"], "Bearer s3cret-token")
-        self.assertNotIn("s3cret-token", RECEIVED[-1]["path"], "合言葉が URL に入っています")
-        self.assertNotIn("s3cret-token", out, "合言葉が出力に漏れています")
-        self.assertNotIn("s3cret-token", err, "合言葉が標準エラーに漏れています")
-
-    def test_token_env_wins_over_file(self) -> None:
-        code, _out, err = run_cli("questions", env={"AGENT_LINK_WEB_TOKEN": "env-token"})
-        self.assertEqual(code, 0, err)
-        self.assertEqual(RECEIVED[-1]["authorization"], "Bearer env-token")
-
-    def test_no_token_when_nothing_is_set(self) -> None:
-        empty = tempfile.mkdtemp(prefix="agent-link-webcli-empty-")
-        code, out, err = run_cli("questions", env={"AGENT_LINK_HOME": empty})
-        self.assertEqual(code, 0, err)
-        self.assertIsNone(RECEIVED[-1]["authorization"], "合言葉が無いのにヘッダが付いています")
+        self.assertEqual(RECEIVED[-1]["path"], "/api/home", "質問は /api/home の questions から読む")
+        self.assertIsNone(RECEIVED[-1]["authorization"], "Authorization を付けてはいけません")
         self.assertTrue(out.strip().startswith("["))
-
-    def test_token_with_unusable_characters_is_not_sent(self) -> None:
-        code, out, err = run_cli(
-            "questions", env={"AGENT_LINK_WEB_TOKEN": "日本語の合言葉"}
-        )
-        self.assertEqual(code, 1)
-        self.assertEqual(out, "", "失敗のとき標準出力に書いてはいけません")
-        self.assertIn("ヘッダで送れない", err)
-        self.assertNotIn("日本語の合言葉", out + err, "合言葉が出力に漏れています")
-
-    # --- 質問は常に /api/home の questions から読む。AGENT_LINK_WEB_INTERNAL_TOKEN は使わない
-    def test_internal_token_is_ignored(self) -> None:
-        code, out, err = run_cli("questions", env={"AGENT_LINK_WEB_INTERNAL_TOKEN": "int-token-xyz"})
-        self.assertEqual(code, 0, err)
-        self.assertEqual(RECEIVED[-1]["path"], "/api/home")
-        # 合言葉は `web/token` のファイルから（内部の合言葉ではない）
-        self.assertEqual(RECEIVED[-1]["authorization"], "Bearer s3cret-token")
-        self.assertNotIn("int-token-xyz", out + err)
 
     # --- answer: 問いの数と答えの数が合わなければ送らない
     def test_answer_count_mismatch_does_not_send(self) -> None:

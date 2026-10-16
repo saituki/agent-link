@@ -248,8 +248,7 @@ def test_routes() -> None:
         "/api/projects/{name}/runs/{run_id:int}/history/calls/{call_id}",
         "/api/projects/{name}/runs/{run_id:int}/md/{kind}",
         "/api/projects/{name}/runs/{run_id:int}/waggle",
-        # 住所の名前は計画の `{token}` と同じ形だが，合言葉の Query(`token`) と
-        # 衝突しないよう FastAPI 上の変数名だけ waggle_token にしている（main.py の docstring）
+        # 住所の名前は計画の `{token}` と同じ形だが，FastAPI 上の変数名だけ waggle_token にしている
         "/api/projects/{name}/runs/{run_id:int}/waggle/{waggle_token}",
     ]:
         assert (path, ["GET"]) in paths, f"住所が無い: {path}"

@@ -89,22 +89,25 @@ def test_done_counts_and_cost() -> None:
             runner="cc",
             stats={"cost_usd": {"total": 0.25}, "cost_is_estimate": True},
         ),
-        make_run(3, started_at="2026-09-23T03:00:00Z", status="completed", runner="pi"),
-        make_run(4, started_at="2026-09-23T04:00:00Z", status="running", runner="cc"),
-        make_run(5, started_at="2026-09-23T05:00:00Z", status="failed", runner="pi"),
+        make_run(3, started_at="2026-09-23T03:00:00Z", status="completed"),
+        make_run(4, started_at="2026-09-23T04:00:00Z", status="running"),
+        make_run(5, started_at="2026-09-23T05:00:00Z", status="failed"),
     ]
+    # run の記録に runner が無くても動く（全部 cc として数える）
+    for r in day:
+        r.pop("runner")
     days = runs.build_days(day)
     assert len(days) == 1
     d = days[0]
-    assert d["done"] == {"cc": 2, "pi": 1}
+    assert d["done"] == {"cc": 3}
     assert d["running"] == 1
     assert d["failed"] == 1
     assert abs(d["cost_usd"] - 1.5) < 1e-9
     # 概算の実行が1つでも混ざれば ≈ を付ける（02 §1 の1番）
     assert d["cost_is_estimate"] is True
 
-    # 0 の runner は done に入らない
-    assert "gl" not in d["done"]
+    # runner の項目は常に "cc"
+    assert runs.run_to_api(day[0])["runner"] == "cc"
 
     # もう一日（実行中だけ・stats は null）は running のみが出る
     other = runs.build_days([make_run(9, started_at="2026-09-24T00:00:00Z", status="running")])
@@ -143,7 +146,7 @@ def test_subtask_under_parent() -> None:
 
 
 def test_load_runs_filters() -> None:
-    """`.` 始まり・壊れた JSON・schema 違い・user 実行は読み飛ばす（02 §2.1）．"""
+    """`.` 始まり・壊れた JSON・schema 違い・未実行は読み飛ばす（02 §2.1）．"""
     with tempfile.TemporaryDirectory() as tmp:
         base = Path(tmp)
         proj = base / "agent-link-web"
@@ -157,9 +160,6 @@ def test_load_runs_filters() -> None:
         (proj / "3.json").write_text(json.dumps(v2), encoding="utf-8")
         # 壊れた JSON は飛ばす
         (proj / "4.json").write_text("{ broken", encoding="utf-8")
-        # user の実行は一覧に出さない（00 §3.2）
-        user = dict(ok, run_id=5, runner="user")
-        (proj / "5.json").write_text(json.dumps(user), encoding="utf-8")
         # 未実行（pending）は出さない
         pending = dict(ok, run_id=6, status="pending")
         (proj / "6.json").write_text(json.dumps(pending), encoding="utf-8")

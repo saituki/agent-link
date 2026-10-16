@@ -1,7 +1,7 @@
 """Workflow 盤面と定義（block / template / settings）の編集の API の小さなテスト（assert だけ）。
 
 確かめること:
-- Workflow: `phone workflow` を cwd = プロジェクトの root・`AGENT_LINK_PROJECT_ROOT` = 同じ root で呼ぶ
+- Workflow: `agent-link workflow`（`?subtasks=1` なら `--subtasks` 付き）を cwd = プロジェクトの root・`AGENT_LINK_PROJECT_ROOT` = 同じ root で呼ぶ
 - 定義の一覧・読み出し・保存・削除の引数（`--kind` / `--scope` / `--name` / `--create`）と本文は標準入力
 - `_phone_def_json` の終了コードの分け方（0 / 2 / 3 / 4（同じ名前の定義があります）/ その他）
 - 検査に通らない値（kind / scope / 名前 / 256KB 超 / settings の削除）は 400 で、CLI を 1 回も呼ばない
@@ -104,7 +104,7 @@ WORKFLOW_JSON = {
     "nodes": [{"id": 10, "run_id": 10, "x": 0, "y": 3, "w": 27, "h": 6}],
     "edges": [],
     "separators": [],
-    "lanes": {"todo": [], "running": [], "review": [], "done": []},
+    "lanes": {"todo": [], "running": [], "review": []},
 }
 
 
@@ -121,6 +121,26 @@ def test_workflow(cli: FakeCli) -> None:
     assert call["cwd"] == "/tmp/demo-root", call["cwd"]
     assert call["env"]["AGENT_LINK_PROJECT_ROOT"] == "/tmp/demo-root"
     assert call["timeout"] == 30.0, call["timeout"]
+
+
+def test_workflow_subtasks(cli: FakeCli) -> None:
+    """`?subtasks=1` のときだけ argv に `--subtasks` が付く（無い・偽なら今までどおり）。"""
+    from agent_link_web import main
+
+    cli.returncode = 0
+    cli.stdout = json.dumps(WORKFLOW_JSON)
+    cli.calls.clear()
+    assert control.phone_workflow("demo", True) == WORKFLOW_JSON
+    assert cli.last["args"] == ["agent-link", "workflow", "--subtasks"], cli.last["args"]
+    assert control.phone_workflow("demo", False) == WORKFLOW_JSON
+    assert cli.last["args"] == ["agent-link", "workflow"], cli.last["args"]
+
+    # 住所の側: `subtasks` を bool のクエリとして受ける（既定は偽）
+    assert main.api_project_workflow("demo", True) == WORKFLOW_JSON
+    assert cli.last["args"] == ["agent-link", "workflow", "--subtasks"], cli.last["args"]
+    route = next(r for r in app.routes if getattr(r, "path", "") == "/api/projects/{name}/workflow")
+    param = next(p for p in route.dependant.query_params if p.name == "subtasks")
+    assert param.field_info.annotation is bool and param.field_info.default is False, param
 
 
 def test_workflow_404(cli: FakeCli) -> None:
@@ -362,7 +382,7 @@ def test_routes() -> None:
 
 
 def test_def_name_variable() -> None:
-    """`{def_name}` は合言葉の `?token=` と衝突しない変数名にする。"""
+    """`{def_name}` という変数名の住所がある。"""
     for route in app.routes:
         path = getattr(route, "path", "")
         if path.endswith("/{def_name}"):
@@ -374,6 +394,7 @@ def main() -> None:
     cli = FakeCli()
     setup(cli)
     test_workflow(cli)
+    test_workflow_subtasks(cli)
     test_workflow_404(cli)
     test_def_list(cli)
     test_def_show(cli)

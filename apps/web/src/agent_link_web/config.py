@@ -29,15 +29,9 @@ DB_PATH = DATA_DIR / "agent_link_web.db"
 class Settings:
     # 待ち受けポート
     port: int = int(os.getenv("AGENT_LINK_WEB_PORT", "8200"))
-    # 合言葉（未設定なら認証なし = 開発用）
-    api_token: str | None = os.getenv("AGENT_LINK_WEB_TOKEN") or None
     # cc の記録置き場
     claude_sessions_dir: Path = Path(
         os.getenv("CLAUDE_SESSIONS_DIR", str(Path.home() / ".claude" / "projects"))
-    )
-    # pi の記録置き場
-    pi_sessions_dir: Path = Path(
-        os.getenv("PI_SESSIONS_DIR", str(Path.home() / ".pi" / "agent" / "sessions"))
     )
     # agent-link が実行ごとに書き出す JSON の置き場（00 §3.1）。
     # 手元確認では AGENT_LINK_WEB_RUNS_DIR で一時フォルダに差し替えられる。

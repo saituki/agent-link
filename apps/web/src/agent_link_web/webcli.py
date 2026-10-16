@@ -15,12 +15,9 @@ Rust のコアにあり、このファイルは HTTP を呼ぶだけ。失敗の
     apps/web/bin/agent-link-web api <METHOD> <path> [--data <JSON> | --data -]
     apps/web/bin/agent-link-web serve [--host <H>] [--port <P>]
 
-接続先と合言葉:
+接続先:
     - 接続先: `AGENT_LINK_WEB_URL`（既定 `http://127.0.0.1:8200`）
-    - 合言葉: `AGENT_LINK_WEB_TOKEN`、無ければ `<sai_home>/web/token`
     - 待ち受けの番号: `AGENT_LINK_WEB_PORT`（既定 8200）
-    - 合言葉は `Authorization: Bearer` のヘッダで送る。URL には付けない。
-      **合言葉の値は出力・エラー・ログのどこにも出さない。**
 
 終了コード:
     0 = 成功、2 = 入力の誤り、3 = 見つからない、4 = 状態の衝突、
@@ -37,8 +34,6 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-from agent_link_web import registry
-
 # 1 回の呼び出しで待つ時間の上限（秒）
 TIMEOUT_SEC = 30
 # `api` で受ける HTTP の方法（大文字小文字は問わない）
@@ -46,30 +41,13 @@ METHODS = ("GET", "POST", "PUT", "DELETE", "PATCH")
 
 
 # ---------------------------------------------------------------------------
-# 接続先と合言葉
+# 接続先
 # ---------------------------------------------------------------------------
 
 
 def base_url() -> str:
     """Web の窓口の置き場（環境変数で差し替えられる）。"""
     return (os.getenv("AGENT_LINK_WEB_URL") or "http://127.0.0.1:8200").rstrip("/")
-
-
-def api_token() -> str | None:
-    """合言葉（無ければ None）。
-
-    環境変数 `AGENT_LINK_WEB_TOKEN` を先に、次に `apps/web` が起動時に書いたファイルを見る。
-    **返り値をそのまま画面やログに出さないこと。**
-    """
-    token = os.getenv("AGENT_LINK_WEB_TOKEN")
-    if token:
-        return token
-    path = registry.sai_home() / "web" / "token"
-    try:
-        return path.read_text(encoding="utf-8").strip() or None
-    except OSError:
-        # ファイルが無いのは開発用のサーバ（認証なし）
-        return None
 
 
 # ---------------------------------------------------------------------------
@@ -163,8 +141,7 @@ def detail_of_body(body: str, status: int) -> str:
 def request_raw(method: str, path: str, payload: object | None = None):
     """1 つの API を呼び、`(状態コード, 本文, Content-Type)` を返す。
 
-    合言葉はヘッダで渡す（URL に入れない）。失敗は `HttpFailure` か
-    `UnreachableError` で伝える。
+    失敗は `HttpFailure` か `UnreachableError` で伝える。
     """
     url = base_url() + path
     data = None
@@ -172,17 +149,6 @@ def request_raw(method: str, path: str, payload: object | None = None):
     if payload is not None:
         data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         headers["Content-Type"] = "application/json"
-    token = api_token()
-    if token:
-        # HTTP のヘッダの値は latin-1 でしか送れない。送れない文字があれば、
-        # 記録を残さず、理由だけ伝える（合言葉の値そのものは出さない）
-        try:
-            token.encode("latin-1")
-        except UnicodeEncodeError:
-            raise CliError(
-                "合言葉にヘッダで送れない文字があります（英数字だけを使ってください）"
-            ) from None
-        headers["Authorization"] = f"Bearer {token}"
     req = urllib.request.Request(url, data=data, headers=headers, method=method)
     try:
         with urllib.request.urlopen(req, timeout=TIMEOUT_SEC) as res:  # noqa: S310（宛先は設定値）
@@ -391,7 +357,7 @@ def cmd_api(args: argparse.Namespace) -> object:
     if method not in METHODS:
         raise UsageError(f"METHOD は {' / '.join(METHODS)} のどれかです: {args.method}")
     path = args.path
-    # 合言葉を付けて別の宛先へ送らないため、`/` で始まる path だけを受ける
+    # 別の宛先へ送らないため、`/` で始まる path だけを受ける
     if not path.startswith("/") or "://" in path:
         raise UsageError(f"path は / で始まる形で書いてください: {path}")
     # 空白・制御文字は URL に入れられない（http.client が InvalidURL で落ちる）
@@ -507,7 +473,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_json(p)
     p.set_defaults(func=cmd_send)
 
-    p = sub.add_parser("usage", help="使用量（Claude の枠と費用・OpenRouter・DeepSeek）")
+    p = sub.add_parser("usage", help="使用量（Claude Code の枠と費用）")
     _add_json(p)
     p.set_defaults(func=cmd_usage)
 

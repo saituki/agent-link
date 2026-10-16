@@ -175,7 +175,7 @@ def test_deny_mode_returns_reason_with_answer() -> None:
 
 
 def test_no_token_has_no_authorization() -> None:
-    """合言葉が無ければ Authorization を付けない（単独モードは今のまま）。"""
+    """合言葉は無いので Authorization を付けない。"""
     web = FakeWeb([ANSWERED_STATE])
     try:
         code, out = run_hook(web.port, token=None)

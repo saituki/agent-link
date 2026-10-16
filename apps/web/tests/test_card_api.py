@@ -1,7 +1,8 @@
 """task.md 作成フォームと新形式 todo の ▶ 実行の API（計画 15 §3.3・U09）の小さなテスト。
 
 確かめること:
-- 外から来る値の検査（block / task_text / runner / thinking / round / tag）
+- 外から来る値の検査（block / task_text / thinking / model）。廃止した項目
+  （runner / provider / round / tag）は送っても CLI に渡らない
 - 検査は CLI を呼ぶ前に行う（呼び出し 0 回）
 - `card create` は stdin に JSON を渡して呼ぶ（cwd = プロジェクトの root）。
   入力は task_text に統一したので `inputs` は送らない（受け取っても断らない・U09）
@@ -10,7 +11,7 @@
     - 終了コード 3 は 404（文に関係なく）
     - 常駐停止などその他は 502（理由は標準エラーの最後の行）
 - ■ 終了（`run finalize`・計画書 A の D2）
-- review → done → Workflow の移動（`run advance`・計画書 A の U10）
+- review → Workflow（日付フォルダ）の移動（`run advance`）
 - 旧 API `GET …/todo`・`POST …/run`・`GET …/card/inputs` は消え，新しい住所が登録済み
 
 実行:
@@ -86,15 +87,10 @@ def good_payload() -> dict:
     """
     return {
         "done_ids": [26],
-        "runner": "cc",
         "block": "sub",
         "inputs": {"plan_doc": "waggle:aaa, waggle:bbb"},
-        "provider": "",
         "model": "opus",
         "thinking": "high",
-        "global_round": "5",
-        "round": "2",
-        "tag": "fix",
         "task_text": "計画を読んで実装せよ",
     }
 
@@ -110,12 +106,7 @@ def test_validation(cli: FakeCli) -> None:
 
     # task_text は 100KB まで（UTF-8 のバイト数）
     expect(400, with_payload(task_text="あ" * (100 * 1024)))
-    # runner / thinking は一覧の値（空文字はスキップなので通る）
-    expect(400, with_payload(runner="claude"))
-    # pi は廃止（U06）。理由を文言で確かめる
-    e = expect(400, with_payload(runner="pi"))
-    assert e.detail == "runner の pi は廃止しました", e.detail
-    expect(400, with_payload(runner=5))
+    # thinking は一覧の値（空文字はスキップなので通る）
     expect(400, with_payload(thinking="turbo"))
     # done_ids は 1 以上の整数の配列
     expect(400, with_payload(done_ids=[True]))
@@ -123,15 +114,10 @@ def test_validation(cli: FakeCli) -> None:
     expect(400, with_payload(done_ids=26))
     # block は英数字と -_.: のみ
     expect(400, with_payload(block="a/b"))
-    # global_round / round は数字、tag は 1 行
-    expect(400, with_payload(global_round="five"))
-    expect(400, with_payload(round="2x"))
-    expect(400, with_payload(tag="2 行\nにじむ"))
     # description は 200 文字までの 1 行（空は通る）
     expect(400, with_payload(description="2 行\nにじむ"))
     expect(400, with_payload(description="あ" * 201))
-    # provider / model は名前として読める文字だけ
-    expect(400, with_payload(provider="open router"))
+    # model は名前として読める文字だけ
     expect(400, with_payload(model="opus; rm -rf"))
     # 形が違うもの
     expect(400, lambda: control.phone_card_create("demo", "这不是对象"))
@@ -139,6 +125,15 @@ def test_validation(cli: FakeCli) -> None:
     control.phone_card_create("demo", good_payload() | {"inputs": {"a/b": "これは形式違反"}})
 
     assert len(cli.calls) == 1, f"inputs を断った: {cli.calls}"
+
+    # 廃止した項目は，変な値でも 400 にせず無視する（古い画面のキャッシュ用）
+    cli.calls.clear()
+    control.phone_card_create(
+        "demo",
+        good_payload()
+        | {"runner": "claude", "provider": "open router", "global_round": "five", "round": "2x", "tag": "2 行\nにじむ"},
+    )
+    assert len(cli.calls) == 1, cli.calls
 
 
 def test_create_calls_cli(cli: FakeCli) -> None:
@@ -157,15 +152,21 @@ def test_create_calls_cli(cli: FakeCli) -> None:
     sent = json.loads(call["input_text"])
     # 送った JSON に入力ファイルの指定は入らない（U09）
     assert "inputs" not in sent, sent
-    assert sent["runner"] == "cc"
     assert sent["done_ids"] == [26]
+    assert sent["model"] == "opus" and sent["thinking"] == "high" and sent["block"] == "sub", sent
+    # 廃止した項目は，送ってきても CLI の stdin に入れない
+    old = good_payload() | {"runner": "cc", "provider": "p", "tag": "fix", "global_round": "5", "round": "2"}
+    control.phone_card_create("demo", old)
+    sent = json.loads(cli.last["input_text"])
+    for key in ("runner", "provider", "tag", "global_round", "round"):
+        assert key not in sent, (key, sent)
 
     # スキップした項目は空文字のまま送る（agent-link が自動値にする）
     minimal = good_payload()
-    minimal.update({"runner": "", "block": "", "model": "", "thinking": "", "done_ids": [], "inputs": {}})
+    minimal.update({"block": "", "model": "", "thinking": "", "done_ids": [], "inputs": {}})
     control.phone_card_create("demo", minimal)
     sent = json.loads(cli.last["input_text"])
-    assert sent["runner"] == ""
+    assert sent["model"] == "" and sent["block"] == "", sent
     assert "inputs" not in sent, sent
 
     # options の呼ぶ形
@@ -175,7 +176,6 @@ def test_create_calls_cli(cli: FakeCli) -> None:
     # 開発用 block は選択肢から外し、main・web-research は残す
     cli.stdout = json.dumps(
         {
-            "runners": ["cc"],
             "blocks": [
                 {"id": "main", "label": "main"},
                 {"id": "sub", "label": "sub"},

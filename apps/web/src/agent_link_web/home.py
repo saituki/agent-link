@@ -145,10 +145,10 @@ def _folder_runs(items, label: str) -> list[dict]:
             # 実行予約した todo だけ `scheduled_at`（`YYYY-MM-DD HH:MM`）が付く
             if isinstance(child.get("scheduled_at"), str) and child["scheduled_at"]:
                 row["scheduled_at"] = _text(child["scheduled_at"])
-            # todo だけ task.md の項目（作成日・block・runner・model・説明）が付く
+            # todo だけ task.md の項目（作成日・block・model・説明）が付く
             card = child.get("card")
             if isinstance(card, dict):
-                row["card"] = {k: _text(card.get(k) or "") for k in ("creation_date", "block", "runner", "model", "description")}
+                row["card"] = {k: _text(card.get(k) or "") for k in ("creation_date", "block", "model", "description")}
             out.append(row)
     return out
 
