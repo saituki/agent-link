@@ -75,15 +75,15 @@ function testSkip() {
   assert.strictEqual(cf.cfSkip(confirm), "Cannot skip this step.");
   assert.strictEqual(cf.cfCanSkip(confirm), false);
   // 途中の画面はスキップできる
-  for (const step of ["block", "model", "thinking", "task_text"]) {
+  for (const step of ["model", "thinking", "task_text"]) {
     assert.strictEqual(cf.cfCanSkip({ step }), true, step);
   }
-  // block をスキップすると model へ
+  // block は必須（スキップできない）
   const b = cf.cfNewDraft();
   b.block = "sub";
-  assert.strictEqual(cf.cfSkip(b), null);
-  assert.strictEqual(b.block, "");
-  assert.strictEqual(b.step, "model");
+  assert.strictEqual(cf.cfCanSkip(b), false);
+  assert.strictEqual(cf.cfSkip(b), "Cannot skip this step.");
+  assert.strictEqual(b.block, "sub");
   // model をスキップすると thinking へ
   const s = cf.cfNewDraft();
   s.step = "model";

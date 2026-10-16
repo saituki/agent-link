@@ -86,19 +86,15 @@ function cfNext(state) {
   }
 }
 
-/** スキップできる手順か（引き継ぎと確認は無し・TUI と同じ）。 */
+/** スキップできる手順か（block・引き継ぎ・確認は無し。block が無いカードは run できない）。 */
 function cfCanSkip(state) {
-  return ["block", "model", "thinking", "task_text"].includes(state.step);
+  return ["model", "thinking", "task_text"].includes(state.step);
 }
 
 /** スキップ（その項目は agent-link の既定値に任せる）。止めれば理由を返す。 */
 function cfSkip(state) {
   if (!cfCanSkip(state)) return "Cannot skip this step.";
   switch (state.step) {
-    case "block":
-      state.block = "";
-      state.step = "model";
-      return null;
     case "model":
       state.model = "";
       state.step = "thinking";
@@ -406,7 +402,7 @@ function cfRenderBody() {
         }
       )
     );
-    body.appendChild(cfNote("Choose an instruction sheet (skip to use the agent-link default)."));
+    body.appendChild(cfNote("Choose an instruction sheet (required)."));
     return;
   }
 
