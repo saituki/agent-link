@@ -194,6 +194,13 @@ pub enum OrchestratorError {
     IoError(#[from] std::io::Error),
     #[error("System prompt temp file error: {0}")]
     SystemPromptError(String),
+    /// 文と確定キーは送ったが、状態が working にならなかった（届いたかどうか分からない）。
+    #[error("The agent did not report that it started working within {waited_secs} seconds after the message and the confirm key {submit_key} were sent ({attempts} times). The message may have been delivered; check the screen before sending it again.")]
+    PromptUnconfirmed {
+        submit_key: String,
+        attempts: u32,
+        waited_secs: u64,
+    },
 }
 
 impl From<SessionError> for OrchestratorError {
@@ -3713,7 +3720,9 @@ fn interruptible_sleep(
 ///
 /// * `Ok(())` — `agent_status` が `working` になった
 /// * `Err(OrchestratorError::Cancelled)` — `blocked` になった、またはキャンセルされた
-/// * `Err(OrchestratorError::CommandError)` — 送信自体に失敗、または 3 回試しても working になりません
+/// * `Err(OrchestratorError::CommandError)` — 送信自体に失敗
+/// * `Err(OrchestratorError::PromptUnconfirmed)` — 文と確定キーは送ったが、3 回試しても
+///   working にならなかった（届いたかどうか分からない）
 ///
 /// # 可視性
 ///
@@ -3775,10 +3784,11 @@ pub(crate) fn submit_prompt_verified(
         );
     }
 
-    Err(OrchestratorError::CommandError(format!(
-        "Could not send the prompt: the status did not become working after sending the confirm key {} {} times.",
-        submit_key, MAX_ATTEMPTS
-    )))
+    Err(OrchestratorError::PromptUnconfirmed {
+        submit_key: submit_key.to_string(),
+        attempts: MAX_ATTEMPTS,
+        waited_secs: (MAX_ATTEMPTS as u64) * ATTEMPT_WAIT_MS / 1000,
+    })
 }
 
 // ============================================================================

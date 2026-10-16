@@ -238,8 +238,10 @@ Web が `recent[]` に**追加で足す**項目: `description`（文字列）・
 
 | 命令 | 返り値 | 終了コード |
 |---|---|---|
-| `run send <run_id> [--text <文>] [--json]` | `{"run_id", "pane_id", "status": "sent"}` | 空の文 2・実行や送り先が無い 3・終了している/質問待ち 4 |
+| `run send <run_id> [--text <文>] [--json]` | `{"run_id", "pane_id", "status": "sent" \| "unconfirmed", "message"?}` | 空の文 2・実行や送り先が無い 3・終了している/質問待ち 4 |
 | `run interrupt <run_id> [--json]` | `{"run_id", "status": "interrupted" \| "still_working", "agent_status"}` | 無い 3・終了している 4 |
+
+`unconfirmed` は、文と確定キーを送ったが状態が `working` にならなかった（届いたか分からない）ことを表す。失敗にすると利用者が送り直して二重に届くので、終了コード 0 で返し、`message`（英語 1 文）を付ける。`task send`（作業中の子への直接送信）も同じで、`{"action": "send", "task_id", "status": "unconfirmed", "message"}` を返す。最初の文（run の起動時）と完了した子へのターン送信は、今までどおり失敗にする。
 
 - `--text` を省くと標準入力の全文を送る（Chats の「続きを送る」が使う）。
 - 送り先は headless の擬似 pane（`hl-` で始まる id）。`draft.txt`・`inbox/`・`interrupt` のファイルで監督スレッドへ渡す。

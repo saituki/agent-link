@@ -1588,7 +1588,9 @@ fn run_pane(run_id: i64) -> Result<(ExecutionHistory, String), String> {
 /// `agent-link run send <run_id>`: 実行中の run に続きの文を送る（共有契約 C2）。
 ///
 /// 擬似 pane に `send_text` → 確定キーを送り、`working` になるのを待つ。
-/// 戻り値は `{"run_id", "pane_id", "status": "sent"}`。
+/// 戻り値は `{"run_id", "pane_id", "status": "sent" | "unconfirmed", "message"?}`。
+/// `unconfirmed` は文と確定キーを送ったが working にならなかった（届いたか分からない）。
+/// 失敗にすると利用者が送り直して二重に届くので、成功（終了コード 0）で返す。
 /// 終了している・質問待ちのときは `Err`（CLI は終了コード 4）。
 pub fn run_send(run_id: i64, text: &str) -> Result<Value, String> {
     let (_exec, pane_id) = run_pane(run_id)?;
@@ -1603,13 +1605,16 @@ pub fn run_send(run_id: i64, text: &str) -> Result<Value, String> {
         ));
     }
     let submit_key = crate::cc_command::CC_SUBMIT_KEY;
-    crate::orchestrator::submit_prompt_verified(&herdr, &pane_id, text, submit_key, None)
-        .map_err(|e| format!("Failed to send to the pane: {}", e))?;
-    Ok(json!({
-        "run_id": run_id,
-        "pane_id": pane_id,
-        "status": "sent",
-    }))
+    match crate::orchestrator::submit_prompt_verified(&herdr, &pane_id, text, submit_key, None) {
+        Ok(()) => Ok(json!({ "run_id": run_id, "pane_id": pane_id, "status": "sent" })),
+        Err(e @ crate::orchestrator::OrchestratorError::PromptUnconfirmed { .. }) => Ok(json!({
+            "run_id": run_id,
+            "pane_id": pane_id,
+            "status": "unconfirmed",
+            "message": e.to_string(),
+        })),
+        Err(e) => Err(format!("Failed to send to the pane: {}", e)),
+    }
 }
 
 /// `agent-link run interrupt <run_id>`: 実行中の run を中断する（共有契約 C2）。
@@ -1957,14 +1962,29 @@ pub fn task_manage(
                     let submit_key = crate::cc_command::CC_SUBMIT_KEY;
                     // 1 回目の実行は task_report まで待機が続くので、ターン実行は別に起こさない。
                     // ここで送った指示は同じ実行の続きとして処理される。
-                    crate::orchestrator::submit_prompt_verified(
+                    if let Err(e) = crate::orchestrator::submit_prompt_verified(
                         &herdr,
                         &pane_id,
                         message,
                         submit_key,
                         None,
-                    )
-                    .map_err(|e| format!("Failed to send to the pane: {}", e))?;
+                    ) {
+                        // 届いたか分からないときは失敗にしない（送り直すと二重に届く）。
+                        return match e {
+                            crate::orchestrator::OrchestratorError::PromptUnconfirmed { .. } => {
+                                Ok(json!({
+                                    "action": "send",
+                                    "task_id": task_id,
+                                    "status": "unconfirmed",
+                                    "message": format!(
+                                        "{} Check the screen with `agent-link task capture {}` before sending again.",
+                                        e, task_id
+                                    ),
+                                }))
+                            }
+                            e => Err(format!("Failed to send to the pane: {}", e)),
+                        };
+                    }
 
                     // 注意: ターン送信中（completed のあとに send して in_progress になった状態）に
                     // interrupt すると、子が idle になり `send_turn_to_pane` がそのターンを

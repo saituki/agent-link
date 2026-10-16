@@ -126,8 +126,8 @@
 // agent-link: Web の名前を agent-link に変えた（v133。index.html の ?v= も 133。ASSETS は変えない）
 // agent-link: Account・Usage の詳細・コマンドの画面と合言葉を消し、Home に Claude の使用量を出した（v134。index.html の ?v= も 134。ASSETS から account.js・usage.js・commands.js を外した）
 // agent-link: 画面の文言を英語にした（A 組。v135）
-// agent-link: カードの作成で block を必須にした（v136。index.html の ?v= も 136。ASSETS は変えない）
-const CACHE = "agent-link-web-v136";
+// agent-link: カードの作成で block を必須にした（v137。index.html の ?v= も 136。ASSETS は変えない）
+const CACHE = "agent-link-web-v137";
 const ASSETS = ["/", "/index.html", "/style.css", "/markdown.css", "/home.css", "/workflow.css", "/defs.css", "/markdown.js", "/ui.js", "/app.js", "/chatorder.js", "/newchat.js", "/stats.js", "/project.js", "/linkview.js", "/cardform.js", "/sessionsearch.js", "/voiceask.js", "/canvaslayout.js", "/home.js", "/workflow.js", "/defs.js", "/manifest.json"];
 
 self.addEventListener("install", (e) => {

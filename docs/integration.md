@@ -153,7 +153,7 @@ iPhone / PC のブラウザ
 | `GET /api/health` | 生存確認 |
 | `GET /api/days` / `GET /api/days/{date}` | 会話の日付一覧・その日の実行 |
 | `GET /api/runs/{project}/{run_id}` / `…/items` | 実行 1 件・会話の中身。`…/items` は `{items, next_cursor, live, partial, error}` を返す（`live` は `working` / `idle` / `blocked` / `null`、`partial` は生成中の文・`error` は直前のターンの失敗の理由。headless の実行は `state.json` から読む） |
-| `POST /api/runs/{project}/{run_id}/send` | 実行中の run に文を送る（`agent-link run send <run_id> --json`・本文は標準入力）。質問が開いているときは tmux に送らず、その質問を取り下げて文を答えの代わりに渡す（応答 `{"run_id", "status": "withdrawn", "question_ids": […]}`）。終了・質問待ちは 409、無ければ 404 |
+| `POST /api/runs/{project}/{run_id}/send` | 実行中の run に文を送る（`agent-link run send <run_id> --json`・本文は標準入力）。質問が開いているときは tmux に送らず、その質問を取り下げて文を答えの代わりに渡す（応答 `{"run_id", "status": "withdrawn", "question_ids": […]}`）。終了・質問待ちは 409、無ければ 404。CLI が `"status": "unconfirmed"`（文は送ったが working にならなかった）を返したときは、そのまま返す（画面は入力欄を消して注意を出す） |
 | `POST /api/runs/{project}/{run_id}/interrupt` | 実行中の run を中断する（`agent-link run interrupt <run_id> --json`）。質問が開いているときは esc を送らず、質問を文なしで取り下げる（応答 `{"run_id", "status": "interrupted", "agent_status": "blocked"}`）。無い実行は CLI を呼ばず 404 |
 | `POST /api/runs/{project}/{run_id}/finalize` | メッセージ画面の ■ 終了（その run が無ければ 404、実行中でない・子ブロック・常駐停止は 502）。呼ぶ CLI は `agent-link run finalize <run_id>` |
 | `POST /api/questions/{qid}/withdraw` | 未回答の質問を取り下げる（本文 `{"text"?}`・8000 文字まで。質問カードの「質問を止める」は文なし）。応答 `{"ok": true}`。締め切られた質問は 409、無ければ 404 |
