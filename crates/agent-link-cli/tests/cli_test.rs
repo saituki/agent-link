@@ -86,7 +86,7 @@ fn test_cli_invalid_subcommand() {
     );
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
-        stderr.starts_with("引数の誤り: "),
+        stderr.starts_with("Invalid arguments: "),
         "日本語の 1 行が表示されること: {stderr:?}"
     );
 }
@@ -411,7 +411,7 @@ fn test_cli_run_show_not_found() {
     cleanup_temp_dir(&dir);
 }
 
-/// `run show abc` は終了コード 2・stderr の最後の行が `引数の誤り: ` で始まる。
+/// `run show abc` は終了コード 2・stderr の最後の行が `Invalid arguments: ` で始まる。
 #[test]
 fn test_cli_run_show_parse_error() {
     let out = Command::new(sai_binary())
@@ -427,8 +427,8 @@ fn test_cli_run_show_parse_error() {
         .last()
         .unwrap_or("");
     assert!(
-        last.starts_with("引数の誤り: "),
-        "最後の行が「引数の誤り: 」で始まる: {stderr:?}"
+        last.starts_with("Invalid arguments: "),
+        "最後の行が`Invalid arguments: `で始まる: {stderr:?}"
     );
     // clap の英語の複数行は出さず、日本語の 1 行だけにする
     assert_eq!(stderr.lines().count(), 1, "stderr は 1 行: {stderr:?}");
@@ -547,6 +547,6 @@ fn test_cli_card_create_rejects_standard_meta() {
     );
     assert_eq!(out.status.code(), Some(2), "標準のキーは 2");
     let stderr = String::from_utf8_lossy(&out.stderr);
-    assert!(stderr.contains("標準のキー"), "理由を出す: {stderr:?}");
+    assert!(stderr.contains("is reserved"), "理由を出す: {stderr:?}");
     cleanup_temp_dir(&dir);
 }

@@ -20,7 +20,7 @@ pub(crate) fn run(cmd: TaskCmd) -> Result<(), CmdError> {
         } => {
             let text = read_stdin_text()?;
             let value: serde_json::Value = serde_json::from_str(&text)
-                .map_err(|e| CmdError::input(format!("標準入力の JSON の解析に失敗しました: {}", e)))?;
+                .map_err(|e| CmdError::input(format!("Failed to parse the JSON on standard input: {}.", e)))?;
             // 子の配列 `[…]` と `{"tasks":[…]}` の両方を受ける
             let tasks = match value.get("tasks") {
                 Some(t) => t.clone(),
@@ -50,11 +50,11 @@ pub(crate) fn run(cmd: TaskCmd) -> Result<(), CmdError> {
         } => {
             if task_ids.is_empty() {
                 return Err(CmdError::input(
-                    "task wait には 1 件以上のタスク ID を指定してください",
+                    "task wait needs at least one task ID.",
                 ));
             }
             if task_ids.len() > 50 {
-                return Err(CmdError::input("task wait は 50 件までです"));
+                return Err(CmdError::input("task wait accepts at most 50 task IDs."));
             }
             // 2 件以上のときは「1 件返して残りを pending」の形にする
             let with_pending = task_ids.len() > 1;
@@ -150,6 +150,6 @@ fn read_stdin_text() -> Result<String, CmdError> {
     let mut text = String::new();
     std::io::stdin()
         .read_to_string(&mut text)
-        .map_err(|e| CmdError::input(format!("標準入力を読めません: {}", e)))?;
+        .map_err(|e| CmdError::input(format!("Cannot read standard input: {}.", e)))?;
     Ok(text)
 }

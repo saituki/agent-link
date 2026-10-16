@@ -89,7 +89,7 @@ pub(crate) fn run(cmd: DocCmd) -> Result<(), CmdError> {
 fn doc_list(run: Option<i64>, all: bool, json: bool) -> Result<(), CmdError> {
     use agent_link_view::phone_view;
     let store =
-        crate::cli::open_db().map_err(|e| CmdError::other(format!("DB を開けません: {}", e)))?;
+        crate::cli::open_db().map_err(|e| CmdError::other(format!("Cannot open the DB: {}.", e)))?;
     let choices = match run {
         Some(run_id) => phone_view::waggle_choices(&store, run_id),
         None => phone_view::all_docs(&store, all),
@@ -127,6 +127,6 @@ fn read_stdin_text() -> Result<String, CmdError> {
     let mut text = String::new();
     std::io::stdin()
         .read_to_string(&mut text)
-        .map_err(|e| CmdError::input(format!("標準入力を読めません: {}", e)))?;
+        .map_err(|e| CmdError::input(format!("Cannot read standard input: {}.", e)))?;
     Ok(text)
 }

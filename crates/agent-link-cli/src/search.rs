@@ -76,7 +76,7 @@ pub fn run_search_command(args: SearchArgs) -> Result<(), Box<dyn std::error::Er
         Ok(q) => q,
         // 書式エラーは終了コード 2
         Err(SearchError::Parse(msg)) => {
-            eprintln!("エラー: {msg}");
+            eprintln!("Error: {msg}.");
             std::process::exit(2);
         }
         Err(e) => return Err(e.into()),
@@ -95,7 +95,7 @@ pub fn run_search_command(args: SearchArgs) -> Result<(), Box<dyn std::error::Er
         match run_search_projects(&projects, &query) {
             Ok(v) => (v, 0usize),
             Err(SearchError::Parse(msg)) => {
-                eprintln!("エラー: {msg}");
+                eprintln!("Error: {msg}.");
                 std::process::exit(2);
             }
             Err(e) => return Err(e.into()),
@@ -104,8 +104,7 @@ pub fn run_search_command(args: SearchArgs) -> Result<(), Box<dyn std::error::Er
         let store = match agent_link_engine::db::SaiStore::open(&db_path) {
             Ok(s) => s,
             Err(e) => {
-                eprintln!("エラー: DB を開けませんでした: {}", db_path.display());
-                eprintln!("  {e}");
+                eprintln!("Error: Failed to open the DB at {}: {e}.", db_path.display());
                 std::process::exit(1);
             }
         };
@@ -113,7 +112,7 @@ pub fn run_search_command(args: SearchArgs) -> Result<(), Box<dyn std::error::Er
             Ok(v) => v,
             // 書式エラーはここでは発生しないが、念のため終了コード 2 に振り分ける
             Err(SearchError::Parse(msg)) => {
-                eprintln!("エラー: {msg}");
+                eprintln!("Error: {msg}.");
                 std::process::exit(2);
             }
             Err(e) => return Err(e.into()),

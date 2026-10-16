@@ -56,7 +56,7 @@ pub fn kanban_block_run(
                 cards[0].clone()
             } else {
                 return Err(format!(
-                    "未実行カードが {} 件あります。--card <ファイル名> で指定してください",
+                    "There are {} unstarted cards. Specify one with --card <filename>.",
                     cards.len()
                 )
                 .into());
@@ -93,7 +93,7 @@ pub fn run_card_request(
     // カード読み出し
     let text = std::fs::read_to_string(&card_path)?;
     let card = agent_link_engine::kanban::parse_card(&text)
-        .ok_or("カード md の frontmatter をパースできません")?;
+        .ok_or("Cannot parse the frontmatter of the card md.")?;
 
     // エージェント（executer: agent）が起こすカードは、人が起こす道（`phone card run`・
     // `block run --kanban`・常駐の予約実行）では動かさない。起こすと root の run になり、
@@ -110,7 +110,7 @@ pub fn run_card_request(
             let b = card.frontmatter.block.trim().to_string();
             if b.is_empty() {
                 return Err(
-                    "task.md の `block:` が未記載です。`block: <block_id>` を記載するか --block で指定してください"
+                    "`block:` is missing in task.md. Add `block: <block_id>` or pass --block."
                         .into(),
                 );
             }
@@ -200,7 +200,7 @@ fn parse_field_args(fields: &[String]) -> HashMap<String, String> {
             }
             None => {
                 eprintln!(
-                    "警告: --field '{}' の形式が不正です。id=value 形式で指定してください。",
+                    "Warning: --field '{}' is invalid. Use the id=value form.",
                     f
                 );
             }
@@ -259,12 +259,12 @@ fn resolve_card_file(
     }
     if matches.len() > 1 {
         return Err(format!(
-            "カード '{}' が曖昧です。ファイル名で指定してください",
+            "Card '{}' is ambiguous. Specify it by filename.",
             selector
         )
         .into());
     }
-    Err(format!("カード '{}' が todo にありません", selector).into())
+    Err(format!("Card '{}' is not in todo.", selector).into())
 }
 
 /// カードの `execution_date` を要求時刻で更新する（Q6-A・一段階目）。
@@ -274,7 +274,7 @@ fn resolve_card_file(
 fn stamp_card_execution_date(card_path: &PathBuf) -> Result<(), Box<dyn std::error::Error>> {
     let text = std::fs::read_to_string(card_path)?;
     let mut card = agent_link_engine::kanban::parse_card(&text)
-        .ok_or("カード md の frontmatter をパースできません")?;
+        .ok_or("Cannot parse the frontmatter of the card md.")?;
     let now = chrono::Local::now().format("%Y/%m/%d %H:%M:%S").to_string();
     card.frontmatter.execution_date = now;
     std::fs::write(card_path, agent_link_engine::kanban::render_card(&card))?;
@@ -321,7 +321,7 @@ fn select_block() -> Result<String, Box<dyn std::error::Error>> {
     }
     names.sort();
     if names.is_empty() {
-        return Err("ブロック定義が `.agent-link/blocks` にありません".into());
+        return Err("No block definition in `.agent-link/blocks`.".into());
     }
     let idx = Select::new()
         .with_prompt("実行ブロックを選択")
@@ -342,7 +342,7 @@ fn resolve_block_file(selector: &str) -> Result<PathBuf, Box<dyn std::error::Err
     if candidate.exists() {
         return Ok(candidate);
     }
-    Err(format!("ブロック定義が見つかりません: {}", selector).into())
+    Err(format!("Block definition {} not found.", selector).into())
 }
 
 /// 数値入力を求める（必須。空欄や数値以外は再入力させる）。

@@ -103,7 +103,7 @@ fn main() {
     };
 
     if let Err(e) = result {
-        eprintln!("致命的エラー: {}", e);
+        eprintln!("Fatal error: {}", e);
         std::process::exit(1);
     }
 }
@@ -120,7 +120,7 @@ fn run_new(result: Result<(), cmd_common::CmdError>) -> Result<(), Box<dyn std::
 ///
 /// - `--help`・`--version` などの表示は、今のとおり出して終了コード 0。
 /// - それ以外は clap の複数行の文を出さず、標準エラーに
-///   `引数の誤り: <clap の文の 1 行目から先頭の "error: " を除いた物>` の 1 行だけを書いて終了コード 2。
+///   `Invalid arguments: <clap の文の 1 行目から先頭の "error: " を除いた物>` の 1 行だけを書いて終了コード 2。
 fn handle_clap_error(e: clap::Error) -> ! {
     match e.kind() {
         ErrorKind::DisplayHelp
@@ -142,7 +142,7 @@ fn handle_clap_error(e: clap::Error) -> ! {
                 .collect::<Vec<_>>()
                 .join(" ");
             let first = first.strip_prefix("error: ").unwrap_or(&first);
-            eprintln!("引数の誤り: {}", first);
+            eprintln!("Invalid arguments: {}", first);
             std::process::exit(cmd_common::EXIT_INPUT);
         }
     }
