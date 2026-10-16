@@ -166,6 +166,19 @@ def _answer_question_locked(
             and not (a.get("text") or "").strip()
         ):
             return (False, "There are unanswered questions.")
+        # 選択肢の番号は 0 から数える。範囲外は空の答えとして cc に届いてしまうので断る
+        n_options = len(one.get("options") or [])
+        picked = list(a.get("choice_indices") or [])
+        if a.get("choice_index") is not None:
+            picked.append(a["choice_index"])
+        for n in picked:
+            if not isinstance(n, int) or isinstance(n, bool) or not 0 <= n < n_options:
+                return (
+                    False,
+                    f"Choice {n} is out of range for question {i + 1} (0 to {n_options - 1}).",
+                )
+        if len(a.get("choice_indices") or []) > 1 and not one.get("multiSelect"):
+            return (False, f"Question {i + 1} takes one choice.")
 
     # headless ではキーを送れない．記録するだけ（cc のフックと pi の拡張が取りに来る）
     # 回答者は今の利用者（単独モードは user）．承認の記録（approval record）に使う（C8）

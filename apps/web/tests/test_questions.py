@@ -102,6 +102,57 @@ def test_answer_requires_all_questions() -> None:
         assert state_of(qid) == "open"
 
 
+def test_answer_rejects_out_of_range_choice() -> None:
+    """範囲外の選択肢（0 から数える）は断り、記録しない。API は 400 にする（Q2-09）．"""
+    with tempfile.TemporaryDirectory() as tmp:
+        fresh_db(tmp)
+        qid = make_question("claude")["id"]  # 選択肢 2 つ・単一選択
+        for bad in ([{"choice_index": 2}], [{"choice_index": 99}], [{"choice_index": -1}],
+                    [{"choice_indices": [0, 5]}]):
+            ok, reason = questions.answer_question(qid, bad)
+            assert ok is False and "out of range" in reason, reason
+            assert state_of(qid) == "open"
+        ok, reason = questions.answer_question(qid, [{"choice_indices": [0, 1]}])
+        assert ok is False and "takes one choice" in reason, reason
+        assert state_of(qid) == "open"
+        # API の層は 400
+        from fastapi import HTTPException
+
+        from agent_link_web import main as web_main
+
+        try:
+            web_main.api_answer_question(qid, web_main.AnswerRequest(choice_index=99))
+        except HTTPException as e:
+            assert e.status_code == 400 and "out of range" in e.detail
+        else:
+            raise AssertionError("400 になるはず")
+        assert state_of(qid) == "open"
+        # 範囲内は通る
+        ok, reason = questions.answer_question(qid, [{"choice_index": 1}])
+        assert ok is True, reason
+
+
+def test_validation_error_detail_is_string() -> None:
+    """FastAPI の検査の誤り（422）の detail は英語 1 文の文字列（Q2-20）．"""
+    import asyncio
+    import json
+
+    from pydantic import ValidationError
+
+    from agent_link_web import main as web_main
+
+    try:
+        web_main.AnswerRequest(answers="x")
+    except ValidationError as e:
+        from fastapi.exceptions import RequestValidationError
+
+        exc = RequestValidationError([{**err, "loc": ("body", *err["loc"])} for err in e.errors()])
+    res = asyncio.run(web_main.validation_error_handler(None, exc))
+    body = json.loads(res.body)
+    assert res.status_code == 422
+    assert isinstance(body["detail"], str) and body["detail"].startswith("Invalid request: body.answers: "), body
+
+
 def test_pi_question_expires_after_10_minutes() -> None:
     """pi の open な質問は10分経ったら expired（05 §3.1）．"""
     with tempfile.TemporaryDirectory() as tmp:
@@ -246,6 +297,8 @@ def main() -> None:
     test_pi_question_stays_open_when_pane_not_blocked()
     test_cc_question_answer_records_without_keys()
     test_answer_requires_all_questions()
+    test_answer_rejects_out_of_range_choice()
+    test_validation_error_detail_is_string()
     test_pi_question_expires_after_10_minutes()
     test_cc_question_expires_after_24_hours()
     test_resolve_on_terminal()
