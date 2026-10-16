@@ -267,18 +267,61 @@ function testTodoItems() {
   // label が無い行は ID<run_id> を出す
   const noLabel = H.hmTodoItems({ projects: [{ name: "p", todo_runs: [{ run_id: 7 }] }] });
   assert.strictEqual(noLabel[0].title, "ID7");
-  // card（task.md の項目）があれば「作成日 ID block runner model」と説明の 2 行
+  // card（task.md の項目）があれば「作成日 ID block model」と説明の 2 行
   const withCard = H.hmTodoItems({
     projects: [{ name: "p", todo_runs: [{ run_id: 9, label: "ID9/plan", card: {
-      creation_date: "2026/09/30 08:25:12", block: "plan", runner: "cc", model: "opus", description: "議論",
+      creation_date: "2026/09/30 08:25:12", block: "plan", model: "opus", description: "議論",
     } }] }],
   });
-  assert.strictEqual(withCard[0].title, "2026/09/30 08:25:12 ID9 plan cc opus");
+  assert.strictEqual(withCard[0].title, "2026/09/30 08:25:12 ID9 plan opus");
   assert.strictEqual(withCard[0].sub, "議論");
   // todo_runs が無い（古い /api/home でも）ときは 0 件
   assert.deepStrictEqual(H.hmTodoItems({ projects: [{ name: "p", todo: 3 }] }), []);
   assert.deepStrictEqual(H.hmTodoItems(null), []);
   assert.strictEqual(H.HM_TODO_MAX, 10, "はじめは 10 件");
+}
+
+// Claude のカード（枠あり・枠なし・費用）
+function testUsageLines() {
+  assert.strictEqual(H.hmUsageMoney(1.236), "$1.24");
+  assert.strictEqual(H.hmUsageMoney(-0.004), "-$0.00");
+  assert.strictEqual(H.hmUsageMoney(null), "$0.00");
+  assert.strictEqual(H.hmUsageMoney("x"), "$0.00");
+  // 枠なし
+  const none = H.hmUsageLines({ limits: null, cost: { today: 0, month: 0, sessions: 0 } });
+  assert.deepStrictEqual(none.meters, []);
+  assert.strictEqual(none.note, "No limit data yet (shown after a Claude Code reply, Pro/Max only).");
+  assert.strictEqual(none.cost, "Cost today $0.00 / this month $0.00 (0 sessions)");
+  // 枠あり（5 時間枠は今日なら時刻だけ・7 日枠は曜日も）
+  const now = new Date(2026, 9, 14, 10, 0, 0); // 水曜
+  const at = (d, h, m) => new Date(2026, 9, d, h, m, 0).getTime() / 1000;
+  const lim = H.hmUsageLines(
+    {
+      limits: {
+        five_hour: { used_percentage: 72.4, resets_at: at(14, 14, 0) },
+        seven_day: { used_percentage: 130, resets_at: at(16, 9, 0) },
+        updated_at: "2026-10-14T01:00:00Z",
+      },
+      cost: { today: 1.24, month: 38.1, sessions: 12 },
+    },
+    now.getTime()
+  );
+  assert.deepStrictEqual(
+    lim.meters.map((m) => [m.label, m.pct, m.text]),
+    [
+      ["5-hour limit", 72.4, "5-hour limit 72% (resets 14:00)"],
+      ["7-day limit", 100, "7-day limit 100% (resets Fri 09:00)"],
+    ]
+  );
+  assert.strictEqual(lim.note, "");
+  assert.strictEqual(lim.cost, "Cost today $1.24 / this month $38.10 (12 sessions)");
+  // 5 時間枠でも日をまたぐなら曜日を出す・戻る時刻が無いとき
+  assert.strictEqual(H.hmUsageResetText(at(15, 1, 5), false, now.getTime()), "resets Thu 01:05");
+  assert.strictEqual(H.hmUsageResetText(null, true, now.getTime()), "reset time unknown");
+  // 7 日枠だけのとき
+  const one = H.hmUsageLines({ limits: { seven_day: { used_percentage: 5, resets_at: null } }, cost: {} });
+  assert.deepStrictEqual(one.meters.map((m) => m.text), ["7-day limit 5% (reset time unknown)"]);
+  assert.strictEqual(H.hmUsageLines(null).meters.length, 0);
 }
 
 // 最近のアクティビティの行（状態の印・時刻・書き出しの有無で行き先が変わる）
@@ -361,6 +404,7 @@ function main() {
   testRecentItems();
   testWaitItems();
   testAxisLabels();
+  testUsageLines();
   console.log("test_home: すべて通りました");
 }
 

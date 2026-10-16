@@ -222,7 +222,6 @@ function renderHead(data) {
   const model = data.model || stats.model || "モデル不明";
   const parts = [];
   if (data.project_name) parts.push(data.project_name);
-  if (data.runner) parts.push(`[${data.runner}]`);
   parts.push(model);
   box.appendChild(el("div", "st-head-line", parts.join(" · ")));
 

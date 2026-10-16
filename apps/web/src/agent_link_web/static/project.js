@@ -786,7 +786,7 @@ function todoRow(c, alive) {
   main.className = "dash-todo-main";
   const desc = document.createElement("div");
   desc.className = "dash-todo-desc";
-  // 1 行目: 作成日 ID block runner model / 2 行目: 説明
+  // 1 行目: 作成日 ID block model / 2 行目: 説明
   const lines = saiTodoLines(c);
   desc.textContent = lines.head;
   const meta = document.createElement("div");

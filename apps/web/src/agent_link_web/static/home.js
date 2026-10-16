@@ -3,6 +3,7 @@
 //
 // 端末（ターミナル）に慣れていない人が最初に開く画面。ここに
 //   1. 全プロジェクトの合計（今週 / 今月 / 全期間・実行数・成功率・token・料金・日ごとの棒）
+//   1'. Claude の使用量（5 時間枠・7 日枠・費用）
 //   2. 質問がある会話
 //   3. todo
 //   3'. 予約した todo（実行予約があるときだけ・時刻の早い順）
@@ -13,7 +14,7 @@
 // を並べ、下に読めなかったプロジェクトを出す。1〜4 は 0 件でもカードを出す。
 //
 // データは GET /api/home（質問・プロジェクト・論文）と
-// GET /api/home/overview（全プロジェクトの合計）の 2 本（U02 §1・U3 C-A3）。
+// GET /api/home/overview（全プロジェクトの合計）・GET /api/usage（Claude の使用量）の 3 本。
 // 合計のほうだけ期間を変えられるので、別の住所にしてある。
 // 15 秒ごとに読み直す。DOM を使わない関数（hmSections など）は
 // 末尾で node に渡して tests/test_home.js で確かめる。
@@ -40,11 +41,14 @@ const HM_RECENT_ALL = 20;
 const HM_STATUS_MARK = { completed: "✓", running: "●", failed: "✗", cancelled: "✗" };
 // 曜日の日本語（project.js と同じ）
 const HM_WEEKDAY_JA = ["日", "月", "火", "水", "木", "金", "土"];
+const HM_WEEKDAY_EN = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 // --- 表示の状態 ---
 let hmData = null;        // 直前に読んだ /api/home の内容
 let hmOverview = null;    // 直前に読んだ /api/home/overview の内容
 let hmOverviewError = ""; // 合計だけ読めなかったときの 1 行
+let hmUsage = null;       // 直前に読んだ /api/usage の内容
+let hmUsageError = "";    // 使用量だけ読めなかったときの 1 行
 let hmLoading = false;    // 二重に走らせない
 let hmError = "";         // 読めなかったときの 1 行
 // 「すべて表示」を押したあとかどうか（todo とアクティビティ）
@@ -318,6 +322,55 @@ function hmEmptyKind(data) {
   return "none";
 }
 
+/** 金額（$1.24。負の値は -$0.01）。数でなければ $0.00。 */
+function hmUsageMoney(n) {
+  const v = Number(n);
+  if (!Number.isFinite(v)) return "$0.00";
+  return v < 0 ? `-$${Math.abs(v).toFixed(2)}` : `$${v.toFixed(2)}`;
+}
+
+/** 戻る時刻の文言（秒の epoch）。今日なら "resets 14:00"、withDate なら "resets Fri 09:00"。 */
+function hmUsageResetText(sec, withDate, nowMs) {
+  // Number(null) は 0 になるので、数の型だけを受け付ける
+  if (typeof sec !== "number" || !Number.isFinite(sec)) return "reset time unknown";
+  const d = new Date(sec * 1000);
+  const clock = `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+  const now = new Date(Number.isFinite(nowMs) ? nowMs : Date.now());
+  if (!withDate && d.toDateString() === now.toDateString()) return `resets ${clock}`;
+  return `resets ${HM_WEEKDAY_EN[d.getDay()]} ${clock}`;
+}
+
+/** Claude のカードの中身（DOM を使わない）。{ meters: [{label, pct, text}], note, cost }。 */
+function hmUsageLines(cc, nowMs) {
+  const c = cc || {};
+  const limits = c.limits;
+  const meters = [];
+  let note = "";
+  if (!limits) {
+    note = "No limit data yet (shown after a Claude Code reply, Pro/Max only).";
+  } else {
+    for (const [key, label, withDate] of [
+      ["five_hour", "5-hour limit", false],
+      ["seven_day", "7-day limit", true],
+    ]) {
+      const win = limits[key];
+      if (!win) continue;
+      const pct = Math.max(0, Math.min(100, Number(win.used_percentage) || 0));
+      meters.push({
+        label,
+        pct,
+        text: `${label} ${Math.round(pct)}% (${hmUsageResetText(win.resets_at, withDate, nowMs)})`,
+      });
+    }
+  }
+  const cost = c.cost || {};
+  return {
+    meters,
+    note,
+    cost: `Cost today ${hmUsageMoney(cost.today)} / this month ${hmUsageMoney(cost.month)} (${Number(cost.sessions) || 0} sessions)`,
+  };
+}
+
 // --- 画面を描く（DOM） ---
 
 /** 小さい要素を 1 つ作る。 */
@@ -465,7 +518,41 @@ function hmOverviewCard() {
   return card;
 }
 
-// --- 待ち・todo・アクティビティ（U02 §3-2〜4） ---
+/** Claude の使用量のカード（5 時間枠・7 日枠と費用）。 */
+function hmUsageCard() {
+  const card = hmCard("Claude");
+  if (hmUsageError) {
+    card.appendChild(hmEl("p", "hm-note warn", hmUsageError));
+    return card;
+  }
+  if (!hmUsage || !hmUsage.cc) {
+    card.appendChild(hmEl("p", "dash-empty", "Loading…"));
+    return card;
+  }
+  const lines = hmUsageLines(hmUsage.cc);
+  if (lines.note) card.appendChild(hmEl("p", "dash-empty", lines.note));
+  for (const m of lines.meters) {
+    const box = hmEl("div", "usage-meter");
+    box.appendChild(hmEl("div", "usage-line", m.text));
+    const row = hmEl("div", "usage-meter-row");
+    const track = hmEl("div", "dash-bar-track");
+    track.setAttribute("role", "meter");
+    track.setAttribute("aria-label", m.label);
+    track.setAttribute("aria-valuemin", "0");
+    track.setAttribute("aria-valuemax", "100");
+    track.setAttribute("aria-valuenow", String(Math.round(m.pct)));
+    const fill = hmEl("div", "dash-bar-fill");
+    fill.style.width = `${m.pct}%`;
+    track.appendChild(fill);
+    row.appendChild(track);
+    box.appendChild(row);
+    card.appendChild(box);
+  }
+  card.appendChild(hmEl("div", "usage-line", lines.cost));
+  return card;
+}
+
+// --- 待ち・todo・アクティビティ（U02 §1〜4） ---
 
 /** カードの中に 1 行だけの案内を出す。 */
 function hmNote(text) {
@@ -579,6 +666,7 @@ function hmRender() {
 
   // 1〜4（合計・質問がある会話・todo・最近のアクティビティ）は 0 件でも出す。
   body.appendChild(hmOverviewCard());
+  body.appendChild(hmUsageCard());
   body.appendChild(hmWaitCard(sections.find((s) => s.key === "wait") || null));
   body.appendChild(hmTodoCard());
   const scheduledCard = hmScheduledCard();
@@ -628,13 +716,13 @@ async function hmLoadOverview() {
   }
 }
 
-/** ホームを読む（GET /api/home と GET /api/home/overview）。 */
+/** ホームを読む（GET /api/home・GET /api/home/overview・GET /api/usage）。 */
 async function hmLoad() {
   if (hmLoading) return;
   hmLoading = true;
   try {
-    // 2 本を並べる。合計が失敗しても全体の読み込みは落とさないため、失敗も値として受け取る。
-    const [data, overview] = await Promise.all([
+    // 3 本を並べる。合計・使用量が失敗しても全体の読み込みは落とさないため、失敗も値として受け取る。
+    const [data, overview, usage] = await Promise.all([
       saiApi("/api/home").then(
         (v) => ({ ok: true, v }),
         (e) => ({ ok: false, e })
@@ -643,7 +731,17 @@ async function hmLoad() {
         (v) => ({ ok: true, v }),
         (e) => ({ ok: false, e })
       ),
+      saiApi("/api/usage").then(
+        (v) => ({ ok: true, v }),
+        (e) => ({ ok: false, e })
+      ),
     ]);
+    if (usage.ok) {
+      hmUsage = usage.v || null;
+      hmUsageError = "";
+    } else {
+      hmUsageError = usage.e && usage.e.message ? usage.e.message : "Could not read Claude usage";
+    }
     if (overview.ok) {
       hmOverview = overview.v || null;
       hmOverviewError = "";
@@ -708,6 +806,9 @@ if (typeof module !== "undefined" && module.exports) {
     hmSavePeriod,
     hmOverviewCards,
     hmOverviewNote,
+    hmUsageMoney,
+    hmUsageResetText,
+    hmUsageLines,
     hmTodoItems,
     hmScheduledItems,
     hmRecentItems,
