@@ -793,7 +793,7 @@ impl TaskManager {
         _allow_retry: bool,
     ) -> Result<PlacementResult, TaskManagerError> {
         let pane = crate::headless::new_pane(task.cwd.as_deref())
-            .map_err(|e| TaskManagerError::Herdr(format!("擬似 pane の作成に失敗: {}", e)))?;
+            .map_err(|e| TaskManagerError::Herdr(format!("Failed to create the pseudo pane: {}", e)))?;
         Ok(PlacementResult::Placed(
             "headless".to_string(),
             pane.pane_id,
@@ -1018,7 +1018,7 @@ impl TaskManager {
                 })
             }
             other => Err(TaskManagerError::NotFound(format!(
-                "不明な task_manage アクション: {}",
+                "Unknown task_manage action: {}",
                 other
             ))),
         }
@@ -1240,7 +1240,7 @@ impl TaskManager {
         );
         self.store
             .insert_connection(&conn_record)
-            .map_err(|e| TaskManagerError::Db(format!("task_output 接続の挿入に失敗: {}", e)))?;
+            .map_err(|e| TaskManagerError::Db(format!("Failed to insert the task_output connection: {}", e)))?;
 
         Ok(format!(
             "task_output_used を処理: task_id={} の出力を親ブロックが受領 → 接続作成 (sub={} → main={})",
@@ -1280,7 +1280,7 @@ impl TaskManager {
             Err(e) => {
                 eprintln!("[task_manager] タスク {} の取得に失敗: {}", task_id, e);
                 return self
-                    .fail_task(task_id, &format!("タスク取得エラー: {}", e))
+                    .fail_task(task_id, &format!("Failed to get the task: {}", e))
                     .unwrap_or_default();
             }
         };
@@ -1291,7 +1291,7 @@ impl TaskManager {
             Some(bt) if !bt.is_empty() => bt.to_string(),
             _ => {
                 let msg = format!(
-                    "タスク {} に block_type が指定されていません。task_create で block_type を指定してください（subject: {}）",
+                    "Task {} has no block_type. Give block_type in task_create (subject: {}).",
                     task_id, task.subject
                 );
                 eprintln!("[task_manager] {}", msg);
@@ -1329,7 +1329,7 @@ impl TaskManager {
                 return Vec::new();
             }
             Err(e) => {
-                let msg = format!("pane 配置に失敗 (task_id={}): {}", task_id, e);
+                let msg = format!("Failed to place a pane (task_id={}): {}", task_id, e);
                 eprintln!("[task_manager] {}", msg);
                 return self.fail_task(task_id, &msg).unwrap_or_default();
             }
@@ -1567,7 +1567,7 @@ impl TaskManager {
                     "[task_manager] ターン送信失敗: task_id={}, error={}",
                     task_id, e
                 );
-                match self.fail_task(task_id, &format!("ターン送信失敗: {}", e)) {
+                match self.fail_task(task_id, &format!("Failed to send the turn: {}", e)) {
                     Ok(next) => next,
                     Err(e2) => {
                         eprintln!("[task_manager] タスク {} の失敗通知に失敗: {}", task_id, e2);
@@ -1819,7 +1819,7 @@ impl TaskManager {
                                     self.process_task_execute(task_id).map(|r| vec![r])
                                 } else {
                                     Err(TaskManagerError::NotFound(
-                                        "task_execute_request に task_id / batch_id のどちらもありません".to_string(),
+                                        "task_execute_request has neither task_id nor batch_id.".to_string(),
                                     ))
                                 };
 
@@ -2129,26 +2129,26 @@ pub struct TaskResult {
 /// タスク管理操作のエラー型。
 #[derive(Debug, thiserror::Error)]
 pub enum TaskManagerError {
-    #[error("データベースエラー: {0}")]
+    #[error("Database error: {0}")]
     Db(String),
 
-    #[error("IOエラー: {0}")]
+    #[error("I/O error: {0}")]
     Io(String),
 
-    #[error("JSONエラー: {0}")]
+    #[error("JSON error: {0}")]
     Json(String),
 
-    #[error("タスク {task_id} のステータスが不正です: 現在={current}, 期待={expected}")]
+    #[error("Task {task_id} has the wrong status: current={current}, expected={expected}.")]
     InvalidStatus {
         task_id: i64,
         current: String,
         expected: String,
     },
 
-    #[error("実行キューがあふれました（最大長超過）")]
+    #[error("The execution queue is full (over the maximum length).")]
     QueueFull,
 
-    #[error("バッチ {batch_id} の承認タスク数 {n} が pane 上限 {limit} を超えています。pane は作成せず即時失敗します（tool call result に required_finalize を返してください）")]
+    #[error("Batch {batch_id} has {n} approved tasks, over the pane limit of {limit}. No pane is created and the batch fails at once (return required_finalize in the tool call result).")]
     BatchPaneLimitExceeded {
         /// 実行対象バッチ ID
         batch_id: String,
@@ -2158,10 +2158,10 @@ pub enum TaskManagerError {
         limit: usize,
     },
 
-    #[error("herdr 操作エラー: {0}")]
+    #[error("herdr operation error: {0}")]
     Herdr(String),
 
-    #[error("メインブロック {parent_run_id} のタブが pane 上限 {limit} に達しており、新規 pane を作成できません。不要な pane を finalize してから再実行してください（U2・R4 案X）")]
+    #[error("The tab of main block {parent_run_id} reached the pane limit of {limit}, so no new pane can be created. Finalize unneeded panes and run again.")]
     PaneLimitReached {
         /// 発行元メインブロックの実行 ID（タブの識別子）
         parent_run_id: i64,
@@ -2169,11 +2169,11 @@ pub enum TaskManagerError {
         limit: usize,
     },
 
-    #[error("タスクが見つかりません: {0}")]
+    #[error("Task not found: {0}")]
     NotFound(String),
 
     #[error(
-        "タスク {task_id} は実行済みですが作業中の pane が見つかりません。同じ作業の子が二重に起動しないよう新規実行はしません。task_manage(action=requeue) で再実行してください"
+        "Task {task_id} was already run, but its working pane is not found. No new run starts, so the same subtask does not run twice. Run it again with task_manage(action=requeue)."
     )]
     PaneMissingForTurn {
         /// 対象タスク ID

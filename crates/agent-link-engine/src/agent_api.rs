@@ -39,7 +39,7 @@ fn env_run_id() -> Option<i64> {
 fn require_run_id(explicit: Option<i64>) -> Result<i64, String> {
     explicit
         .or_else(env_run_id)
-        .ok_or_else(|| "AGENT_LINK_PARENT_RUN_ID が設定されていません（run 実行中ではありません）".to_string())
+        .ok_or_else(|| "AGENT_LINK_PARENT_RUN_ID is not set. This command works only inside a run.".to_string())
 }
 
 /// ブロック名を解決する（`AGENT_LINK_BLOCK_NAME`、無ければ `"cc"`）。
@@ -121,7 +121,7 @@ fn guess_mime_type(path: &Path) -> String {
 /// （daemon 側の受け口がそのまま前提にしている）。
 fn write_notification(kind: &str, mut payload: Value) -> Result<PathBuf, String> {
     let dir = crate::common::notify_pending_dir();
-    std::fs::create_dir_all(&dir).map_err(|e| format!("通知ディレクトリ作成に失敗: {}", e))?;
+    std::fs::create_dir_all(&dir).map_err(|e| format!("Failed to create the notification directory: {}", e))?;
 
     if let Value::Object(ref mut map) = payload {
         map.insert("type".to_string(), json!(kind));
@@ -134,8 +134,8 @@ fn write_notification(kind: &str, mut payload: Value) -> Result<PathBuf, String>
     let filename = format!("{}-{}.json", unix_millis(), random_hex8());
     let path = dir.join(filename);
     let text = serde_json::to_string_pretty(&payload)
-        .map_err(|e| format!("通知のシリアライズに失敗: {}", e))?;
-    std::fs::write(&path, text).map_err(|e| format!("通知の書き込みに失敗: {}", e))?;
+        .map_err(|e| format!("Failed to serialize the notification: {}", e))?;
+    std::fs::write(&path, text).map_err(|e| format!("Failed to write the notification: {}", e))?;
     Ok(path)
 }
 
@@ -323,11 +323,11 @@ fn worktree_info_json(t: &Task, defs: &[(PathBuf, BlockConfig)]) -> Value {
 /// `run_id` のタスクを取得し、ステータス絞り込み・ソートを行って JSON 配列にする
 /// （`task_list` / `task_status` 共用）。
 fn tasks_json(run_id: i64, status: Option<&str>, sort: Option<&str>) -> Result<Vec<Value>, String> {
-    let store = Arc::new(crate::common::open_db().map_err(|e| format!("DB オープンに失敗しました: {}", e))?);
+    let store = Arc::new(crate::common::open_db().map_err(|e| format!("Failed to open the database: {}", e))?);
     let manager = TaskManager::new(store);
     let mut tasks = manager
         .list_tasks(run_id)
-        .map_err(|e| format!("タスク一覧取得エラー: {}", e))?;
+        .map_err(|e| format!("Failed to list subtasks: {}", e))?;
     // worktree_info（マージ用情報）算出のためブロック定義を一度だけ読む
     let defs = collect_block_definitions();
 
@@ -377,13 +377,13 @@ fn write_with_timeout(
 ) -> Result<Value, String> {
     let trimmed = filename.trim();
     if trimmed.is_empty() {
-        return Err("filename は必須です".to_string());
+        return Err("filename is required.".to_string());
     }
     // パス区切りを含む filename は run フォルダ直下の basename のみ使う
     let basename = Path::new(trimmed)
         .file_name()
         .map(|n| n.to_string_lossy().to_string())
-        .ok_or("filename が不正です")?;
+        .ok_or("filename is invalid.")?;
 
     let run_id = require_run_id(run_id)?;
 
@@ -417,22 +417,22 @@ fn write_with_timeout(
                 }
             }
             StdinOutcome::Rejected(msg) => {
-                return Err(format!("保存しませんでした。決まりに合わない点があります:\n{msg}"));
+                return Err(format!("Not saved. The document breaks the rules:\n{msg}"));
             }
             StdinOutcome::Broken(why) => {
                 checked = Some(false);
-                warning = Some(format!("検査の道具が動きませんでした（{why}）。検査せずに保存しました"));
+                warning = Some(format!("The checker did not run ({why}). Saved without checking."));
             }
         }
     }
     let content = saved_content.as_str();
 
     let path = crate::doc_write_notify::resolve_output_path(run_id, &basename)
-        .map_err(|e| format!("保存先の解決に失敗しました: {}", e))?;
+        .map_err(|e| format!("Failed to resolve the save path: {}", e))?;
     if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| format!("保存先作成に失敗: {}", e))?;
+        std::fs::create_dir_all(parent).map_err(|e| format!("Failed to create the save directory: {}", e))?;
     }
-    std::fs::write(&path, content).map_err(|e| format!("ファイル書き込みに失敗: {}", e))?;
+    std::fs::write(&path, content).map_err(|e| format!("Failed to write the file: {}", e))?;
     let byte_size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
 
     // P4: エージェント側でその場でトークン化する。失敗したらデーモンの非同期処理に任せる。
@@ -459,7 +459,7 @@ fn write_with_timeout(
             "byte_size": byte_size,
             "token": tok,
             "ref": format!("waggle:{}:path:.agent-link/outputs/*/{}/{}", tok, run_id, basename),
-            "message": "保存しました。他の文書から参照するときは ref の形で書いてください。",
+            "message": "Saved. When another document refers to this one, write the ref form.",
         }),
         None => json!({
             "status": "ok",
@@ -467,7 +467,7 @@ fn write_with_timeout(
             "byte_size": byte_size,
             "token": Value::Null,
             "ref": Value::Null,
-            "message": "保存しました。waggle トークン化はデーモンが非同期で行います。",
+            "message": "Saved. The daemon turns the document into a waggle token asynchronously.",
         }),
     };
     if let Some(c) = checked {
@@ -517,12 +517,12 @@ fn write_report_file(run_id: i64, report: &str) -> Result<std::path::PathBuf, St
     let path = match crate::run_dir::find_run_dir(run_id) {
         Some((_, dir)) => dir.join(REPORT_FILE),
         None => crate::doc_write_notify::resolve_output_path(run_id, REPORT_FILE)
-            .map_err(|e| format!("保存先の解決に失敗しました: {}", e))?,
+            .map_err(|e| format!("Failed to resolve the save path: {}", e))?,
     };
     if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| format!("保存先作成に失敗: {}", e))?;
+        std::fs::create_dir_all(parent).map_err(|e| format!("Failed to create the save directory: {}", e))?;
     }
-    std::fs::write(&path, report).map_err(|e| format!("報告の保存に失敗: {}", e))?;
+    std::fs::write(&path, report).map_err(|e| format!("Failed to save the report: {}", e))?;
     Ok(path)
 }
 
@@ -537,11 +537,11 @@ pub fn finalize(run_id: Option<i64>, report: Option<&str>) -> Result<Value, Stri
         write_report_file(run_id, text)?;
     }
     crate::daemon::write_finalize_request(run_id)
-        .map_err(|e| format!("finalize_request の書き込みに失敗しました: {}", e))?;
+        .map_err(|e| format!("Failed to write finalize_request: {}", e))?;
     Ok(json!({
         "status": "requested",
         "run_id": run_id,
-        "message": format!("run_id={} の完了処理を要求しました。", run_id),
+        "message": format!("Requested finalization of run_id={}.", run_id),
     }))
 }
 
@@ -592,7 +592,7 @@ fn load_task_card(card_run_id: i64) -> Result<TaskCardSource, String> {
     let card = crate::orchestrator::read_todo_card(card_run_id)?;
     if !card.frontmatter.is_agent_executer() {
         return Err(format!(
-            "カード {} は人が起こすカードです（executer: human）。エージェントが子の run として起こすには、executer: agent のカードを作ってください",
+            "Card {} is a human card (executer: human). To start it as a subtask run from an agent, create a card with executer: agent.",
             card_run_id
         ));
     }
@@ -601,7 +601,7 @@ fn load_task_card(card_run_id: i64) -> Result<TaskCardSource, String> {
         if let Ok(tasks) = store.list_unfinished_tasks_by_card(card_run_id) {
             if let Some(existing) = tasks.first().and_then(|t| t.id) {
                 return Err(format!(
-                    "カード {} は既にタスク {} で起こしています",
+                    "Card {} was already started as task {}.",
                     card_run_id, existing
                 ));
             }
@@ -610,12 +610,12 @@ fn load_task_card(card_run_id: i64) -> Result<TaskCardSource, String> {
     let block = card.frontmatter.block.trim().to_string();
     if block.is_empty() {
         return Err(format!(
-            "カード {} の task.md に block: がありません。block: <block_id> を記載してください",
+            "Card {} has no block: in its task.md. Add block: <block_id>.",
             card_run_id
         ));
     }
     let task_text = crate::kanban::resolve_card_inputs(&card, &HashMap::new()).map_err(|e| {
-        format!("カード {} の task_text が取れません: {}", card_run_id, e)
+        format!("Cannot get task_text of card {}: {}", card_run_id, e)
     })?;
     let task_text = task_text.get("task_text").cloned().unwrap_or_default();
     Ok(TaskCardSource {
@@ -637,7 +637,7 @@ pub fn task_create(
     let task_array = tasks
         .as_array()
         .filter(|a| !a.is_empty())
-        .ok_or_else(|| "tasks は1つ以上のタスクを含む配列である必要があります".to_string())?;
+        .ok_or_else(|| "tasks must be an array with at least one task.".to_string())?;
 
     let mut seen_client_ids: HashSet<String> = HashSet::new();
     let mut normalized: Vec<NormalizedTask> = Vec::with_capacity(task_array.len());
@@ -645,11 +645,11 @@ pub fn task_create(
         let client_id = item
             .get("client_id")
             .and_then(|v| v.as_str())
-            .ok_or("各タスクに client_id（文字列）が必要です")?
+            .ok_or("Each task needs client_id (a string).")?
             .to_string();
         if !seen_client_ids.insert(client_id.clone()) {
             return Err(format!(
-                "client_id '{}' が重複しています。各タスクに一意の client_id を割り当ててください。",
+                "Duplicate client_id '{}'. Give each task a unique client_id.",
                 client_id
             ));
         }
@@ -665,7 +665,7 @@ pub fn task_create(
             None | Some(Value::Null) => None,
             Some(v) => Some(v.as_i64().filter(|n| *n > 0).ok_or_else(|| {
                 format!(
-                    "client_id '{}' の card は 1 以上の整数（todo のカードの run_id）で指定してください",
+                    "client_id '{}': card must be an integer of 1 or more (the run_id of a todo card).",
                     client_id
                 )
             })?),
@@ -681,7 +681,7 @@ pub fn task_create(
                     c.description.clone()
                 }
             }
-            (None, None) => return Err("各タスクに subject（文字列）が必要です".to_string()),
+            (None, None) => return Err("Each task needs subject (a string).".to_string()),
         };
         // P3: 入力を task_text 1 つに統一する。description / inputs は受け付けない。
         // U05: task.md と同じ項目名 `block` / `description` でも受け付ける（task.md 作成と同一化）。
@@ -695,14 +695,14 @@ pub fn task_create(
         let task_text = match (&card_source, task_text_given) {
             (Some(_), Some(_)) => {
                 return Err(
-                    "card を指定したときは task_text を書かないでください（カードの本文を使います）"
+                    "Do not write task_text when card is given. The card body is used."
                         .to_string(),
                 )
             }
             (Some(c), None) => c.task_text.clone(),
             (None, Some(t)) => t,
             (None, None) => {
-                return Err("各タスクに task_text（空でない文字列）が必要です".to_string())
+                return Err("Each task needs task_text (a non-empty string).".to_string())
             }
         };
         // 内部表現では description と inputs.task_text に変換して既存の経路をそのまま使う
@@ -726,7 +726,7 @@ pub fn task_create(
             (Some(c), Some(b)) => {
                 if b != c.block {
                     return Err(format!(
-                        "client_id '{}': カード {} の block は「{}」です。block_type はカードの block と一致させてください",
+                        "client_id '{}': the block of card {} is \"{}\". Make block_type match the block of the card.",
                         client_id,
                         card_run_id.unwrap_or(0),
                         c.block
@@ -762,7 +762,7 @@ pub fn task_create(
                 Some(n) => Some(n as u32),
                 None => {
                     return Err(format!(
-                        "client_id '{}' の timeout は 1 以上の整数（秒）で指定してください",
+                        "client_id '{}': timeout must be an integer of 1 or more (seconds).",
                         client_id
                     ))
                 }
@@ -783,7 +783,7 @@ pub fn task_create(
                 }
                 _ => {
                     return Err(format!(
-                        "client_id '{}' の model は opus / sonnet / haiku（または claude-…）にしてください",
+                        "client_id '{}': model must be opus / sonnet / haiku (or claude-…).",
                         client_id
                     ))
                 }
@@ -799,7 +799,7 @@ pub fn task_create(
                 }
                 _ => {
                     return Err(format!(
-                        "client_id '{}' の thinking は none / low / medium / high / xhigh / max のどれかにしてください",
+                        "client_id '{}': thinking must be one of none / low / medium / high / xhigh / max.",
                         client_id
                     ))
                 }
@@ -847,7 +847,7 @@ pub fn task_create(
                         "field": "cwd",
                         "kind": "invalid",
                         "message": format!(
-                            "cwd「{}」を解決できません: {}。絶対パス・~/ 始まり・プロジェクトルートからの相対パスで、存在するフォルダを指定してください。",
+                            "Cannot resolve cwd \"{}\": {}. Give an existing folder as an absolute path, a path starting with ~/, or a path relative to the project root.",
                             raw, msg
                         ),
                     }));
@@ -872,7 +872,7 @@ pub fn task_create(
                 "field": "<block_type>",
                 "kind": "missing",
                 "message": format!(
-                    "指定された block_type「{}」のブロック定義を取得できませんでした。`agent-link def list` で正しい id を確認してください（表示名ではなく id を指定）。",
+                    "Could not get the block definition for block_type \"{}\". Check the ID with `agent-link def list` (give the id, not the display name).",
                     block_type
                 ),
             }));
@@ -885,7 +885,7 @@ pub fn task_create(
     if !validation_errors.is_empty() {
         return Ok(json!({
             "status": "failed",
-            "error": "task_create の入力検証に失敗しました。下記の修正指示に従って block_type を修正してください。",
+            "error": "Input validation of task_create failed. Fix block_type as the instructions below say.",
             "validation_errors": validation_errors,
         }));
     }
@@ -948,7 +948,7 @@ pub fn task_create(
         "supersedes_batch_id": supersedes_batch_id,
         "status": "approved",
         "tasks": result_tasks,
-        "hint": "`agent-link task execute --batch <batch_id>` で一括実行されます。`task_id` が null なら `agent-link task list` の `server_id` で確かめてください。",
+        "hint": "`agent-link task execute --batch <batch_id>` runs them as a batch. If `task_id` is null, check `server_id` with `agent-link task list`.",
     }))
 }
 
@@ -1031,7 +1031,7 @@ pub fn task_execute(
     run_id: Option<i64>,
 ) -> Result<Value, String> {
     if batch_id.is_none() && task_id.is_none() {
-        return Err("batch_id または task_id のどちらかを指定してください。".to_string());
+        return Err("Give either batch_id or task_id.".to_string());
     }
     let run_id = require_run_id(run_id)?;
 
@@ -1051,7 +1051,7 @@ pub fn task_execute(
                 "limit": limit,
                 "required_finalize": true,
                 "message": format!(
-                    "バッチ {} の承認タスク数 {} が一括投入上限 {} を超えています。タスクを分割して再作成するか、不要なタスクを finalize してから再実行してください。",
+                    "Batch {} has {} approved tasks, over the batch limit of {}. Split the tasks and create them again, or finalize unneeded tasks and run again.",
                     bid, count, limit
                 ),
             }));
@@ -1061,7 +1061,7 @@ pub fn task_execute(
                 "batch_id": bid,
                 "status": "no_approved_tasks",
                 "message": format!(
-                    "バッチ {} に承認済みタスクがありません。task_create でタスクを作成してから再実行してください。",
+                    "Batch {} has no approved tasks. Create tasks with task_create and run again.",
                     bid
                 ),
             }));
@@ -1082,7 +1082,7 @@ pub fn task_execute(
         "batch_id": batch_id,
         "status": "queued",
         "run_batch_created": true,
-        "message": "実行キューへ送信しました（非同期）。進捗は `agent-link task show <ID>` か `agent-link task wait <ID>` で確認してください。",
+        "message": "Sent to the execution queue (asynchronous). Check progress with `agent-link task show <ID>` or `agent-link task wait <ID>`.",
     }))
 }
 
@@ -1175,7 +1175,7 @@ fn build_task_output_result(task_id: i64, value: &Value) -> Result<Value, String
                         .filter(|d| !d.is_empty());
                     match description {
                         Some(d) => format!("waggle:{}: {}", token, d),
-                        None => format!("waggle:{}: (description なし)", token),
+                        None => format!("waggle:{}: (no description)", token),
                     }
                 })
                 .collect();
@@ -1200,7 +1200,7 @@ fn build_task_output_result(task_id: i64, value: &Value) -> Result<Value, String
                 "round": value.get("round").and_then(|v| v.as_i64()).unwrap_or(1),
                 "report": task_report_text(task_id),
                 "outputs": outputs,
-                "hint": "子は完了しています。report と outputs を読み、成果物を確かめてから agent-link task finalize <ID> で閉じてください。足りなければ agent-link task send <ID> --message <文> で直させてください。閉じないと pane と running のフォルダが残ります。",
+                "hint": "The subtask is done. Read report and outputs, check the deliverables, then close it with agent-link task finalize <ID>. If something is missing, have it fix that with agent-link task send <ID> --message <text>. If you do not close it, the pane and the running folder remain.",
             }))
         }
         "task_stalled" => {
@@ -1213,11 +1213,11 @@ fn build_task_output_result(task_id: i64, value: &Value) -> Result<Value, String
             };
             // long_running / timeout は子がまだ working なので、止めずに画面を見る案内にする
             let hint = if reason == "question" {
-                "子が質問して、答えを待っています。質問は Web のホームにも出ています。question_id の質問を読み、答え方はあなたのブロックの説明に従ってください。先に Human が Web で答えた場合は、その答えが子に届きます。"
+                "The subtask asked a question and is waiting for the answer. The question is also shown on the Web home. Read the question with question_id and follow the description of your block to answer. If a Human answers first on the Web, that answer reaches the subtask."
             } else if reason == "long_running" || reason == "timeout" {
-                "子はまだ working です。agent-link task capture <ID> で画面を確かめ、進んでいれば `agent-link task wait <ID>` で待ち続けてください。止まっているなら `agent-link task interrupt <ID>` で止め、`agent-link task send <ID> --message <文>` で原因を調べさせてください。同じ理由のアラートは、working が続く限り繰り返し届きます。"
+                "The subtask is still working. Check the screen with agent-link task capture <ID>. If it is progressing, keep waiting with `agent-link task wait <ID>`. If it is stuck, stop it with `agent-link task interrupt <ID>` and have it investigate the cause with `agent-link task send <ID> --message <text>`. An alert for the same reason keeps arriving while it keeps working."
             } else {
-                "サブブロックが止まっています。agent-link task capture <ID> で画面を確かめ、agent-link task send <ID> --message <文> で指示を送ってください。作業中（working）や blocked なら先に agent-link task interrupt <ID> で止めてください。"
+                "The subtask is stopped. Check the screen with agent-link task capture <ID> and send an instruction with agent-link task send <ID> --message <text>. If it is working or blocked, stop it first with agent-link task interrupt <ID>."
             };
             let mut out = json!({
                 "task_id": task_id,
@@ -1289,7 +1289,7 @@ pub fn task_output_ids(
     with_pending: bool,
 ) -> Result<Value, String> {
     if task_ids.is_empty() {
-        return Err("task_ids は 1 件以上必要です".to_string());
+        return Err("task_ids needs at least one ID.".to_string());
     }
     let wait_ms = clamp_wait_ms(timeout_ms);
     // 要求された時間が上限を超えていたとき（timeout_ms を省略した時も含む）
@@ -1305,7 +1305,7 @@ pub fn task_output_ids(
             }
         }
         return Ok(in_progress_result(task_ids, with_pending, &format!(
-            "タスクはまだ完了していません。1 回の待ちは最大 {} 秒。timeout_ms を指定するか、あとで `agent-link task wait <ID>` を実行してください。",
+            "The task is not done yet. One wait lasts at most {} seconds. Set timeout_ms, or run `agent-link task wait <ID>` later.",
             max_wait_seconds()
         )));
     }
@@ -1320,7 +1320,7 @@ pub fn task_output_ids(
         // 取り消しなら結果ファイルに触れずに抜ける（後で読み直せるように）
         if cancel.load(Ordering::Relaxed) {
             return Ok(in_progress_result(task_ids, with_pending, &format!(
-                "待ちを中止しました（結果は消していません）。1 回の待ちは最大 {} 秒。もう一度呼んでください。",
+                "The wait was cancelled (results are kept). One wait lasts at most {} seconds. Call again.",
                 max_wait_seconds()
             )));
         }
@@ -1356,7 +1356,7 @@ fn timeout_result(task_ids: &[i64], wait_ms: u64, capped: bool, with_pending: bo
             "status": "in_progress",
             "pending": task_ids,
             "message": format!(
-                "{}ms 以内に結果の出る子がありませんでした。1 回の待ちは最大 {} 秒。もう一度呼んでください。",
+                "No subtask produced a result within {}ms. One wait lasts at most {} seconds. Call again.",
                 wait_ms,
                 max_wait_seconds()
             ),
@@ -1367,7 +1367,7 @@ fn timeout_result(task_ids: &[i64], wait_ms: u64, capped: bool, with_pending: bo
             "task_id": task_ids[0],
             "status": "in_progress",
             "message": format!(
-                "{}ms 以内に完了しませんでした。1 回の待ちは最大 {} 秒。もう一度呼んでください。",
+                "The task did not finish within {}ms. One wait lasts at most {} seconds. Call again.",
                 wait_ms,
                 max_wait_seconds()
             ),
@@ -1377,7 +1377,7 @@ fn timeout_result(task_ids: &[i64], wait_ms: u64, capped: bool, with_pending: bo
             "task_id": task_ids[0],
             "status": "timeout",
             "error": format!(
-                "タイムアウト: {}ms 以内にタスクが完了しませんでした。1 回の待ちは最大 {} 秒。もう一度呼んでください。",
+                "Timeout: the task did not finish within {}ms. One wait lasts at most {} seconds. Call again.",
                 wait_ms,
                 max_wait_seconds()
             ),
@@ -1417,18 +1417,18 @@ fn in_progress_result(task_ids: &[i64], with_pending: bool, message: &str) -> Va
 pub fn task_report(report: &str, run_id: Option<i64>) -> Result<Value, String> {
     let report = report.trim();
     if report.is_empty() {
-        return Err("report（完了報告の本文）は必須です".to_string());
+        return Err("report (the body of the completion report) is required.".to_string());
     }
     let run_id = require_run_id(run_id)?;
 
     let store =
-        crate::common::open_db().map_err(|e| format!("DB オープンに失敗しました: {}", e))?;
+        crate::common::open_db().map_err(|e| format!("Failed to open the database: {}", e))?;
     let exec = store
         .get_execution_by_id(run_id)
-        .map_err(|e| format!("実行 id = {} の取得に失敗しました: {}", run_id, e))?;
+        .map_err(|e| format!("Failed to get run id = {}: {}", run_id, e))?;
     if exec.parent_run_id.is_none() {
         return Err(
-            "task report はサブブロック専用です。メインブロックの完了は agent-link run finalize を使ってください"
+            "task report is for subtasks only. To finish a main block, use agent-link run finalize."
                 .to_string(),
         );
     }
@@ -1438,12 +1438,12 @@ pub fn task_report(report: &str, run_id: Option<i64>) -> Result<Value, String> {
     write_report_file(run_id, report)?;
 
     crate::daemon::write_finalize_request(run_id)
-        .map_err(|e| format!("finalize_request の書き込みに失敗しました: {}", e))?;
+        .map_err(|e| format!("Failed to write finalize_request: {}", e))?;
 
     Ok(json!({
         "status": "reported",
         "run_id": run_id,
-        "message": "完了報告を送りました。",
+        "message": "Sent the completion report.",
     }))
 }
 
@@ -1474,27 +1474,27 @@ pub fn task_question(run_id: Option<i64>, question_id: &str, text: &str) -> Resu
     let run_id = require_run_id(run_id)?;
     let qid = question_id.trim();
     if qid.is_empty() {
-        return Err("question_id（質問の ID）は必須です".to_string());
+        return Err("question_id (the question ID) is required.".to_string());
     }
     let store =
-        crate::common::open_db().map_err(|e| format!("DB オープンに失敗しました: {}", e))?;
+        crate::common::open_db().map_err(|e| format!("Failed to open the database: {}", e))?;
     let exec = store
         .get_execution_by_id(run_id)
-        .map_err(|e| format!("実行 id = {} の取得に失敗しました: {}", run_id, e))?;
+        .map_err(|e| format!("Failed to get run id = {}: {}", run_id, e))?;
     let parent_run_id = exec
         .parent_run_id
-        .ok_or_else(|| "task-question は子の run 専用です".to_string())?;
+        .ok_or_else(|| "task-question is for subtask runs only.".to_string())?;
 
     // この実行がどのタスクの実行かを引き直す（親の task_output はタスク ID で受ける）
     let task_id = store
         .list_tasks_by_parent(parent_run_id)
-        .map_err(|e| format!("タスク一覧の取得に失敗しました: {}", e))?
+        .map_err(|e| format!("Failed to list subtasks: {}", e))?
         .into_iter()
         .find(|t| t.execution_id == Some(run_id))
         .and_then(|t| t.id)
-        .ok_or_else(|| format!("run_id={} に対応するタスクが見つかりません", run_id))?;
+        .ok_or_else(|| format!("No task found for run_id={}.", run_id))?;
 
-    let message = format!("質問 {}: {}", qid, one_line_short(text));
+    let message = format!("Question {}: {}", qid, one_line_short(text));
     crate::task_manager::write_stalled_notification(
         task_id,
         Some(parent_run_id),
@@ -1521,23 +1521,23 @@ pub fn task_question(run_id: Option<i64>, question_id: &str, text: &str) -> Resu
 /// エラー文は `task_capture` の元の文言をそのまま使っている。
 fn task_pane(task_id: i64) -> Result<(Task, ExecutionHistory, String), String> {
     let store = Arc::new(
-        crate::common::open_db().map_err(|e| format!("DB オープンに失敗しました: {}", e))?,
+        crate::common::open_db().map_err(|e| format!("Failed to open the database: {}", e))?,
     );
     let manager = TaskManager::new(Arc::clone(&store));
     let task = manager
         .get_task(task_id)
-        .map_err(|e| format!("タスク取得エラー: {}", e))?;
+        .map_err(|e| format!("Failed to get the task: {}", e))?;
 
     let exec_id = task
         .execution_id
-        .ok_or_else(|| format!("タスク {} はまだ実行されていません", task_id))?;
+        .ok_or_else(|| format!("Task {} has not been run yet.", task_id))?;
     let exec = store
         .get_execution_by_id(exec_id)
-        .map_err(|e| format!("実行レコード取得エラー: {}", e))?;
+        .map_err(|e| format!("Failed to get the run record: {}", e))?;
     let pane_id = exec
         .herdr_pane_id
         .clone()
-        .ok_or_else(|| format!("実行 {} に pane がありません", exec_id))?;
+        .ok_or_else(|| format!("Run {} has no pane.", exec_id))?;
 
     Ok((task, exec, pane_id))
 }
@@ -1553,20 +1553,20 @@ fn task_pane(task_id: i64) -> Result<(Task, ExecutionHistory, String), String> {
 /// 送り先が無ければ「実行 <id> の送り先が見つかりません」（同じく 3）。
 fn run_pane(run_id: i64) -> Result<(ExecutionHistory, String), String> {
     let store = Arc::new(
-        crate::common::open_db().map_err(|e| format!("DB オープンに失敗しました: {}", e))?,
+        crate::common::open_db().map_err(|e| format!("Failed to open the database: {}", e))?,
     );
     let exec = match store.get_execution_by_id(run_id) {
         Ok(e) => e,
         Err(crate::db::models::DbError::NotFound(_)) => {
-            return Err(format!("実行 {} が見つかりません", run_id));
+            return Err(format!("Run {} not found.", run_id));
         }
-        Err(e) => return Err(format!("実行レコード取得エラー: {}", e)),
+        Err(e) => return Err(format!("Failed to get the run record: {}", e)),
     };
     let pane_id = exec
         .herdr_pane_id
         .clone()
         .or_else(|| crate::phone_export::pane_id_from_session_dir(&exec))
-        .ok_or_else(|| format!("実行 {} の送り先が見つかりません", run_id))?;
+        .ok_or_else(|| format!("No destination found for run {}.", run_id))?;
     Ok((exec, pane_id))
 }
 
@@ -1580,16 +1580,16 @@ pub fn run_send(run_id: i64, text: &str) -> Result<Value, String> {
     let herdr = crate::herdr::HerdrClient::new();
     let info = herdr
         .get_pane_status(&pane_id)
-        .map_err(|_| format!("実行 {} は既に終了しています", run_id))?;
+        .map_err(|_| format!("Run {} has already ended.", run_id))?;
     if info.agent_status == "blocked" {
         return Err(format!(
-            "実行 {} は既に質問待ちです。回答は質問カードから送ってください",
+            "Run {} is already waiting for a question. Send the answer from the question card.",
             run_id
         ));
     }
     let submit_key = crate::cc_command::CC_SUBMIT_KEY;
     crate::orchestrator::submit_prompt_verified(&herdr, &pane_id, text, submit_key, None)
-        .map_err(|e| format!("pane への送信に失敗: {}", e))?;
+        .map_err(|e| format!("Failed to send to the pane: {}", e))?;
     Ok(json!({
         "run_id": run_id,
         "pane_id": pane_id,
@@ -1607,11 +1607,11 @@ pub fn run_interrupt(run_id: i64) -> Result<Value, String> {
     let herdr = crate::herdr::HerdrClient::new();
     let info = herdr
         .get_pane_status(&pane_id)
-        .map_err(|_| format!("実行 {} は既に終了しています", run_id))?;
+        .map_err(|_| format!("Run {} has already ended.", run_id))?;
     let mut agent_status = info.agent_status;
     herdr
         .send_keys(&pane_id, "esc")
-        .map_err(|e| format!("esc の送信に失敗: {}", e))?;
+        .map_err(|e| format!("Failed to send esc: {}", e))?;
 
     const POLL_MS: u64 = 250;
     const WAIT_MS: u64 = 5_000;
@@ -1652,7 +1652,7 @@ pub fn run_wait(
     cancel: &AtomicBool,
 ) -> Result<Value, String> {
     if run_ids.is_empty() {
-        return Err("run wait には 1 件以上の run ID を指定してください".to_string());
+        return Err("Give at least one run ID to run wait.".to_string());
     }
     let wait_ms = clamp_wait_ms(timeout_ms);
     let started = std::time::Instant::now();
@@ -1664,7 +1664,7 @@ pub fn run_wait(
         if cancel.load(Ordering::Relaxed) {
             return Ok(run_wait_in_progress(
                 run_ids,
-                "待ちを中止しました。もう一度呼んでください。",
+                "The wait was cancelled. Call again.",
             ));
         }
         let now = std::time::Instant::now();
@@ -1680,7 +1680,7 @@ pub fn run_wait(
         std::thread::sleep(check_interval);
     }
     Ok(run_wait_in_progress(run_ids, &format!(
-        "{}ms 以内に結果の出る run がありませんでした。1 回の待ちは最大 {} 秒。もう一度呼んでください。",
+        "No run produced a result within {}ms. One wait lasts at most {} seconds. Call again.",
         wait_ms,
         max_wait_seconds()
     )))
@@ -1689,7 +1689,7 @@ pub fn run_wait(
 /// 1 回の走査。`run_ids` の順に調べ、最初に止まった（完了・失敗・停止の）run を返す。
 fn run_wait_scan(run_ids: &[i64]) -> Result<Option<Value>, String> {
     let store =
-        crate::common::open_db().map_err(|e| format!("DB オープンに失敗しました: {}", e))?;
+        crate::common::open_db().map_err(|e| format!("Failed to open the database: {}", e))?;
     let others = |run_id: i64| -> Vec<i64> {
         run_ids.iter().copied().filter(|&id| id != run_id).collect()
     };
@@ -1697,9 +1697,9 @@ fn run_wait_scan(run_ids: &[i64]) -> Result<Option<Value>, String> {
         let exec = match store.get_execution_by_id(run_id) {
             Ok(e) => e,
             Err(crate::db::models::DbError::NotFound(_)) => {
-                return Err(format!("実行 {} が見つかりません", run_id));
+                return Err(format!("Run {} not found.", run_id));
             }
-            Err(e) => return Err(format!("実行レコード取得エラー: {}", e)),
+            Err(e) => return Err(format!("Failed to get the run record: {}", e)),
         };
         let block = store
             .get_block_by_id(exec.block_id)
@@ -1718,7 +1718,7 @@ fn run_wait_scan(run_ids: &[i64]) -> Result<Option<Value>, String> {
                 let error = exec
                     .error_message
                     .filter(|e| !e.is_empty())
-                    .unwrap_or_else(|| "（失敗の理由は記録されていません）".to_string());
+                    .unwrap_or_else(|| "(no failure reason recorded)".to_string());
                 return Ok(Some(json!({
                     "status": "failed",
                     "run_id": run_id,
@@ -1735,7 +1735,7 @@ fn run_wait_scan(run_ids: &[i64]) -> Result<Option<Value>, String> {
                         "block": block,
                         "reason": "idle",
                         "message": format!(
-                            "run {} が {} 秒以上 idle です。質問への答えか指示を待っている可能性があります。agent-link-web questions で質問を確かめてください",
+                            "Run {} has been idle for {} seconds or more. It may be waiting for an answer or an instruction. Check the questions with agent-link-web questions.",
                             run_id, secs
                         ),
                         "pending": others(run_id),
@@ -1798,19 +1798,19 @@ fn send_route(
         "in_progress" => match agent_status {
             Some("idle") | Some("done") => Ok(SendRoute::DirectToPane),
             Some("working") => Err(format!(
-                "タスク {} は作業中（working）です。止めて指示を変えるなら先に agent-link task interrupt <ID> を呼んでください。終わるのを待つなら `agent-link task wait <ID>` を使ってください。",
+                "Task {} is working. To stop it and change the instruction, call agent-link task interrupt <ID> first. To wait for it to finish, use `agent-link task wait <ID>`.",
                 task_id
             )),
             other => {
-                let label = other.unwrap_or("状態不明");
+                let label = other.unwrap_or("unknown state");
                 Err(format!(
-                    "タスク {} は {} で止まっています。agent-link task capture <ID> で画面を確かめ、agent-link task interrupt <ID> で入力待ちに戻してから send してください。",
+                    "Task {} is stopped at {}. Check the screen with agent-link task capture <ID>, return it to input-waiting with agent-link task interrupt <ID>, and then send.",
                     task_id, label
                 ))
             }
         },
         "finalized" | "deleted" => Err(format!(
-            "タスク {} は {} です。確定・削除済みのタスクには send できません。やり直すなら requeue か task_create を使ってください。",
+            "Task {} is {}. You cannot send to a finalized or deleted task. To start over, use requeue or task_create.",
             task_id, task_status
         )),
         // completed / approved / failed などは今までの動作（デーモン経由）。
@@ -1835,21 +1835,21 @@ pub fn task_manage(
 ) -> Result<Value, String> {
     if !matches!(action, "delete" | "finalize" | "send" | "requeue" | "interrupt") {
         return Err(format!(
-            "無効な action: '{}'。delete / finalize / send / requeue / interrupt のいずれかを指定してください。",
+            "Invalid action: '{}'. Give one of delete / finalize / send / requeue / interrupt.",
             action
         ));
     }
     if action == "send" && message.map(str::trim).unwrap_or("").is_empty() {
-        return Err("action=send には message（追加入力指示）が必須です。".to_string());
+        return Err("action=send needs message (the extra instruction).".to_string());
     }
 
     // interrupt / send の振り分けにタスクの状態が要るので、いつもタスクを読む。
     let store = Arc::new(
-        crate::common::open_db().map_err(|e| format!("DB オープンに失敗しました: {}", e))?,
+        crate::common::open_db().map_err(|e| format!("Failed to open the database: {}", e))?,
     );
     let task = TaskManager::new(Arc::clone(&store))
         .get_task(task_id)
-        .map_err(|e| format!("タスク取得エラー: {}", e))?;
+        .map_err(|e| format!("Failed to get the task: {}", e))?;
 
     let parent_run_id = match require_run_id(run_id) {
         Ok(id) => id,
@@ -1861,7 +1861,7 @@ pub fn task_manage(
         "interrupt" => {
             if task.status != "in_progress" {
                 return Err(format!(
-                    "タスク {} は {} です。interrupt できるのは作業中（in_progress）のタスクだけです。",
+                    "Task {} is {}. Only a working (in_progress) task can be interrupted.",
                     task_id, task.status
                 ));
             }
@@ -1869,7 +1869,7 @@ pub fn task_manage(
             let herdr = crate::herdr::HerdrClient::new();
             herdr
                 .send_keys(&pane_id, "esc")
-                .map_err(|e| format!("esc の送信に失敗: {}", e))?;
+                .map_err(|e| format!("Failed to send esc: {}", e))?;
 
             // esc を送っただけでは直ちに止まらないことがある。working でなくなるまで待つ。
             const POLL_MS: u64 = 250;
@@ -1894,7 +1894,7 @@ pub fn task_manage(
                     "task_id": task_id,
                     "status": "still_working",
                     "agent_status": agent_status,
-                    "message": "esc を送りましたが、まだ working です。agent-link task capture <ID> で確かめ、もう一度 interrupt するか、delete で終了させてください。",
+                    "message": "Sent esc, but the task is still working. Check with agent-link task capture <ID>, then interrupt again or end it with delete.",
                 }));
             }
             Ok(json!({
@@ -1903,7 +1903,7 @@ pub fn task_manage(
                 "status": "interrupted",
                 "agent_status": agent_status,
                 "message": format!(
-                    "タスク {} に esc を送りました（agent_status={}）。agent-link task capture <ID> で画面を確かめ、send で次の指示を送ってください。",
+                    "Sent esc to task {} (agent_status={}). Check the screen with agent-link task capture <ID> and send the next instruction with send.",
                     task_id, agent_status
                 ),
             }))
@@ -1936,7 +1936,7 @@ pub fn task_manage(
                     };
                     store
                         .update_task_description(task_id, &new_desc)
-                        .map_err(|e| format!("説明の更新に失敗: {}", e))?;
+                        .map_err(|e| format!("Failed to update the description: {}", e))?;
 
                     let herdr = crate::herdr::HerdrClient::new();
                     let submit_key = crate::cc_command::CC_SUBMIT_KEY;
@@ -1949,7 +1949,7 @@ pub fn task_manage(
                         submit_key,
                         None,
                     )
-                    .map_err(|e| format!("pane への送信に失敗: {}", e))?;
+                    .map_err(|e| format!("Failed to send to the pane: {}", e))?;
 
                     // 注意: ターン送信中（completed のあとに send して in_progress になった状態）に
                     // interrupt すると、子が idle になり `send_turn_to_pane` がそのターンを
@@ -1960,7 +1960,7 @@ pub fn task_manage(
                         "task_id": task_id,
                         "status": "sent",
                         "message": format!(
-                            "作業中のタスク {} の pane に追加指示を送りました。完了は子の `agent-link task report` を `agent-link task wait <ID>` で受け取ってください。",
+                            "Sent the extra instruction to the pane of working task {}. Receive its completion with `agent-link task wait <ID>` (the subtask runs `agent-link task report`).",
                             task_id
                         ),
                     }))
@@ -1980,7 +1980,7 @@ pub fn task_manage(
                         "task_id": task_id,
                         "status": "requested",
                         "message": format!(
-                            "タスク {} に追加指示を送信しました。同一エージェント（pane）が継続して対応します。",
+                            "Sent the extra instruction to task {}. The same agent (pane) keeps handling it.",
                             task_id
                         ),
                     }))
@@ -1992,7 +1992,7 @@ pub fn task_manage(
         "requeue" => {
             if task.status != "failed" && task.status != "deleted" {
                 return Err(format!(
-                    "タスク {} は {} です。requeue できるのは failed / deleted のタスクだけです。",
+                    "Task {} is {}. Only a failed / deleted task can be requeued.",
                     task_id, task.status
                 ));
             }
@@ -2010,7 +2010,7 @@ pub fn task_manage(
                 "task_id": task_id,
                 "status": "requested",
                 "message": format!(
-                    "タスク {} の操作（{}）を agent-link に要求しました。",
+                    "Requested an operation on task {} ({}) from agent-link.",
                     task_id, action
                 ),
             }))
@@ -2032,7 +2032,7 @@ pub fn task_manage(
                 "task_id": task_id,
                 "status": "requested",
                 "message": format!(
-                    "タスク {} の操作（{}）を agent-link に要求しました。",
+                    "Requested an operation on task {} ({}) from agent-link.",
                     task_id, action
                 ),
             }))
@@ -2058,7 +2058,7 @@ pub fn task_status(
     Ok(json!({
         "count": tasks.len(),
         "tasks": tasks,
-        "hint": "調査は agent-link task capture <ID>、操作は agent-link task <interrupt|send|delete|finalize|requeue> <ID> を使用してください。",
+        "hint": "To investigate, use agent-link task capture <ID>. To operate, use agent-link task <interrupt|send|delete|finalize|requeue> <ID>.",
     }))
 }
 
@@ -2074,7 +2074,7 @@ pub fn task_capture(task_id: i64, lines: Option<u32>) -> Result<Value, String> {
     let client = crate::herdr::HerdrClient::new();
     let output = client
         .read_pane_output(&pane_id, lines)
-        .map_err(|e| format!("pane 読み取りに失敗: {}", e))?;
+        .map_err(|e| format!("Failed to read the pane: {}", e))?;
 
     let empty = output.is_empty();
     let mut result = json!({
@@ -2084,7 +2084,7 @@ pub fn task_capture(task_id: i64, lines: Option<u32>) -> Result<Value, String> {
         "output": output,
     });
     if empty {
-        result["message"] = json!("(pane の出力は空です)");
+        result["message"] = json!("(the pane output is empty)");
     }
     Ok(result)
 }
@@ -2131,10 +2131,10 @@ pub fn block_discover(parent: Option<&str>) -> Result<Value, String> {
     let mut result = json!({
         "count": blocks.len(),
         "blocks": blocks,
-        "hint": "agent-link task create の block_type には id を指定してください。詳細は agent-link def show --kind block --name <id>。",
+        "hint": "Give the id as block_type of agent-link task create. For details, see agent-link def show --kind block --name <id>.",
     });
     if defs.is_empty() {
-        result["message"] = json!("呼び出し可能なサブブロックがありません。メインブロック定義の subblocks を確認してください。");
+        result["message"] = json!("No subblock can be called. Check subblocks in the main block definition.");
     }
     Ok(result)
 }
@@ -2157,14 +2157,14 @@ pub fn block_inspect(name: &str) -> Result<Value, String> {
     }
     if !path.exists() {
         return Err(format!(
-            "ブロック定義が見つかりません: {}（ID または表示名で指定）",
+            "Block definition not found: {} (give the ID or display name).",
             name
         ));
     }
 
-    let parsed = parse_block_file(&path).map_err(|e| format!("ブロック定義のパースに失敗: {}", e))?;
+    let parsed = parse_block_file(&path).map_err(|e| format!("Failed to parse the block definition: {}", e))?;
     let entry = block_def_to_json(&parsed.config);
-    serde_json::to_value(entry).map_err(|e| format!("JSON 変換に失敗: {}", e))
+    serde_json::to_value(entry).map_err(|e| format!("Failed to convert to JSON: {}", e))
 }
 
 // ============================================================================
@@ -2226,13 +2226,13 @@ pub fn sai_read_list_including_running(run_id: Option<i64>) -> Result<Value, Str
 
 fn sai_read_list_inner(run_id: Option<i64>, include_running: bool) -> Result<Value, String> {
     let store =
-        crate::common::open_db().map_err(|e| format!("DB オープンに失敗しました: {}", e))?;
+        crate::common::open_db().map_err(|e| format!("Failed to open the database: {}", e))?;
 
     let entries: Vec<(String, i64)> = match run_id {
         Some(id) => {
             let exec = store
                 .get_execution_by_id(id)
-                .map_err(|e| format!("実行 id = {} の取得に失敗しました: {}", id, e))?;
+                .map_err(|e| format!("Failed to get run id = {}: {}", id, e))?;
             let tokens: Vec<String> = exec
                 .output_waggle_tokens
                 .as_deref()
@@ -2244,7 +2244,7 @@ fn sai_read_list_inner(run_id: Option<i64>, include_running: bool) -> Result<Val
             // ponytail: 全件は上限なしで取る。件数が増えたら limit 引数を足す
             store
                 .list_waggle_tokens(None, -1, include_running)
-                .map_err(|e| format!("waggle トークン一覧の取得に失敗しました: {}", e))?
+                .map_err(|e| format!("Failed to list waggle tokens: {}", e))?
                 .into_iter()
                 .map(|e| (e.token, e.execution_id))
                 .collect()
@@ -2253,7 +2253,7 @@ fn sai_read_list_inner(run_id: Option<i64>, include_running: bool) -> Result<Val
 
     let db_path = crate::project::db_path();
     let waggle = crate::waggle_integration::WaggleIntegrator::open(&db_path)
-        .map_err(|e| format!("waggle DB のオープンに失敗しました: {}", e))?;
+        .map_err(|e| format!("Failed to open the waggle DB: {}", e))?;
 
     let mut items = Vec::new();
     for (token, id) in entries {
@@ -2265,7 +2265,7 @@ fn sai_read_list_inner(run_id: Option<i64>, include_running: bool) -> Result<Val
     Ok(json!({
         "count": items.len(),
         "items": items,
-        "hint": "本文は `agent-link doc read <token>`。子タスクへは task_text に waggle:<token> と書けば本文が埋め込まれる",
+        "hint": "Read the body with `agent-link doc read <token>`. To pass it to a subtask, write waggle:<token> in task_text and the body is embedded.",
     }))
 }
 
@@ -2275,19 +2275,19 @@ fn sai_read_list_inner(run_id: Option<i64>, include_running: bool) -> Result<Val
 pub fn sai_read(token: &str) -> Result<Value, String> {
     let token = normalize_waggle_token(token);
     if token.is_empty() {
-        return Err("token は必須です".to_string());
+        return Err("token is required.".to_string());
     }
 
     let db_path = crate::project::db_path();
     let waggle = crate::waggle_integration::WaggleIntegrator::open(&db_path)
-        .map_err(|e| format!("waggle DB のオープンに失敗しました: {}", e))?;
+        .map_err(|e| format!("Failed to open the waggle DB: {}", e))?;
 
     let view = waggle
         .resolve_token(&token)
-        .map_err(|e| format!("waggle トークン '{}' の解決に失敗しました: {}", token, e))?;
+        .map_err(|e| format!("Failed to resolve waggle token '{}': {}", token, e))?;
     let content = waggle.resolve_content(&token).map_err(|e| {
         format!(
-            "waggle トークン '{}' の本文取得に失敗しました: {}",
+            "Failed to get the body of waggle token '{}': {}",
             token, e
         )
     })?;
@@ -2460,7 +2460,7 @@ mod tests {
     fn run_wait_missing_run_is_error() {
         let _guard = EnvGuard::new();
         let err = run_wait(&[NO_SUCH_TASK_A], Some(0), &AtomicBool::new(false)).unwrap_err();
-        assert!(err.contains("見つかりません"), "{err}");
+        assert!(err.contains("not found"), "{err}");
     }
 
     #[test]
@@ -2543,7 +2543,7 @@ mod tests {
         for (script, ms) in [("exit 3", 5000), ("sleep 5", 300)] {
             let r = write_with_check(&g, script, ms, "orig").unwrap();
             assert_eq!(r["checked"], false);
-            assert!(r["warning"].as_str().unwrap().contains("検査せずに保存"));
+            assert!(r["warning"].as_str().unwrap().contains("Saved without checking"));
             assert_eq!(std::fs::read_to_string(r["path"].as_str().unwrap()).unwrap(), "orig");
         }
     }
@@ -3000,10 +3000,10 @@ mod tests {
         };
 
         let err = task_create(&item(json!({ "thinking": "off" })), None, None, None).unwrap_err();
-        assert!(err.contains("thinking は none / low"), "err={}", err);
+        assert!(err.contains("thinking must be one of none / low"), "err={}", err);
         let err = task_create(&item(json!({ "model": "z-ai/glm-5.3-flash" })), None, None, None)
             .unwrap_err();
-        assert!(err.contains("model は opus / sonnet / haiku"), "err={}", err);
+        assert!(err.contains("model must be opus / sonnet / haiku"), "err={}", err);
 
         let result = task_create(
             &item(json!({ "model": "haiku", "thinking": "LOW" })),
@@ -3099,7 +3099,7 @@ mod tests {
 
         let tasks = json!([{ "client_id": "R1", "subject": "件名", "card": 120 }]);
         let err = task_create(&tasks, None, None, None).unwrap_err();
-        assert!(err.contains("人が起こすカードです"), "err={}", err);
+        assert!(err.contains("is a human card"), "err={}", err);
         assert!(err.contains("executer: agent"), "err={}", err);
 
         drop(guard);
@@ -3136,7 +3136,7 @@ mod tests {
         let tasks = json!([{ "client_id": "R1", "subject": "件名", "card": 120, "task_text": "書かない" }]);
         let err = task_create(&tasks, None, None, None).unwrap_err();
         assert!(
-            err.contains("card を指定したときは task_text を書かないでください"),
+            err.contains("Do not write task_text when card is given"),
             "err={}",
             err
         );
@@ -3158,7 +3158,7 @@ mod tests {
         ]);
         let err = task_create(&tasks, None, None, None).unwrap_err();
         assert!(
-            err.contains("block_type はカードの block と一致させてください"),
+            err.contains("Make block_type match the block of the card"),
             "err={}",
             err
         );
@@ -3199,7 +3199,7 @@ mod tests {
         let tasks = json!([{ "client_id": "R2", "card": 120 }]);
         let err = task_create(&tasks, None, None, None).unwrap_err();
         assert!(
-            err.contains(&format!("カード 120 は既にタスク {} で起こしています", first_task_id)),
+            err.contains(&format!("Card 120 was already started as task {}", first_task_id)),
             "err={}",
             err
         );
@@ -3293,7 +3293,7 @@ mod tests {
 
     #[test]
     fn task_manage_rejects_invalid_action() {        let err = task_manage("invalid", 1, None, Some(1)).unwrap_err();
-        assert!(err.contains("無効な action"));
+        assert!(err.contains("Invalid action"));
     }
 
     /// U3 AC1: `task_create` が `timeout`（秒）を受け付け、通知 payload に載せること。
@@ -3335,7 +3335,7 @@ mod tests {
             ]);
             let err = task_create(&tasks, None, None, None).unwrap_err();
             assert!(
-                err.contains("timeout は 1 以上の整数（秒）"),
+                err.contains("timeout must be an integer of 1 or more (seconds)"),
                 "timeout={} の エラーメッセージ: {}",
                 bad,
                 err
@@ -3372,21 +3372,21 @@ mod tests {
 
         // in_progress + working → エラー（自動で esc はしない）
         let err = send_route(12, "in_progress", Some("working")).unwrap_err();
-        assert!(err.contains("作業中（working）"), "{}", err);
+        assert!(err.contains("is working"), "{}", err);
         assert!(err.contains("agent-link task interrupt <ID>"), "{}", err);
 
         // in_progress + blocked / error / 未知の値 / None → エラー
         for st in [Some("blocked"), Some("error"), Some("weird"), None] {
             let err = send_route(12, "in_progress", st).unwrap_err();
-            assert!(err.contains("で止まっています"), "{}", err);
+            assert!(err.contains("is stopped at"), "{}", err);
             assert!(err.contains("agent-link task interrupt <ID>"), "{}", err);
         }
-        // None のときは「状態不明」と出る
+        // None のときは「unknown state」と出る
         assert!(
             send_route(12, "in_progress", None)
                 .unwrap_err()
-                .contains("状態不明"),
-            "agent_status が取れないときは 状態不明 と表示する"
+                .contains("unknown state"),
+            "agent_status が取れないときは unknown state と表示する"
         );
 
         // finalized / deleted → エラー
@@ -3435,7 +3435,7 @@ mod tests {
         // 初期状態（pending）のまま = in_progress ではない
         let err = task_manage("interrupt", task_id, None, Some(parent_run_id)).unwrap_err();
         assert!(
-            err.contains("interrupt できるのは作業中（in_progress）のタスクだけ"),
+            err.contains("Only a working (in_progress) task can be interrupted"),
             "{}",
             err
         );
@@ -3528,7 +3528,7 @@ mod tests {
         let guard = EnvGuard::new();
         let run_id = create_test_execution(false);
         let err = task_report("報告", Some(run_id)).unwrap_err();
-        assert!(err.contains("サブブロック専用"), "err={}", err);
+        assert!(err.contains("for subtasks only"), "err={}", err);
         drop(guard);
     }
 
@@ -3597,7 +3597,7 @@ mod tests {
         assert_eq!(result["status"], "completed");
         assert_eq!(result["round"], 2);
         assert_eq!(result["report"], "結果: DONE");
-        assert_eq!(result["outputs"][0], "waggle:FAKE1: (description なし)");
+        assert_eq!(result["outputs"][0], "waggle:FAKE1: (no description)");
         // 削除した項目が返らないこと
         assert!(result.get("resolved_content").is_none());
         assert!(result.get("waggle_tokens").is_none());
@@ -3706,7 +3706,7 @@ mod tests {
         assert_eq!(out["pending"], json!(ids));
         assert!(out.get("task_id").is_none(), "複数待ちでは task_id を付けない");
         let message = out["message"].as_str().unwrap();
-        assert!(message.contains("最大 90 秒"), "{}", message);
+        assert!(message.contains("at most 90 seconds"), "{}", message);
         assert!(started.elapsed() < std::time::Duration::from_secs(3));
     }
 
@@ -3729,8 +3729,8 @@ mod tests {
 
         assert_eq!(out["status"], "in_progress");
         let message = out["message"].as_str().unwrap();
-        assert!(message.contains("待ちを中止しました"), "{}", message);
-        assert!(message.contains("最大 90 秒"), "{}", message);
+        assert!(message.contains("The wait was cancelled"), "{}", message);
+        assert!(message.contains("at most 90 seconds"), "{}", message);
         assert!(
             started.elapsed() < std::time::Duration::from_secs(3),
             "取り消しで早く返る: {:?}",
@@ -3762,7 +3762,7 @@ mod tests {
         assert_eq!(out["task_id"], NO_SUCH_TASK_A);
         assert_eq!(out["status"], "timeout");
         let error = out["error"].as_str().unwrap();
-        assert!(error.contains("最大 90 秒"), "{}", error);
+        assert!(error.contains("at most 90 seconds"), "{}", error);
     }
 
     /// 上限で切った待ち（90 秒以上を要求されたとき、または timeout_ms を省いたとき）は
@@ -3773,7 +3773,7 @@ mod tests {
         assert_eq!(single["task_id"], 7);
         assert_eq!(single["status"], "in_progress");
         assert!(single.get("error").is_none(), "in_progress では error にしない");
-        assert!(single["message"].as_str().unwrap().contains("最大 90 秒"));
+        assert!(single["message"].as_str().unwrap().contains("at most 90 seconds"));
 
         let multiple = timeout_result(&[7, 8], TASK_OUTPUT_MAX_WAIT_MS, true, true);
         assert_eq!(multiple["status"], "in_progress");
@@ -3785,7 +3785,7 @@ mod tests {
     #[test]
     fn task_output_ids_rejects_empty_list() {
         let err = task_output_ids(&[], Some(0), &AtomicBool::new(false), true).unwrap_err();
-        assert!(err.contains("1 件以上"), "err={}", err);
+        assert!(err.contains("at least one ID"), "err={}", err);
     }
     /// 付けないと、すでに保存済みの報告は書き換えられない。
     #[test]
@@ -3851,11 +3851,11 @@ mod tests {
         assert_eq!(out["question_id"], "q1");
         // 質問の文は 1 行に畳まれる
         let msg = out["message"].as_str().unwrap();
-        assert!(msg.contains("質問 q1:"), "{}", msg);
+        assert!(msg.contains("Question q1:"), "{}", msg);
         assert!(!msg.contains('\n'), "{}", msg);
         // 質問用の案内（agent-link task capture <ID> で止めない）
         let hint = out["hint"].as_str().unwrap();
-        assert!(hint.contains("質問"), "{}", hint);
+        assert!(hint.contains("question"), "{}", hint);
 
         drop(guard);
     }
@@ -3866,7 +3866,7 @@ mod tests {
         let guard = EnvGuard::new();
         let run_id = create_test_execution(false);
         let err = task_question(Some(run_id), "q1", "質問").unwrap_err();
-        assert!(err.contains("task-question は子の run 専用です"), "err={}", err);
+        assert!(err.contains("task-question is for subtask runs only"), "err={}", err);
         drop(guard);
     }
 
