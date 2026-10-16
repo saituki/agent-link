@@ -227,9 +227,9 @@ Web が `recent[]` に**追加で足す**項目: `description`（文字列）・
 
 #### `run finalize` / `run advance` / `run rm`
 
-- `run finalize <run_id>` → `{"run_id", "status": "requested", "message"}`（`message` は英語）。その run が無ければ 3、実行中でない・子ブロック・常駐停止は 1。
+- `run finalize <run_id>` → `{"run_id", "status": "requested", "message"}`（`message` は英語）。その run が無ければ 3「Run <id> not found.」、実行中でない（「Run <id> is not running (status: …).」）・子ブロック・常駐停止は 1。
 - `run advance <run_id>` → `{"run_id", "from", "to"}`。`from` は `review`、`to` は日付フォルダの名前（`yymmdd`。日付は一番上の親 run の実行開始日・ローカル時刻）。review でない run は **終了コード 2**「Only a run in review can be moved.」。無ければ 3「Run not found.」。review にある子（孫も）は同じ日付フォルダへ移り、running の子は動かさない。
-- `run rm <run_id> --yes` → `{"run_id", "executions": 消した数}`。実行中は 2「A running run cannot be deleted. Stop it first.」、無ければ 3。
+- `run rm <run_id> --yes` → `{"run_id", "executions": 消した数}`。実行中・待機中は **4**「A running run cannot be deleted. Stop it first.」（Web は 409）、無ければ 3「Run <id> not found.」。
 
 #### `run send <run_id>` / `run interrupt <run_id>`
 
@@ -334,6 +334,8 @@ Web が `recent[]` に**追加で足す**項目: `description`（文字列）・
 **文字出力**（JSON ではない）。Web は終了コードだけで成否を見る。
 
 #### `task create`（標準入力に子の配列の JSON）→ `{"batch_id", "round", "supersedes_batch_id", "status", "tasks"}`（この `round` は子の batch の版で、廃止した run の round とは別）
+
+検査に通らない子があれば、標準出力は空・**終了コード 2**。標準エラーに子ごとの理由を 1 行ずつ、最後の行に「Input validation of task_create failed. …」を出す。run の外（`AGENT_LINK_PARENT_RUN_ID` が無い）で呼ぶと終了コード 2。
 
 子ごとの項目（既存の項目に足すもの）:
 

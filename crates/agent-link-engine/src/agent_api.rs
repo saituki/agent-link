@@ -533,6 +533,14 @@ fn write_report_file(run_id: i64, report: &str) -> Result<std::path::PathBuf, St
 /// 空なら保存済みの報告に一切触らない。
 pub fn finalize(run_id: Option<i64>, report: Option<&str>) -> Result<Value, String> {
     let run_id = require_run_id(run_id)?;
+    let store =
+        crate::common::open_db().map_err(|e| format!("Failed to open the database: {}", e))?;
+    let exec = store
+        .get_execution_by_id(run_id)
+        .map_err(|_| format!("Run {} not found.", run_id))?;
+    if exec.status != "running" {
+        return Err(format!("Run {} is not running (status: {}).", run_id, exec.status));
+    }
     if let Some(text) = report.map(str::trim).filter(|t| !t.is_empty()) {
         write_report_file(run_id, text)?;
     }
@@ -885,7 +893,7 @@ pub fn task_create(
     if !validation_errors.is_empty() {
         return Ok(json!({
             "status": "failed",
-            "error": "Input validation of task_create failed. Fix block_type as the instructions below say.",
+            "error": "Input validation of task_create failed. Fix block_type as the messages above say.",
             "validation_errors": validation_errors,
         }));
     }
@@ -3792,6 +3800,10 @@ mod tests {
     fn finalize_saves_report_only_when_given() {
         let guard = EnvGuard::new();
         let run_id = create_test_execution(false);
+        crate::common::open_db()
+            .unwrap()
+            .update_execution_status(run_id, "running")
+            .unwrap();
 
         // report 付きで完了 → finalize-report.md ができる
         let result = finalize(Some(run_id), Some("結果: DONE\n Waggle: ABC123")).unwrap();
@@ -3807,6 +3819,24 @@ mod tests {
         // 空白だけの report も「無し」と同じ
         finalize(Some(run_id), Some("   ")).unwrap();
         assert_eq!(std::fs::read_to_string(&path).unwrap(), saved);
+
+        drop(guard);
+    }
+
+    /// 無い run は「not found」（3）、実行中でない run は「not running」（1）で弾く。
+    /// 弾いたときは report も書かない。
+    #[test]
+    fn finalize_rejects_missing_and_not_running_run() {
+        let guard = EnvGuard::new();
+        let err = finalize(Some(999_999), Some("x")).unwrap_err();
+        assert_eq!(err, "Run 999999 not found.");
+
+        let run_id = create_test_execution(false);
+        let store = crate::common::open_db().unwrap();
+        store.update_execution_status(run_id, "completed").unwrap();
+        let err = finalize(Some(run_id), Some("x")).unwrap_err();
+        assert_eq!(err, format!("Run {} is not running (status: completed).", run_id));
+        assert!(report_path_for_run(run_id).map_or(true, |p| !p.exists()));
 
         drop(guard);
     }

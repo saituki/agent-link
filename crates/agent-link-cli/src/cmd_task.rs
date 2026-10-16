@@ -32,6 +32,17 @@ pub(crate) fn run(cmd: TaskCmd) -> Result<(), CmdError> {
                 supersedes_batch_id.as_deref(),
                 run_id,
             ))?;
+            // 検査の失敗は標準出力に出さず、終了コード 2 で返す（共通の約束）
+            if v["status"] == "failed" {
+                for e in v["validation_errors"].as_array().into_iter().flatten() {
+                    if let Some(line) = e["message"].as_str() {
+                        eprintln!("{}", line);
+                    }
+                }
+                return Err(CmdError::input(
+                    v["error"].as_str().unwrap_or("Task validation failed."),
+                ));
+            }
             print_json(&v)
         }
         TaskCmd::Execute {

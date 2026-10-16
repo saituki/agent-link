@@ -34,7 +34,7 @@ pub fn run_usage_backfill(args: BackfillArgs) -> Result<(), Box<dyn std::error::
     let store = match SaiStore::open(&db_path) {
         Ok(s) => s,
         Err(e) => {
-            eprintln!("Error: Failed to open the DB at {}: {e}.", db_path.display());
+            eprintln!("Failed to open the DB at {}: {e}.", db_path.display());
             std::process::exit(1);
         }
     };
