@@ -33,7 +33,7 @@ function testBuildQuery() {
 
   const q = sess.sessBuildQuery({
     word: " a,b ",
-    global_round: "2-4",
+    global_round: "2-4", // 廃止した項目はクエリに入れない
     round: "1",
     id: "10-20",
     block: "worker",
@@ -43,8 +43,8 @@ function testBuildQuery() {
   });
   const params = new URLSearchParams(q);
   assert.strictEqual(params.get("word"), "a,b");
-  assert.strictEqual(params.get("global_round"), "2-4");
-  assert.strictEqual(params.get("round"), "1");
+  assert.strictEqual(params.get("global_round"), null);
+  assert.strictEqual(params.get("round"), null);
   assert.strictEqual(params.get("id"), "10-20");
   assert.strictEqual(params.get("block"), "worker");
   assert.strictEqual(params.get("date"), "2026/09/01-2026/09/30");
@@ -131,7 +131,7 @@ function testDocQuery() {
 
   // block はそのまま（完全一致は API が見る）
   assert.strictEqual(new URLSearchParams(sess.sessDocQuery({ word: "a", block: " worker " }, ["task"])).get("block"), "worker");
-  // Round・round・状態は文書に入れない
+  // 状態は文書に入れない（global_round・round も無い）
   const ignored = new URLSearchParams(sess.sessDocQuery({ word: "a", global_round: "2", round: "1", status: ["running"] }, ["task"]));
   assert.strictEqual(ignored.get("round"), null);
   assert.strictEqual(ignored.get("global_round"), null);

@@ -3,8 +3,8 @@
 // `agent-link session search`（エージェントの会話の履歴）と、文書（task / message / waggle）の本文検索を
 // Web から使う。住所は `#/project/<name>/sessions`（Project の上部の切り替えの 1 つ）。
 //
-// - 条件（検索語・Round・round・run の番号・block・日付・状態・種類）を入れて検索する。
-// - 種類の「文書」を選ぶと、文書の本文も探す（文書には Round・round・状態は効かない）。
+// - 条件（検索語・run の番号・block・日付・状態・種類）を入れて検索する。
+// - 種類の「文書」を選ぶと、文書の本文も探す（文書には状態は効かない）。
 // - 結果は run（block_id）ごとにまとめ、会話の行（type・turn・snippet）と文書の行を出す。
 // - run の見出しは会話の画面（`#/run/<name>/<block_id>`）へのリンクにする。
 //
@@ -28,13 +28,13 @@ function sessParseHash(hash) {
 
 /**
  * 入力欄の値から検索のクエリ文字列を作る（先頭の `?` は付けない）。
- * values は `{word, global_round, round, id, block, date, status:[…], type:[…]}`。
+ * values は `{word, id, block, date, status:[…], type:[…]}`。
  * 空の値は入れない。条件が 1 つも無ければ空文字を返す。
  */
 function sessBuildQuery(values) {
   const v = values || {};
   const params = new URLSearchParams();
-  for (const key of ["word", "global_round", "round", "id", "block", "date"]) {
+  for (const key of ["word", "id", "block", "date"]) {
     const text = String(v[key] == null ? "" : v[key]).trim();
     if (text) params.set(key, text);
   }
@@ -229,8 +229,6 @@ function sessForm() {
   const form = sessEl("div", "sess-form");
   form.appendChild(sessInput("sess-word", "検索語（カンマ区切りで AND）", "例: attention, loss"));
   const grid = sessEl("div", "sess-grid");
-  grid.appendChild(sessInput("sess-global-round", "Round（N または N-M）", "例: 2-4"));
-  grid.appendChild(sessInput("sess-round", "round", "例: 1"));
   grid.appendChild(sessInput("sess-id", "run の番号", "例: 10-20"));
   grid.appendChild(sessInput("sess-block", "block の名前", "例: worker"));
   grid.appendChild(sessInput("sess-date", "日付", "例: 2026/09/01-2026/09/30"));
@@ -251,7 +249,7 @@ function sessForm() {
   sessChecks(docRow, SESS_DOC_TYPES, "sessDoc");
   form.append(
     docRow,
-    sessEl("p", "sess-note", "文書には 検索語・run の番号・block（完全一致）・日付 だけが効きます（Round・round・状態は効きません）")
+    sessEl("p", "sess-note", "文書には 検索語・run の番号・block（完全一致）・日付 だけが効きます（状態は効きません）")
   );
 
   const row = sessEl("div", "sess-run-row");
@@ -274,8 +272,6 @@ function sessReadValues() {
       .map((x) => x.value);
   return {
     word: val("sess-word"),
-    global_round: val("sess-global-round"),
-    round: val("sess-round"),
     id: val("sess-id"),
     block: val("sess-block"),
     date: val("sess-date"),

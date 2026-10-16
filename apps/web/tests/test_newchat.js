@@ -29,22 +29,29 @@ function testValidate() {
   assert.strictEqual(N.ncValidate(undefined).ok, false);
 }
 
-// runner に合わせた model の選択肢
+// model の選択肢（cc_models だけ）
 function testModelChoices() {
-  const options = {
-    cc_models: ["opus", "sonnet", "haiku"],
-    providers: { "openrouter-x": ["a/b", "c/d"], local: ["c/d", "e"] },
-  };
-  assert.deepStrictEqual(N.ncModelChoices(options, "cc"), ["opus", "sonnet", "haiku"]);
-  // runner が空（スキップ）なら cc 扱い（pi は廃止）
-  assert.deepStrictEqual(N.ncModelChoices(options, ""), ["opus", "sonnet", "haiku"]);
-  assert.deepStrictEqual(N.ncModelChoices(options, "pi"), []);
-  // user / gl はモデル無し
-  assert.deepStrictEqual(N.ncModelChoices(options, "user"), []);
-  assert.deepStrictEqual(N.ncModelChoices(options, "gl"), []);
+  const options = { cc_models: ["opus", "sonnet", "haiku"] };
+  assert.deepStrictEqual(N.ncModelChoices(options), ["opus", "sonnet", "haiku"]);
   // options が無くても落ちない
-  assert.deepStrictEqual(N.ncModelChoices(null, "cc"), []);
-  assert.deepStrictEqual(N.ncModelChoices(undefined, ""), []);
+  assert.deepStrictEqual(N.ncModelChoices(null), []);
+  assert.deepStrictEqual(N.ncModelChoices(undefined), []);
+  assert.deepStrictEqual(N.ncModelChoices({}), []);
+}
+
+// 送る JSON（runner・provider・round・global_round を送らない）
+function testBuildPayload() {
+  const payload = N.ncBuildPayload({
+    project: "p", block: "main", model: "opus", thinking: "high", task_text: "やあ",
+    runner: "cc", provider: "x", round: "1", global_round: "1",
+  });
+  assert.deepStrictEqual(payload, { block: "main", model: "opus", thinking: "high", task_text: "やあ" });
+  for (const k of ["runner", "provider", "round", "global_round", "tag"]) {
+    assert.strictEqual(Object.prototype.hasOwnProperty.call(payload, k), false, k);
+  }
+  // 空の項目は空文字
+  assert.deepStrictEqual(N.ncBuildPayload({}), { block: "", model: "", thinking: "", task_text: "" });
+  assert.deepStrictEqual(N.ncBuildPayload(null), { block: "", model: "", thinking: "", task_text: "" });
 }
 
 // 住所 #/newchat?project=&block=（G3-C3）。形の合わない値は ""
@@ -70,6 +77,7 @@ function testParsePreset() {
 function main() {
   testValidate();
   testModelChoices();
+  testBuildPayload();
   testParsePreset();
   console.log("test_newchat: すべて通りました");
 }
