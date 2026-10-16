@@ -3,7 +3,7 @@
 //! `sai-cache-tui-rs` の解析ロジックを流用し、`phone run --view stats`
 //! （Web の中継）が使うデータと JSON 表現を提供する。描画は持たない。
 //!
-//! 実行（ブロック）の `session_dir` からメインセッション jsonl を解決し、
+//! 実行（ブロック）の `agent_session_id` からセッション jsonl を解決し、
 //! usage を集計して [`CacheViewState`] に詰める（[`load`]）。
 
 use std::path::PathBuf;
@@ -78,25 +78,26 @@ impl CacheViewState {
 
 /// 実行 1 件分の Stats ビュー状態を DB から構築する（ビルダ純関数）。
 ///
-/// 実行レコードの `session_dir` から `find_main_session_file` でメインセッション
-/// jsonl を解決し、sai-cache-tui-rs と同じ解析（usage 集計）を行う。
+/// 実行レコードの `agent_session_id` から `phone_export::resolve_transcript` で
+/// セッション jsonl を解決し、sai-cache-tui-rs と同じ解析（usage 集計）を行う。
 ///
 /// - `store`: 対象プロジェクトの `SaiStore`（read-only でも可）
 /// - `exec_id`: 対象実行 ID
 ///
 /// セッションが無い・解析に失敗した場合は `error` にメッセージをセットする。
 pub fn load(store: &agent_link_engine::db::SaiStore, exec_id: i64) -> CacheViewState {
-    // 実行レコードを取得する。セッションは ~/.claude/projects/ から探す。
-    if store.get_execution_by_id(exec_id).is_err() {
-        return CacheViewState {
-            error: Some(format!("Stats: run record not found (ID{})", exec_id)),
-            ..Default::default()
-        };
-    }
-
-    let session_file = agent_link_engine::session::cc_session_files(30)
-        .into_iter()
-        .next();
+    // 実行レコードの agent_session_id から会話を解決する（別の run の会話を拾わない）。
+    let exec = match store.get_execution_by_id(exec_id) {
+        Ok(e) => e,
+        Err(_) => {
+            return CacheViewState {
+                error: Some(format!("Stats: run record not found (ID{})", exec_id)),
+                ..Default::default()
+            }
+        }
+    };
+    let root = agent_link_engine::project::project_root();
+    let session_file = agent_link_engine::phone_export::resolve_transcript(&exec, &root);
 
     let Some(session_file) = session_file else {
         return CacheViewState {
@@ -130,5 +131,70 @@ pub fn load(store: &agent_link_engine::db::SaiStore, exec_id: i64) -> CacheViewS
         cumulative,
         counts,
         error: None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use agent_link_engine::db::{BlockMetadata, SaiStore};
+
+    /// `load` は run の `agent_session_id` の jsonl を読む。
+    /// 別 id のより新しい jsonl があっても、それを拾わない。
+    #[test]
+    fn load_reads_own_session_not_newest() {
+        let _env = crate::TEST_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let prev_home = std::env::var_os("HOME");
+        let prev_root = std::env::var_os("AGENT_LINK_PROJECT_ROOT");
+        let tmp = std::env::temp_dir().join(format!("sai_stats_load_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        let root = tmp.join("proj");
+        std::fs::create_dir_all(&root).unwrap();
+        std::env::set_var("HOME", &tmp);
+        std::env::set_var("AGENT_LINK_PROJECT_ROOT", &root);
+
+        let slug = agent_link_engine::session::claude_project_slug(&root);
+        let dir = tmp.join(".claude/projects").join(slug);
+        std::fs::create_dir_all(&dir).unwrap();
+        let own = dir.join("own-sid.jsonl");
+        let newer = dir.join("other-sid.jsonl");
+        std::fs::write(&own, "").unwrap();
+        std::fs::write(&newer, "").unwrap();
+        let old = std::time::SystemTime::now() - std::time::Duration::from_secs(3600);
+        std::fs::File::options().write(true).open(&own).unwrap().set_modified(old).unwrap();
+
+        let store = SaiStore::open_in_memory().unwrap();
+        let block = BlockMetadata::new(
+            "b".to_string(),
+            "b".to_string(),
+            "m".to_string(),
+            "off".to_string(),
+            "true".to_string(),
+            "true".to_string(),
+            None,
+            300,
+            "none".to_string(),
+            true,
+            "blocks/b.md".to_string(),
+            None,
+        );
+        let block_id = store.insert_block(&block).unwrap();
+        let run_id = store.create_execution(block_id, None).unwrap();
+        store.update_execution_agent_session_id(run_id, "own-sid").unwrap();
+
+        let state = load(&store, run_id);
+
+        match prev_home {
+            Some(v) => std::env::set_var("HOME", v),
+            None => std::env::remove_var("HOME"),
+        }
+        match prev_root {
+            Some(v) => std::env::set_var("AGENT_LINK_PROJECT_ROOT", v),
+            None => std::env::remove_var("AGENT_LINK_PROJECT_ROOT"),
+        }
+        let _ = std::fs::remove_dir_all(&tmp);
+
+        assert_eq!(state.error, None);
+        assert_eq!(state.session_file, Some(own));
     }
 }
