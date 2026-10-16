@@ -464,7 +464,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "rest",
         nargs=argparse.REMAINDER,
-        help="Give --choice <number> / --choices <number,number> / --text <text> in question order",
+        help="Give --choice <number> / --choices <number,number> / --text <text> in question order."
+        " Numbers count from 0 (the first option is 0)",
     )
     _add_json(p)
     p.set_defaults(func=cmd_answer)

@@ -20,7 +20,8 @@ import os
 import time
 
 from fastapi import Body, Depends, FastAPI, HTTPException, Query, Request
-from fastapi.responses import FileResponse
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -43,6 +44,16 @@ import asyncio
 logger = logging.getLogger("agent_link_web")
 
 app = FastAPI(title="agent-link-web")
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_error_handler(request: Request, exc: RequestValidationError):
+    """検査の誤り（422）の detail を、配列ではなく英語 1 文にする（docs/integration.md の形）。"""
+    first = exc.errors()[0]
+    where = ".".join(str(p) for p in first["loc"])
+    return JSONResponse(
+        status_code=422, content={"detail": f"Invalid request: {where}: {first['msg']}"}
+    )
 
 def require_internal(request: Request) -> None:
     """フック・拡張からの内部の要求の守り。Mac 自身（127.0.0.1 / ::1）からのみ。"""
