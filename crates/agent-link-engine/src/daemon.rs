@@ -1055,6 +1055,10 @@ pub fn run_foreground(project_root: &Path) -> Result<(), Box<dyn std::error::Err
             );
         }
     }
+    let swept = crate::headless::sweep_dead_panes();
+    if swept > 0 {
+        eprintln!("[agent-link] 起動時の掃除: 終わった pane の置き場を {} 件消しました", swept);
+    }
     // 起動直後の `daemon status` に幽霊を載せる（P1-4 即時書込）。
     let _ = daemon.write_status_file();
 
