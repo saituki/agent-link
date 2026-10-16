@@ -5,7 +5,7 @@
 - **読み方**: 各節は短い説明と、「用語・意味・どこにあるか」の表でできている。「どこにあるか」は、画面の住所・CLI の命令・コードの場所（ファイル名と関数名・型名。行番号は書かない）のどれか。
 - **言葉の方針**: 専門用語は英単語のまま使う（Next Action・History・PATH・Dashboard など）。この文書の案内文と説明は日本語で書く。画面の文言と `agent-link` の標準エラー・`--json` の人向けの文は英語（音声の言語は日本語）。`data-tab`・住所・API の名前などの識別子も英語のまま。
 - **正はコード**: この文書とコードが食い違ったら、コードに合わせて直す。確かめきれていない文には（要確認）を付ける。
-- **ほかの文書**: 使い方と入れ方は [`README.md`](./README.md)、層の分け方と守る約束は [`ARCHITECTURE.md`](./ARCHITECTURE.md)、このリポジトリで作業する人への指示は [`AGENTS.md`](./AGENTS.md)、API と画面の住所は [`docs/integration.md`](./docs/integration.md)、CLI の約束と Web が読む JSON は [`docs/for-developers.md`](./docs/for-developers.md)、sai-moon からの切り替えは [`docs/switch-over.md`](./docs/switch-over.md)。
+- **ほかの文書**: 使い方と入れ方は [`README.md`](./README.md)、層の分け方と守る約束は [`ARCHITECTURE.md`](./ARCHITECTURE.md)、このリポジトリで作業する人への指示は [`AGENTS.md`](./AGENTS.md)、API と画面の住所は [`docs/integration.md`](./docs/integration.md)、CLI の約束と Web が読む JSON は [`docs/for-developers.md`](./docs/for-developers.md)、sai-moon と並べて使う手順は [`docs/switch-over.md`](./docs/switch-over.md)。
 
 ---
 

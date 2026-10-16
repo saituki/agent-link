@@ -51,7 +51,7 @@ iPhone / PC のブラウザ
 | 登録簿 | `$AGENT_LINK_HOME/registry.json` |
 | 書き出し（Chats が読む） | `$AGENT_LINK_HOME/web/runs/` |
 | 共通の block・template・settings | `$AGENT_LINK_HOME/blocks/`・`template/`・`settings.json` |
-| 質問の保管・通知の鍵・ログ | `$AGENT_LINK_HOME/web/agent_link_web.db`・`vapid.json`・`agent-link-web.log` |
+| 質問の保管・通知の鍵・ログ | `$AGENT_LINK_HOME/web/agent_link_web.db`・`vapid.json`・`agent-link-web.log`（README の `agent-link-web-restart` で起こしたときのログの出し先） |
 | **プロジェクト内の `.agent-link/`** | `<root>/.agent-link/`（`engine/agent-link.db`・`blocks/`・`template/`・`settings.json`・`outputs/`）。`AGENT_LINK_HOME` とは別 |
 
 - `AGENT_LINK_HOME` は空でない値があればそれ、無ければ `~/.agent-link`。2 か所（`project.rs` の `resolve_sai_home`・`registry.sai_home()`）で同じ規則を使う。
@@ -161,7 +161,7 @@ iPhone / PC のブラウザ
 | `POST /api/questions/{qid}/resolved` | 質問が端末側で答えられたことの通知（**内部専用**） |
 | `GET /api/questions/{qid}` | 質問 1 件（**内部専用**。cc のフックが答えを取りに来る）。JSON は `answered_by`（答えた人。端末で答えたときは `terminal`）を持つ。`state` は `open`・`answered`・`resolved_elsewhere`・`expired`・`withdrawn`（取り下げ。`answer` は `{"text": "<送った文。空もある>"}`） |
 | `GET /api/questions/pending` / `GET /api/questions?session_id=` | 答え待ちの質問 |
-| `POST /api/questions/{qid}/answer` | 答える（記録するだけ。cc のフックが `GET /api/questions/{qid}` で取りに来る）。本文は `{"answers": [{choice_index \| choice_indices \| text}, …]}` |
+| `POST /api/questions/{qid}/answer` | 答える（記録するだけ。cc のフックが `GET /api/questions/{qid}` で取りに来る）。本文は `{"answers": [{choice_index \| choice_indices \| text}, …]}`。番号は **0 から**数え、範囲外（単一選択に 2 つ以上も）は 400（質問は `open` のまま） |
 | `GET /api/push/key` / `POST /api/push/subscribe` | プッシュ通知の鍵と購読 |
 | `GET /api/usage` | Claude（cc）の使用量。`{"cc": {"limits": <5 時間枠・7 日枠または null>, "cost": {"today", "month", "sessions"}}, "saved_at": <epoch 秒>}` |
 | `GET /manifest.json` | PWA の設定（`name`・`short_name` は `agent-link`） |
@@ -227,7 +227,7 @@ Web のすべての HTTP API を、コマンド 1 本から使える（接続先
 | CLI が起動できない | 503「agent-link not found. Check the configured path.」 |
 | 時間切れ | 504「agent-link did not respond in time.」 |
 
-`detail` は標準エラーの空でない最後の行（`sai-progress` の行を除く）。英語。時間の上限は既定 20 秒（daemon・workflow 30 秒、検索 60 秒など個別）。
+`detail` は標準エラーの空でない最後の行（`sai-progress` の行を除く）。英語。FastAPI の型の検査の失敗（422）も `detail` は文字列（`Invalid request: <場所>: <理由>`）。時間の上限は既定 20 秒（daemon・workflow 30 秒、検索 60 秒など個別）。
 
 ---
 
