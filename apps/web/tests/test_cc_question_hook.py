@@ -284,6 +284,24 @@ def test_parent_run_id_does_not_deny() -> None:
     assert hook["updatedInput"]["answers"] == {"好きな色は？": "-緑"}, hook
 
 
+def test_mark_working_is_silent_without_agent_link() -> None:
+    """`agent-link` が PATH に無くても `mark_working` は例外を出さない。"""
+    import os
+
+    spec = importlib.util.spec_from_file_location("cc_question_hook", HOOK_PATH)
+    hook = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(hook)
+    old = os.environ.get("PATH")
+    os.environ["PATH"] = ""
+    try:
+        hook.mark_working()
+    finally:
+        if old is None:
+            os.environ.pop("PATH", None)
+        else:
+            os.environ["PATH"] = old
+
+
 if __name__ == "__main__":
     test_answered_returns_allow_with_updated_input()
     test_deny_mode_returns_reason_with_answer()
@@ -295,4 +313,5 @@ if __name__ == "__main__":
     test_outside_agent_link_run_is_silent()
     test_free_text_answer_becomes_answers()
     test_parent_run_id_does_not_deny()
+    test_mark_working_is_silent_without_agent_link()
     print("test_cc_question_hook: すべて通りました")

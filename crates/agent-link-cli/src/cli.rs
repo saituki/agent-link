@@ -147,12 +147,15 @@ pub enum Cmd {
     /// 送信を止める JSON を出す。それ以外は何も出さない（終了コードは常に 0）。
     #[command(hide = true)]
     CcPromptHook,
-    /// cc の状態フック（内部用）。標準入力は読み捨て、tmux 経路の pane の状態を `working` / `idle` にする。
+    /// cc の状態フック（内部用）。tmux 経路の pane の状態を書く。
+    ///
+    /// `tool` のときは標準入力の PreToolUse の JSON を読み、`tool_name` が `AskUserQuestion` なら `blocked`、ほかは `working` にする。
+    /// それ以外の値のときは標準入力を読み捨てる。
     ///
     /// 何があっても終了コードは 0・標準出力は空（cc を止めない）。
     #[command(hide = true)]
     CcStateHook {
-        /// `working` または `idle`
+        /// `working` / `idle` / `blocked` / `tool`（PreToolUse 用。入力の `tool_name` で決める）
         state: String,
     },
     /// cc の PermissionRequest フック（内部用）。承認は常に allow を出す（AskUserQuestion は何も出さない）。
@@ -1920,12 +1923,17 @@ pub fn handle_cc_prompt_hook() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-/// `agent-link cc-state-hook <working|idle>`（cc の Stop / SessionStart hook 用）。
+/// `agent-link cc-state-hook <working|idle|blocked|tool>`（cc の状態 hook 用）。
 pub fn handle_cc_state_hook(state: &str) -> Result<(), Box<dyn std::error::Error>> {
     use std::io::Read;
 
     let mut input = String::new();
     let _ = std::io::stdin().read_to_string(&mut input);
+    let state = if state == "tool" {
+        agent_link_engine::tmux::state_for_tool(&input)
+    } else {
+        state
+    };
     agent_link_engine::tmux::set_state_from_hook(state);
     Ok(())
 }

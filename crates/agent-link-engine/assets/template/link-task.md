@@ -91,7 +91,8 @@ git branch -d <ブランチ名>
 | `completed` | 子が `agent-link task report` を実行した | 下の「報告を受け取ったあと」へ |
 | `failed` | 子の実行が失敗した | 原因を調べ、直してから `agent-link task requeue <task_id>` するか、作り直す |
 | `timeout` / `in_progress` | `agent-link task wait` の待ち時間が切れただけ（最大 90 秒。`--timeout-ms 0` なら即時に返る）。子はまだ作業中 | もう一度 `agent-link task wait <task_id>` を実行する |
-| `stalled`（`idle` / `blocked` / `error`） | 子が入力待ち・確認待ち・エラーで止まった | `agent-link task capture <task_id>` で画面を見る。`idle` なら `agent-link task send <task_id> --message <文>` で指示を送る。`blocked` / `error` なら先に `agent-link task interrupt <task_id>` してから `agent-link task send` |
+| `stalled`（`idle` / `error`） | 子が入力待ち・エラーで止まった | `agent-link task capture <task_id>` で画面を見る。`idle` なら `agent-link task send <task_id> --message <文>` で指示を送る。`error` なら先に `agent-link task interrupt <task_id>` してから `agent-link task send` |
+| `stalled`（`blocked`） | 子が利用者への質問の答えを待っている | 利用者が Web で答えるまで、もう一度 `agent-link task wait <task_id>` で待つ。interrupt しない（質問が開いたまま残る） |
 | `stalled`（`long_running`） | 子が作業中のまま長く続いている（既定 20 分ごとに届く） | `agent-link task capture <task_id>` で画面を見て、進み具合を判断する（下） |
 | `stalled`（`timeout`） | `agent-link task create` の `timeout` を超えた（同じ間隔で繰り返し届く）。子は止めていない | 同上 |
 

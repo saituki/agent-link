@@ -433,6 +433,10 @@ pub fn cc_settings_json() -> serde_json::Value {
 ///   それ以外の文では状態を `working` にする
 /// - `Stop` / `SessionStart`: 状態を `idle` にする（`agent-link cc-state-hook idle`）。
 ///   `SessionStart` は TUI が立ち上がったことの合図にもなる（起動直後に文を送らないため）
+/// - `PreToolUse`（全ツール）: 状態を決める（`agent-link cc-state-hook tool`）。`AskUserQuestion` なら `blocked`、ほかは `working`。
+///   web の置き場の有無にかかわらず入れる。同じ PreToolUse のフックは並んで走るので、`matcher` は `""` 1 つにして入力の `tool_name` で分ける
+/// - `PostToolUse`（全ツール）: 状態を `working` にする（`agent-link cc-state-hook working`）。
+///   質問の答えのあと・利用者の文で始まらないターンでも `working` に戻る
 /// - `PermissionRequest`: 承認は常に allow（[`permission_hook_output`]）
 /// - `PreToolUse`（AskUserQuestion）/ `SessionStart`: `apps/web` のフック。
 ///   質問・セッションを Web の窓口へ知らせる（`web_dir` が無ければ書かない）。
@@ -446,13 +450,15 @@ fn cc_hooks_json(exe: &str, web_dir: Option<&Path>) -> serde_json::Value {
     let mut hooks = serde_json::json!({
         "UserPromptSubmit": [{ "hooks": [hook(format!("{} cc-prompt-hook", exe))] }],
         "Stop": [{ "hooks": [state_idle.clone()] }],
+        "PreToolUse": [{ "matcher": "", "hooks": [hook(format!("{} cc-state-hook tool", exe))] }],
+        "PostToolUse": [{ "matcher": "", "hooks": [hook(format!("{} cc-state-hook working", exe))] }],
         "PermissionRequest": [{ "hooks": [hook(format!("{} cc-permission-hook", exe))] }],
     });
     let mut session_start = Vec::new();
     if let Some(dir) = web_dir {
         let script = |name: &str| shell_escape_single_quotes(&dir.join(name).to_string_lossy());
         session_start.push(hook(script("cc_register.py")));
-        hooks["PreToolUse"] = serde_json::json!([{
+        hooks["PreToolUse"].as_array_mut().unwrap().push(serde_json::json!({
             "matcher": "AskUserQuestion",
             "hooks": [{
                 "type": "command",
@@ -460,7 +466,7 @@ fn cc_hooks_json(exe: &str, web_dir: Option<&Path>) -> serde_json::Value {
                 // 24 時間。フックが Web の答えを待つ（共有契約 C3）。
                 "timeout": 86400,
             }],
-        }]);
+        }));
     }
     session_start.push(state_idle);
     hooks["SessionStart"] = serde_json::json!([{ "hooks": session_start }]);
@@ -749,13 +755,18 @@ mod tests {
 
         let dir = std::path::Path::new("/opt/sai moon/hooks");
         let with = cc_hooks_json("/bin/agent-link", Some(dir));
-        assert_eq!(with["PreToolUse"][0]["matcher"], "AskUserQuestion");
+        assert_eq!(with["PreToolUse"][0]["matcher"], "");
         assert_eq!(
             with["PreToolUse"][0]["hooks"][0]["command"],
+            "'/bin/agent-link' cc-state-hook tool"
+        );
+        assert_eq!(with["PreToolUse"][1]["matcher"], "AskUserQuestion");
+        assert_eq!(
+            with["PreToolUse"][1]["hooks"][0]["command"],
             "'/opt/sai moon/hooks/cc_question.py'"
         );
         // フックは Web の答えを待つので、cc の既定の待ち時間で切られないようにする
-        assert_eq!(with["PreToolUse"][0]["hooks"][0]["timeout"], 86400);
+        assert_eq!(with["PreToolUse"][1]["hooks"][0]["timeout"], 86400);
         assert_eq!(
             with["SessionStart"][0]["hooks"][0]["command"],
             "'/opt/sai moon/hooks/cc_register.py'"
@@ -772,9 +783,13 @@ mod tests {
             with["UserPromptSubmit"][0]["hooks"][0]["command"],
             "'/bin/agent-link' cc-prompt-hook"
         );
-        // 置き場が無いときは Web のフック（PreToolUse・cc_register）だけ書かない。状態のフックは残す
+        // 置き場が無いときは Web のフック（cc_question・cc_register）だけ書かない。状態のフックは残す
         let without = cc_hooks_json("/bin/agent-link", None);
-        assert!(without.get("PreToolUse").is_none());
+        assert_eq!(without["PreToolUse"].as_array().unwrap().len(), 1);
+        assert!(without["PreToolUse"][0]["hooks"][0]["command"]
+            .as_str()
+            .unwrap()
+            .ends_with("cc-state-hook tool"));
         assert_eq!(
             without["SessionStart"][0]["hooks"].as_array().unwrap().len(),
             1,
@@ -818,7 +833,17 @@ mod tests {
         // statusLine は費用を cc-cost へ書き、画面下に金額を出す
         assert_eq!(v["statusLine"]["type"], "command");
         assert!(v["statusLine"]["command"].as_str().unwrap().ends_with(" cc-statusline"));
-        // 状態（Stop・SessionStart の idle）と承認（PermissionRequest）のフック
+        // 状態（Stop・SessionStart の idle、PreToolUse の tool、PostToolUse の working）と承認（PermissionRequest）のフック
+        assert_eq!(v["hooks"]["PreToolUse"][0]["matcher"], "");
+        assert!(v["hooks"]["PreToolUse"][0]["hooks"][0]["command"]
+            .as_str()
+            .unwrap()
+            .ends_with(" cc-state-hook tool"));
+        assert_eq!(v["hooks"]["PostToolUse"][0]["matcher"], "");
+        assert!(v["hooks"]["PostToolUse"][0]["hooks"][0]["command"]
+            .as_str()
+            .unwrap()
+            .ends_with(" cc-state-hook working"));
         assert!(v["hooks"]["Stop"][0]["hooks"][0]["command"]
             .as_str()
             .unwrap()

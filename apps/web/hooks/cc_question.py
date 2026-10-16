@@ -16,6 +16,8 @@ Web の質問カードに登録し，利用者が答えるまで待つ．答え�
 - agent-link の run の中（`AGENT_LINK_PARENT_RUN_ID` がある）でだけ動く．
   同じプロジェクトで sai-moon の cc が動いても，何もせず終える
 - 認証: 付けない（Web は localhost からの呼び出しを通す）
+- 待つ間は `state.json` が `blocked`（Rust の PreToolUse フックが書く）．待ちを抜けたら `working` に戻す
+  （取り下げ・打ち切りでは cc がツールを動かさず PostToolUse が来ないため）．
 - 標準ライブラリだけで書く．登録できなければ何も出さずに終了コード 0
   （cc はそのままツールを動かす）．
 """
@@ -24,6 +26,8 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
+import subprocess
 import sys
 import time
 import urllib.request
@@ -167,6 +171,24 @@ def hook_output(questions: list, answers: dict | None) -> dict:
     return deny(reason_text(answers))
 
 
+def mark_working() -> None:
+    """state.json を working に戻す（agent-link cc-state-hook working）。失敗は無視する．"""
+    exe = shutil.which("agent-link")
+    if not exe:
+        return
+    try:
+        subprocess.run(
+            [exe, "cc-state-hook", "working"],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=5,
+            check=False,
+        )
+    except Exception:
+        pass
+
+
 def main() -> int:
     if not os.environ.get("AGENT_LINK_PARENT_RUN_ID"):
         return 0
@@ -217,6 +239,8 @@ def main() -> int:
         if state.get("state") and state.get("state") != "open":
             break
 
+    # 答え無しで終わると cc はツールを動かさず PostToolUse が来ない。blocked を残さない
+    mark_working()
     if withdrawn is not None:
         out = withdrawn_output(withdrawn)
     else:
