@@ -65,7 +65,6 @@ const INIT_DIRS: &[&str] = &[
     "outputs/todo",
     "outputs/running",
     "outputs/review",
-    "outputs/done",
     "engine",
     "engine/notifications",
     "engine/notifications/pending",
@@ -343,7 +342,6 @@ mod tests {
             "outputs/todo",
             "outputs/running",
             "outputs/review",
-            "outputs/done",
             "engine/notifications/pending",
             "engine/notifications/processed",
             "engine/notifications/results",
@@ -443,7 +441,7 @@ mod tests {
         // 既存 settings.json と outputs 配下に印を付ける
         let settings = root.join(".agent-link").join("settings.json");
         std::fs::write(&settings, "{\"marker\":true}\n").unwrap();
-        let marker = root.join(".agent-link/outputs/done/keep.txt");
+        let marker = root.join(".agent-link/outputs/review/keep.txt");
         std::fs::write(&marker, "keep").unwrap();
         std::fs::write(root.join(".mcp.json"), "old").unwrap();
 
