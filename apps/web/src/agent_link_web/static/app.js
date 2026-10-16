@@ -1754,6 +1754,10 @@ document.getElementById("send-button").addEventListener("click", async () => {
     queueReflectedSends([text]);
     ta.value = "";
     autoGrow();
+    // 文と確定キーは送ったが working にならなかった。届いた可能性があるので送り直しを誘わない
+    if (out.status === "unconfirmed") {
+      saiToast("Sent, but the agent has not started yet. Check the chat before sending it again.");
+    }
   } finally {
     sending = false;
   }

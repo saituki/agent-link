@@ -6,6 +6,7 @@
 //! - 動いている実行に `run send` すると次のターンが走る（画面に `got: <本文>` が出る）。
 //! - `run interrupt` で中断でき、pane が `idle` に戻る。
 //! - 無い実行は終了コード 3。空の文は終了コード 2。
+//! - 状態のフックを呼ばない偽の cc には `status: "unconfirmed"`（終了コード 0）で返る。
 //!
 //! tmux が使えない環境では skip と表示して成功で返す。一時フォルダをプロジェクトルートと
 //! `AGENT_LINK_HOME` にするので、本物の `.agent-link` や `~/.agent-link` は書き換えない。
@@ -114,6 +115,18 @@ done
 "##,
         bin = bin.display()
     )
+}
+
+/// 状態のフックを呼ばない偽の cc（文は受け取るが `state.json` は idle のまま）。
+fn fake_cc_no_hook() -> String {
+    r##"#!/bin/sh
+echo ready
+while IFS= read -r line; do
+  line=$(printf '%s' "$line" | tr -d '\033')
+  echo "got: $line"
+done
+"##
+    .to_string()
 }
 
 /// 一時プロジェクトの DB に `running` の実行を 1 件作り、ID を返す。
@@ -277,7 +290,38 @@ fn test_run_send_and_interrupt() {
     );
     assert!(out.stdout.is_empty(), "stdout は空");
 
+    // ---- 実行 3: フックが状態を知らせないときは unconfirmed（終了コード 0）----
+    let fake_nh = project.join("fake_cc_no_hook.sh");
+    write_script(&fake_nh, &fake_cc_no_hook());
+    let run3 = make_execution(&project);
+    let pane3 = headless::new_pane(Some(&project.to_string_lossy())).unwrap();
+    let _kill3 = KillSession(pane3.pane_id.clone());
+    headless::run(&pane3.pane_id, &format!("'{}'", fake_nh.display())).unwrap();
+    record_pane(&project, run3, &pane3.pane_id);
+    let out = run_cli(
+        &project,
+        &home,
+        &["run", "send", &run3.to_string(), "--text", "未確認の依頼", "--json"],
+    );
+    assert!(
+        out.status.success(),
+        "unconfirmed は成功で返す: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).expect("run send の JSON");
+    assert_eq!(v["status"], "unconfirmed", "結果: {}", v);
+    assert_eq!(v["run_id"], run3);
+    assert_eq!(v["pane_id"], pane3.pane_id);
+    assert!(
+        v["message"].as_str().is_some_and(|m| m.contains("before sending it again")),
+        "message: {}",
+        v
+    );
+    // 文は pane に届いている。
+    wait_for_screen(&pane3.pane_id, "got: 未確認の依頼", Duration::from_secs(10));
+
     // ---- 後始末（tmux の session を止める）----
+    let _ = headless::close(&pane3.pane_id);
     let _ = headless::close(&pane1.pane_id);
     let _ = headless::close(&pane2.pane_id);
 }
