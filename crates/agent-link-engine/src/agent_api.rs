@@ -1821,6 +1821,10 @@ fn send_route(
                 "Task {} is working. To stop it and change the instruction, call agent-link task interrupt <ID> first. To wait for it to finish, use `agent-link task wait <ID>`.",
                 task_id
             )),
+            Some("blocked") => Err(format!(
+                "Task {} is waiting for the user's answer to a question. Wait with `agent-link task wait <ID>` until the user answers it on the Web.",
+                task_id
+            )),
             other => {
                 let label = other.unwrap_or("unknown state");
                 Err(format!(
@@ -3410,8 +3414,13 @@ mod tests {
         assert!(err.contains("is working"), "{}", err);
         assert!(err.contains("agent-link task interrupt <ID>"), "{}", err);
 
-        // in_progress + blocked / error / 未知の値 / None → エラー
-        for st in [Some("blocked"), Some("error"), Some("weird"), None] {
+        // in_progress + blocked → 質問の答え待ち（interrupt は勧めない）
+        let err = send_route(12, "in_progress", Some("blocked")).unwrap_err();
+        assert!(err.contains("waiting for the user's answer"), "{}", err);
+        assert!(err.contains("agent-link task wait <ID>"), "{}", err);
+
+        // in_progress + error / 未知の値 / None → エラー
+        for st in [Some("error"), Some("weird"), None] {
             let err = send_route(12, "in_progress", st).unwrap_err();
             assert!(err.contains("is stopped at"), "{}", err);
             assert!(err.contains("agent-link task interrupt <ID>"), "{}", err);

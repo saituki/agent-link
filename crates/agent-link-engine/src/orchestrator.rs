@@ -3259,7 +3259,7 @@ fn execute_completion_with_doc_write(
                                         StallReason::Blocked => (
                                             "blocked",
                                             format!(
-                                                "サブブロックが blocked 状態で停止しています（pane={}）。agent-link task capture <ID> で画面を確かめ、agent-link task send <ID> --message <文> で指示を送って再開させてください（blocked / error なら先に agent-link task interrupt <ID>）。",
+                                                "サブブロックが利用者への質問の答えを待っています（pane={}）。利用者が Web の質問カードで答えるまで、もう一度 agent-link task wait <ID> で待ってください。答えを待たずに方向を変えるときは、agent-link task capture <ID> で画面を確かめてから利用者に相談してください。",
                                                 pane_id
                                             ),
                                         ),
@@ -3365,22 +3365,7 @@ fn execute_completion_with_doc_write(
             // --- 1. エージェントの状態をチェック ---
             let pi_done = match herdr.get_pane_status(pane_id) {
                 Ok(info) => {
-                    if info.agent_status == "blocked" {
-                        // blocked 検出 → 残りの通知を処理してからキャンセル
-                        match doc_write_notify::poll_and_process_all(&integrator) {
-                            Ok(results) => {
-                                for r in &results {
-                                    if let Some(ref token) = r.waggle_token {
-                                        waggle_tokens.push(token.clone());
-                                    }
-                                }
-                            }
-                            Err(_) => {}
-                        }
-                        *progress.lock().unwrap() = PipelineProgress::Cancelled;
-
-                        return;
-                    }
+                    // blocked は質問の答え待ち。取り消さず、idle / done になるまで待つ
                     info.agent_status == "idle" || info.agent_status == "done"
                 }
                 Err(_) => false, // エラー時は続行
@@ -3572,13 +3557,11 @@ pub fn send_turn_to_pane(
         match herdr.get_pane_status(pane_id) {
             Ok(info) => {
                 pane_error_count = 0;
-                if info.agent_status == "blocked" {
-                    return Err(OrchestratorError::Cancelled);
-                }
                 if info.agent_status == "idle" || info.agent_status == "done" {
                     break;
                 }
-                // blocked / idle / done 以外（working など）は長時間アラートの監視対象。
+                // blocked（質問の答え待ち）は完了にも取り消しにもせず待ち続ける。
+                // idle / done 以外（working など）は長時間アラートの監視対象。
                 // idle 判定は使わないため `idle_timeout` には `Duration::MAX` を渡す。
                 if let Some(StallReason::LongRunning(elapsed)) = stall.observe(
                     &info.agent_status,
@@ -3770,9 +3753,8 @@ pub(crate) fn submit_prompt_verified(
             }
             match herdr.get_pane_status(pane_id) {
                 Ok(info) if info.agent_status == "working" => return Ok(()),
-                Ok(info) if info.agent_status == "blocked" => {
-                    return Err(OrchestratorError::Cancelled)
-                }
+                // blocked は「文を受け取り、質問を出した」状態
+                Ok(info) if info.agent_status == "blocked" => return Ok(()),
                 _ => {}
             }
             std::thread::sleep(Duration::from_millis(POLL_MS));

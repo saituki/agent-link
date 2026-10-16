@@ -5,7 +5,7 @@
 
 通知の条件は2つだけ（増やすと無視されるようになるため増やさない）:
 1. 判断が必要になった（質問の登録）— 質問を登録したときに `questions.py` が出す
-2. 長い作業が終わった（3分以上 working が続いた後に idle）
+2. 長い作業が終わった（3分以上 working / blocked が続いた後に idle）
 
 新しい仕組みは増やさない．実行の状態は `runs.headless_state`（C1 の `state.json`）から読む。
 """
@@ -35,8 +35,8 @@ def notify_status_change(run: dict, state: str, prev: str, now: float) -> None:
 
     監視ループから切り出したもの．テストから引数を確かめられる．
     """
-    if prev == "working" and state == "idle":
-        # 「長い作業」の基準：3分以上 working が続いた後のみ
+    if prev in ("working", "blocked") and state == "idle":
+        # 「長い作業」の基準：3分以上 working（質問待ちの blocked を含む）が続いた後のみ
         if should_notify_done(run.get("herdr_pane_id") or "", now):
             notify.broadcast(
                 notify.notify_heading(run),
@@ -63,8 +63,8 @@ def watch_once(now: float | None = None) -> None:
         prev = _prev_state.get(pane_id)
         if prev is not None and prev != state:
             notify_status_change(run, state, prev, now)
-        # working を入れた時刻を覚える／抜けたら消す
-        if state == "working":
+        # working / blocked を入れた時刻を覚える／抜けたら消す（質問待ちも作業の時間に数える）
+        if state in ("working", "blocked"):
             _working_since.setdefault(pane_id, now)
         else:
             _working_since.pop(pane_id, None)

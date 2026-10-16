@@ -294,7 +294,7 @@ def headless_state(run: dict) -> dict | None:
     if not isinstance(raw, dict):
         return None
     state = raw.get("state")
-    if state not in ("working", "idle", "stopped"):
+    if state not in ("working", "idle", "blocked", "stopped"):
         return None
     partial = raw.get("partial")
     if not isinstance(partial, str):
@@ -314,7 +314,7 @@ def live_status(run: dict, question_session_ids=frozenset()) -> str | None:
     """実行の今の状態（working / blocked / idle）を返す（C6）．
 
     - 質問が open の実行は `blocked`。
-    - headless の `state.json` が `working` / `idle` ならその値。
+    - headless の `state.json` が `working` / `idle` / `blocked` ならその値。
     - `stopped`・読めないときは None。
     `run["status"]` が `running` でなくても返す（doc write の後も会話を続けられるため）。
     """
@@ -327,6 +327,8 @@ def live_status(run: dict, question_session_ids=frozenset()) -> str | None:
         return "working"
     if st["state"] == "idle":
         return "idle"
+    if st["state"] == "blocked":
+        return "blocked"
     return None
 
 

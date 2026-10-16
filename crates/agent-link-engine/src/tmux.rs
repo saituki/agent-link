@@ -4,7 +4,7 @@
 //! 擬似 pane（[`crate::headless`] の置き場）に空の印 `tmux` があれば、その pane の操作はすべてここへ回る。
 //!
 //! - session 名 = pane id（`hl-…`）。環境変数 `HERDR_PANE_ID`・`AGENT_LINK_AGENT_TRANSPORT`・`AGENT_LINK_PROJECT_ROOT` を入れる。
-//! - 状態（`working` / `idle`）は cc のフックが `state.json` に書く（[`set_state_from_hook`]）。
+//! - 状態（`working` / `idle` / `blocked`）は cc のフックが `state.json` に書く（[`set_state_from_hook`]）。
 //! - 承認は PermissionRequest フックが常に allow を返す（[`crate::cc_command::permission_hook_output`]）。
 //! - 起動の前に `~/.claude.json` を整え、初回の画面で止まらないようにする（cc の設定は `--settings` で渡す）。
 
@@ -153,11 +153,7 @@ pub fn status(id: &str) -> Result<PaneInfo, HerdrError> {
     if state.state == "stopped" || !has_session(id) {
         return Err(headless::pane_gone(id));
     }
-    let agent_status = match state.state.as_str() {
-        "working" => "working",
-        "idle" => "idle",
-        _ => "unknown",
-    };
+    let agent_status = agent_status_of(&state.state);
     let cwd = headless::read_cwd(&dir);
     Ok(headless::pane_info(id, cwd.as_deref(), agent_status))
 }
@@ -186,7 +182,7 @@ pub fn close(id: &str) -> Result<(), HerdrError> {
 /// 環境変数 `HERDR_PANE_ID` の pane が tmux 経路のときだけ書く。それ以外・失敗は何もしない
 /// （フックは cc を止めない）。
 pub fn set_state_from_hook(state: &str) {
-    if !matches!(state, "working" | "idle") {
+    if !matches!(state, "working" | "idle" | "blocked") {
         return;
     }
     let Ok(id) = std::env::var("HERDR_PANE_ID") else {
@@ -201,6 +197,27 @@ pub fn set_state_from_hook(state: &str) {
 // ============================================================================
 // 純関数（単体テスト対象）
 // ============================================================================
+
+/// `state.json` の `state` を `PaneInfo.agent_status` に写す。`working` / `idle` / `blocked` 以外は `unknown`。
+fn agent_status_of(state: &str) -> &'static str {
+    match state {
+        "working" => "working",
+        "idle" => "idle",
+        "blocked" => "blocked",
+        _ => "unknown",
+    }
+}
+
+/// PreToolUse フックの入力（JSON）から状態を決める。`tool_name` が `AskUserQuestion` なら `blocked`、ほかは `working`。
+/// 読めない JSON は `working`。
+pub fn state_for_tool(input: &str) -> &'static str {
+    let v: Value = serde_json::from_str(input).unwrap_or(Value::Null);
+    if v["tool_name"].as_str() == Some("AskUserQuestion") {
+        "blocked"
+    } else {
+        "working"
+    }
+}
 
 /// `~/.claude.json` に、初回の画面を出さないための項目を入れる（他の項目は残す）。
 ///
@@ -432,6 +449,22 @@ mod tests {
             v["customApiKeyResponses"]["approved"].as_array().unwrap().len(),
             1
         );
+    }
+
+    #[test]
+    fn state_for_tool_blocks_only_on_question() {
+        assert_eq!(state_for_tool(r#"{"tool_name":"AskUserQuestion"}"#), "blocked");
+        assert_eq!(state_for_tool(r#"{"tool_name":"Bash"}"#), "working");
+        assert_eq!(state_for_tool("not json"), "working");
+        assert_eq!(state_for_tool(""), "working");
+    }
+
+    #[test]
+    fn agent_status_maps_blocked() {
+        assert_eq!(agent_status_of("blocked"), "blocked");
+        assert_eq!(agent_status_of("working"), "working");
+        assert_eq!(agent_status_of("idle"), "idle");
+        assert_eq!(agent_status_of("starting"), "unknown");
     }
 
     #[test]

@@ -145,8 +145,13 @@ def test_long_work_notifies_once() -> None:
         watch._prev_state.clear()
         watch._working_since.clear()
         try:
+            # working → blocked（質問待ち）でも時間は続けて数える
             write_state("working")
             watch.watch_once(now=0.0)
+            assert sent == [], sent
+            write_state("blocked")
+            watch.watch_once(now=watch._LONG_WORK_SEC / 2)
+            assert watch._working_since[pane_id] == 0.0, watch._working_since
             assert sent == [], sent
             # 3 分後に idle になる → 通知が 1 回だけ
             write_state("idle")

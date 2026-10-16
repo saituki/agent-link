@@ -165,6 +165,11 @@ def test_headless_state_reads_state_json() -> None:
         assert st["partial"] == "生成中の文", st
         assert runs.live_status(run) == "working"
 
+        # blocked（質問の答え待ち）は live も blocked
+        write_state(tmp, "blocked")
+        assert runs.headless_state(run)["state"] == "blocked"
+        assert runs.live_status(run) == "blocked"
+
         # stopped は live が None
         write_state(tmp, "stopped")
         assert runs.headless_state(run)["state"] == "stopped"

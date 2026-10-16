@@ -132,7 +132,7 @@ Web が読んでよいのはこのファイルだけ（`runs.py` の `headless_s
 
 | 項目 | 型 | 何に使う | 無い・型が違うとき |
 |---|---|---|---|
-| `state` | 文字列（`starting`（起動中） / `working` / `idle` / `stopped`） | 会話の `live` ランプ・通知 | `starting` / `working` / `idle` / `stopped` 以外は読まない |
+| `state` | 文字列（`starting`（起動中） / `working` / `idle` / `blocked`（質問の答え待ち） / `stopped`） | 会話の `live` ランプ・通知 | `starting` / `working` / `idle` / `blocked` / `stopped` 以外は読まない |
 | `partial` | 文字列 | 生成中の文の逐次表示（末尾 20000 文字まで） | 空文字 |
 | `error` | 文字列 | 直前のターンの失敗の理由 | 空文字 |
 | `turn` | 数値 | （Web では未使用） | ― |
@@ -491,7 +491,7 @@ cc の質問フック（`apps/web/hooks/cc_question.py`・`cc_register.py`）は
 - cc は、tmux の対話モードで動く。tmux の session（名前は `hl-…`）の環境変数は `HERDR_PANE_ID=<pane_id>`・`AGENT_LINK_AGENT_TRANSPORT=tmux`・`AGENT_LINK_PROJECT_ROOT=<root>`・`AGENT_LINK_WEB_URL`（フックの送り先）と、`AGENT_LINK_HOME` が設定されているときはその値（`tmux.rs` の `-e`）。
 - **cc の設定**は `.agent-link/cc-settings.json`（`init` が書き、run を始めるたびに今の版に合わせる）。cc は `--settings <そのファイル>` で受ける（許可・フック・statusLine）。プロジェクトの `.claude/settings.json` は読むだけで書かない（sai-moon の物と取り合わないため）。フックは `AGENT_LINK_PARENT_RUN_ID` のある cc（agent-link の run の中）でだけ動き、無ければ何もせず終了コード 0 で素通りする。許可する外部 MCP は `.mcp.json` の名前ごとの `mcp__<名前>__*`（`mcp__*` ではない）。
 - cc の質問フックは `PreToolUse`（`AskUserQuestion`）で呼ばれ、答えを待つ（最長 24 時間）。答えが届いたら `permissionDecision: "allow"` と `updatedInput`（`questions` は cc の物をそのまま、`answers` は `{質問文: 答え}`）を返し、cc はこれを AskUserQuestion の結果としてモデルへ渡す。複数選択は label を `", "` でつなぐ。`AGENT_LINK_CC_QUESTION_MODE=deny` のときは、答えがあっても `permissionDecision: "deny"` と `permissionDecisionReason`（「利用者が Web で答えました。」と答え）で返す（`updatedInput` が cc で効かなかったときに戻すため）。答えが来ないまま打ち切ったときは `deny` と「利用者は答えませんでした。」。cc の hooks の `timeout` は 86400 秒。
-- 承認は `agent-link cc-permission-hook`（`PermissionRequest`）が常に `allow` を返す。状態は `agent-link cc-state-hook <working|idle>`（`Stop`・`SessionStart`）と `agent-link cc-prompt-hook`（`UserPromptSubmit`）が `state.json` に書く。
+- 承認は `agent-link cc-permission-hook`（`PermissionRequest`）が常に `allow` を返す。状態は `agent-link cc-state-hook <working|idle|blocked|tool>` と `agent-link cc-prompt-hook`（`UserPromptSubmit`）が `state.json` に書く。`PreToolUse`（全ツール）は `cc-state-hook tool`（入力の `tool_name` が `AskUserQuestion` なら `blocked`、ほかは `working`）、`PostToolUse` は `working`、`Stop`・`SessionStart` は `idle`。質問が答え無しで終わったとき（取り下げ・打ち切り）は `cc_question.py` が `working` に戻す。`blocked` は質問の答え待ちで、engine は取り消さない。
 - cc の費用は cc の statusLine（`agent-link cc-statusline`）が `<AGENT_LINK_HOME>/cc-cost/<session_id>.json` に書く。
 - cc の 5 時間枠・7 日枠は同じ `agent-link cc-statusline` が `<AGENT_LINK_HOME>/cc-rate-limits.json` に書く（`{"five_hour":{"used_percentage","resets_at"},"seven_day":{…},"session_id","updated_at"}`。欠けた窓は省く）。`GET /api/usage` は `{"cc": {"limits": <枠または null>, "cost": {"today","month","sessions"}}, "saved_at": <epoch 秒>}`（Home の Claude のカードが読む）。
 

@@ -38,7 +38,7 @@ pub struct HeadlessState {
     pub pane_id: String,
     /// 実行主体（`cc`。新しい pane は空）
     pub runner: String,
-    /// `working` / `idle` / `stopped`（tmux 経路は `starting` = 起動中）
+    /// `working` / `idle` / `blocked`（質問の答え待ち）/ `stopped`（tmux 経路は `starting` = 起動中）
     pub state: String,
     /// ターン番号
     pub turn: u32,

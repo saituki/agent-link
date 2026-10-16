@@ -205,7 +205,7 @@ tailscale serve status
 `.agent-link/cc-settings.json` の `hooks` に、次が入ります。プロジェクトの `.claude/settings.json` は書きません（sai-moon など、同じプロジェクトを使う別のアプリの物だからです）。
 
 - `UserPromptSubmit`: `agent-link cc-prompt-hook`（入力が `/agent-link-finalize` のとき、エージェントに送らずに run を完了にする）。
-- `apps/web/hooks/` に 2 本（質問 `cc_question.py`・セッションの登録 `cc_register.py`）が揃っているときだけ、`PreToolUse`（`AskUserQuestion`）と `SessionStart` も入ります。置き場は `AGENT_LINK_WEB_HOOKS_DIR` で変えられます。
+- `apps/web/hooks/` に 2 本（質問 `cc_question.py`・セッションの登録 `cc_register.py`）が揃っているときだけ、`PreToolUse`（`AskUserQuestion`）と `SessionStart` のフックも入ります（状態を書く `PreToolUse`・`PostToolUse` のフックは、置き場の有無にかかわらず入ります）。置き場は `AGENT_LINK_WEB_HOOKS_DIR` で変えられます。
 
 フックは agent-link の run の中（`AGENT_LINK_PARENT_RUN_ID` がある）でだけ動きます。Web が止まっていても cc は普通に動きます（終了コード 0）。フックの送り先は `AGENT_LINK_WEB_URL` で、agent-link が tmux の session に入れます（daemon の `AGENT_LINK_WEB_URL` → `http://127.0.0.1:${AGENT_LINK_WEB_PORT:-8400}`）。cc のコマンドの承認（PermissionRequest）は扱いません（headless の実行では来ない）。
 
