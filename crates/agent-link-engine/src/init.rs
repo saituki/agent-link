@@ -188,7 +188,7 @@ pub fn init_project(root: &Path, update: bool) -> Result<InitReport, InitError> 
     };
     let mut files = vec![
         (root.join(".mcp.json"), json(crate::cc_command::mcp_config_json())?),
-        (root.join(".claude/settings.json"), json(crate::cc_command::cc_settings_json())?),
+        (crate::cc_command::cc_settings_path(root), json(crate::cc_command::cc_settings_json())?),
         (
             root.join(".claude/commands/agent-link-finalize.md"),
             crate::cc_command::AGENT_LINK_FINALIZE_COMMAND_MD.to_string(),
@@ -436,7 +436,8 @@ mod tests {
         let first = init_project(root, false).unwrap();
         assert!(first.backed_up.is_empty());
         assert!(root.join(".mcp.json").is_file());
-        assert!(root.join(".claude/settings.json").is_file());
+        assert!(root.join(".agent-link/cc-settings.json").is_file());
+        assert!(!root.join(".claude/settings.json").exists());
 
         // 既存 settings.json と outputs 配下に印を付ける
         let settings = root.join(".agent-link").join("settings.json");
@@ -457,7 +458,7 @@ mod tests {
             std::fs::read_to_string(root.join(".mcp.json.bak")).unwrap(),
             "old"
         );
-        assert!(root.join(".claude/settings.json.bak").is_file());
+        assert!(root.join(".agent-link/cc-settings.json.bak").is_file());
         assert!(root.join(".serena/project.yml.bak").is_file());
         assert!(root.join(".claude/skills/frontend-design/SKILL.md.bak").is_file());
         let mcp: serde_json::Value =

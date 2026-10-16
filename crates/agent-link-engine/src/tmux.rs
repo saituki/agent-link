@@ -6,7 +6,7 @@
 //! - session 名 = pane id（`hl-…`）。環境変数 `HERDR_PANE_ID`・`AGENT_LINK_AGENT_TRANSPORT`・`AGENT_LINK_PROJECT_ROOT` を入れる。
 //! - 状態（`working` / `idle`）は cc のフックが `state.json` に書く（[`set_state_from_hook`]）。
 //! - 承認は PermissionRequest フックが常に allow を返す（[`crate::cc_command::permission_hook_output`]）。
-//! - 起動の前に `.claude/settings.json` と `~/.claude.json` を整え、初回の画面で止まらないようにする。
+//! - 起動の前に `~/.claude.json` を整え、初回の画面で止まらないようにする（cc の設定は `--settings` で渡す）。
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
@@ -51,12 +51,17 @@ pub fn run(id: &str, command: &str) -> Result<(), HerdrError> {
     let root = crate::project::project_root();
     let root_s = root.to_string_lossy().to_string();
     let cwd = headless::read_cwd(&dir).unwrap_or_else(|| root_s.clone());
-    ensure_settings(&root)?;
     seed_home_claude_json(&[cwd.as_str(), root_s.as_str()])?;
 
     let env_pane = format!("HERDR_PANE_ID={}", id);
     let env_root = format!("AGENT_LINK_PROJECT_ROOT={}", root_s);
-    let out = tmux(&[
+    // フックが同じ Web に届き、cc の中の CLI が同じ置き場を使うよう、tmux サーバの環境に任せず渡す。
+    let env_web = format!("AGENT_LINK_WEB_URL={}", crate::cc_command::web_url());
+    let env_home = std::env::var("AGENT_LINK_HOME")
+        .ok()
+        .filter(|v| !v.trim().is_empty())
+        .map(|v| format!("AGENT_LINK_HOME={}", v));
+    let mut args = vec![
         "new-session",
         "-d",
         "-s",
@@ -73,8 +78,14 @@ pub fn run(id: &str, command: &str) -> Result<(), HerdrError> {
         "AGENT_LINK_AGENT_TRANSPORT=tmux",
         "-e",
         env_root.as_str(),
-        command,
-    ])?;
+        "-e",
+        env_web.as_str(),
+    ];
+    if let Some(home) = env_home.as_deref() {
+        args.extend(["-e", home]);
+    }
+    args.push(command);
+    let out = tmux(&args)?;
     check(&out, id, "start")
 }
 
@@ -289,25 +300,6 @@ fn set_state(dir: &Path, value: &str) -> std::io::Result<()> {
     }
     state.updated_at = crate::phone_export::now_iso();
     headless::write_state(dir, &state)
-}
-
-/// `<root>/.claude/settings.json` を `cc_settings_json()` の内容に合わせる（違えば上書き）。
-fn ensure_settings(root: &Path) -> std::io::Result<()> {
-    let path = root.join(".claude/settings.json");
-    let want = crate::cc_command::cc_settings_json();
-    let same = std::fs::read_to_string(&path)
-        .ok()
-        .and_then(|t| serde_json::from_str::<Value>(&t).ok())
-        .is_some_and(|v| v == want);
-    if same {
-        return Ok(());
-    }
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    let text = serde_json::to_string_pretty(&want)
-        .map_err(|e| std::io::Error::other(format!("JSON serialization failed: {}", e)))?;
-    std::fs::write(path, text)
 }
 
 /// `$HOME/.claude.json` を [`seed_claude_json`] で整える。読めない JSON は触らない。

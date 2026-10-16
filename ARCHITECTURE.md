@@ -45,7 +45,7 @@
 │ 人: ブラウザ（iPhone / PC）       人・エージェント: CLI │
 │      │ HTTPS（iPhone だけ Tailscale serve）  │         │
 │      ▼                                      │         │
-│ agent-link-web  127.0.0.1:8200 FastAPI      │         │
+│ agent-link-web  127.0.0.1:8400 FastAPI      │         │
 │      │ agent-link の CLI（--json）だけを使う            │
 └──────┼──────────────────────────────────────┼─────────┘
        ▼                                      ▼
@@ -184,7 +184,7 @@
 
 ### 4.3 `agent-link-web api`
 
-- `agent-link-web api <METHOD> <path> [--data <JSON>|--data -]` は、Web のすべての HTTP API をそのまま呼ぶ。接続先は `AGENT_LINK_WEB_URL`（既定 `http://127.0.0.1:8200`）。終了コードは HTTP の状態から 400・422 → 2、404 → 3、409 → 4、そのほか → 1 に直す。
+- `agent-link-web api <METHOD> <path> [--data <JSON>|--data -]` は、Web のすべての HTTP API をそのまま呼ぶ。接続先は `AGENT_LINK_WEB_URL`（既定 `http://127.0.0.1:8400`）。終了コードは HTTP の状態から 400・422 → 2、404 → 3、409 → 4、そのほか → 1 に直す。
 - CLI の命令の一覧は `agent-link schema --json`（プロジェクトを要らない）。
 
 ### 4.4 画面（`apps/web/src/agent_link_web/static/`）
@@ -239,7 +239,7 @@
 | Web のサーバテスト | `apps/web/tests/test_*.py`（素の `python`・`PYTHONPATH=apps/web/src`） |
 
 - JS のテストは DOM を使わない関数を確かめる（画面の関数は DOM を使わない部分に分けて書く）。
-- 画面の確認は **8297 番など別の番号**で行う。**Mac で動いている Web（8200 番）は、確認のために止めたり再起動したりしない。**
+- 画面の確認は **8297 番など別の番号**で行う。**Mac で動いている Web（8400 番）は、確認のために止めたり再起動したりしない。**
 - サーバ・ブラウザ・ネットワークを使う確認の命令には時間の上限を付ける（例 `perl -e 'alarm 180; exec @ARGV' <命令>`）。背景で起動したサーバは最後に止める。
 - 書き込みを確かめるときは、一時フォルダを作り、`AGENT_LINK_HOME` と `AGENT_LINK_PROJECT_ROOT` をその中に向けて行い、最後に消す。本物の `.agent-link/`・`$AGENT_LINK_HOME` を確かめのために変えない。
 - `agent-link daemon start` の本物の実行は、確認のために実行しない。
@@ -256,7 +256,7 @@ agent-link/
 │   └── agent-link-cli/       # bin  agent-link
 ├── waggle/                   # 独立 [workspace] の vendor クレート群（exclude 済み）
 ├── apps/
-│   └── web/                  # Web の窓口（8200）
+│   └── web/                  # Web の窓口（8400）
 │       ├── bin/agent-link-web  # Web の CLI（apps/web/.venv の Python で動く）
 │       ├── src/agent_link_web/ # サーバ（§4.1）
 │       │   └── static/       # 画面（§4.4）
@@ -283,7 +283,7 @@ agent-link/
 |---|---|
 | **端末の画面（TUI）** | やめた。画面は Web だけ。TUI にしか無かった処理は、先にコア（`agent-link-view`）へ移してある |
 | **MCP の `agent-link`**（エージェントの道具） | やめた。エージェントは CLI を Bash で呼ぶ。外部の MCP（serena・playwright・donsetch・headroom）は残る |
-| **global の cc フック** | `~/.claude/settings.json` には**入れない**。`agent-link init` がプロジェクトの `.claude/settings.json` に書く |
+| **global の cc フック** | `~/.claude/settings.json` にもプロジェクトの `.claude/settings.json` にも**入れない**。`.agent-link/cc-settings.json` に書き、run の cc に `--settings` で渡す（sai-moon と同じプロジェクトで取り合わないため） |
 | **Mac の常駐（launchd）・herdr・cc のコマンド承認・遠隔ブラウザ・5 時間枠・pi** | 持たない。daemon と Web は手で起こす。headless の実行（擬似 pane）で動く。engine の `herdr.rs` は擬似 pane の型などの名残 |
 | **論文・研究（Paper・Research）・Radio・MLflow・sai-ts・sai-prep** | 持たない（sai-tree の機能） |
 | **多人数モード・サーバ（ログイン・コンテナ）・Customer サポート** | 持たない（sai-tree の機能） |

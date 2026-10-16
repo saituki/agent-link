@@ -679,18 +679,23 @@ pub fn prepare_pipeline(config: &PipelineConfig) -> Result<PreparedPipeline, Orc
             .cwd
             .clone()
             .unwrap_or_else(crate::project::project_root);
-        // 道具・MCP・statusLine は `agent-link init` が作る .claude/settings.json と
-        // .mcp.json で制御する。無ければ agent-link の MCP が使えないので起動前に止める。
-        // cwd がプロジェクトルートの外（別プロジェクトの cwd 等）でも、
-        // agent-link 側の設定があればそれを `--mcp-config` / `--settings` で渡す。
-        let config_dir = crate::cc_command::check_project_files(&cwd)
-            .map_err(OrchestratorError::CommandError)?;
+        // 道具・フック・statusLine は `.agent-link/cc-settings.json` を `--settings` で渡す
+        // （プロジェクトの `.claude/settings.json` は書かない）。cwd に `.mcp.json` が無ければ
+        // プロジェクトルートの物を `--mcp-config` で渡す。
+        let root = crate::project::project_root();
+        let settings = crate::cc_command::ensure_cc_settings(&root).map_err(|e| {
+            OrchestratorError::CommandError(format!(
+                "Could not write the cc settings {}: {}",
+                crate::cc_command::cc_settings_path(&root).display(),
+                e
+            ))
+        })?;
         let session_id = crate::cc_command::generate_uuid_v4();
-        let mut builder =
-            CcCommandBuilder::new(&session_id).with_config(config.block_config.clone());
-        // cwd 自身に設定が無い（プロジェクトルートから渡す）ときだけ明示指定する。
-        if config_dir != cwd {
-            builder = builder.with_config_dir(config_dir);
+        let mut builder = CcCommandBuilder::new(&session_id)
+            .with_config(config.block_config.clone())
+            .with_settings_file(settings);
+        if let Some(mcp) = crate::cc_command::resolve_mcp_config(&cwd) {
+            builder = builder.with_mcp_config(mcp);
         }
         // 固定部分（template と本文）を system-prompt.md から足す（U6）
         if let Some(path) = &system_prompt_path {
@@ -4474,8 +4479,6 @@ mod tests {
     fn test_prepare_pipeline_cc_passes_project_config_for_external_cwd() {
         let _env_lock = finalize_env_lock();
         let root = finalize_test_temp_dir("cc-external-root");
-        std::fs::create_dir_all(root.join(".claude")).unwrap();
-        std::fs::write(root.join(".claude/settings.json"), "{}").unwrap();
         std::fs::write(
             root.join(".mcp.json"),
             crate::cc_command::mcp_config_json().to_string(),
@@ -4485,9 +4488,8 @@ mod tests {
 
         // 設定を持たない別フォルダ（プロジェクト外相当）を作業フォルダにする
         let external = finalize_test_temp_dir("cc-external-cwd");
-        std::fs::remove_file(external.join(".claude/settings.json")).unwrap();
         let mut config = minimal_config();
-        config.cwd = Some(external);
+        config.cwd = Some(external.clone());
         config.run_id = Some(4321);
 
         let prepared = prepare_pipeline(&config).expect("prepare_pipeline に失敗");
@@ -4499,7 +4501,10 @@ mod tests {
             "--mcp-config が agent-link 側のパスで渡るべき: {}",
             prepared.pi_command
         );
-        let settings = root.join(".claude/settings.json");
+        let settings = root.join(".agent-link/cc-settings.json");
+        assert!(settings.is_file(), "cc の設定はルートの .agent-link に書く");
+        assert!(!external.join(".claude/settings.json").exists());
+        assert!(!root.join(".claude/settings.json").exists());
         assert!(
             prepared
                 .pi_command
@@ -5551,9 +5556,6 @@ mod tests {
         ));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("一時ディレクトリ作成");
-        // cc を起こす試験は `.claude/settings.json` が要る（`check_project_files`）
-        std::fs::create_dir_all(dir.join(".claude")).expect("一時ディレクトリ作成");
-        std::fs::write(dir.join(".claude/settings.json"), "{}").expect("一時ディレクトリ作成");
         dir
     }
 

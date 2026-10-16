@@ -94,10 +94,27 @@ fn wait_for_screen(pane: &str, want: &str, timeout: Duration) {
 }
 
 /// 偽の cc（標準入力の 1 行ごとに `got: <行>` を出す）。
-const FAKE_CC: &str = r##"#!/bin/sh
+///
+/// 本物の cc と同じく、ターンの始めと終わりに状態のフック（`cc-state-hook`）を呼ぶ。
+/// `run send` は確定キーのあと `working` になるのを 250ms ごとに見に行くので、1 秒は `working` に留まる。`眠る` を含む行は
+/// 30 秒 `working` のままにして、`run interrupt` で中断できるかを確かめる。
+fn fake_cc() -> String {
+    let bin = sai_binary();
+    format!(
+        r##"#!/bin/sh
 echo ready
-while IFS= read -r line; do echo "got: $line"; done
-"##;
+while IFS= read -r line; do
+  '{bin}' cc-state-hook working </dev/null >/dev/null 2>&1
+  # 確定キー M-Enter の ESC を画面に出すと、tmux が後ろの出力をエスケープ列として飲み込むので外す
+  line=$(printf '%s' "$line" | tr -d '\033')
+  echo "got: $line"
+  case "$line" in *眠る*) sleep 30 ;; *) sleep 1 ;; esac
+  '{bin}' cc-state-hook idle </dev/null >/dev/null 2>&1
+done
+"##,
+        bin = bin.display()
+    )
+}
 
 /// 一時プロジェクトの DB に `running` の実行を 1 件作り、ID を返す。
 fn make_execution(project: &Path) -> i64 {
@@ -162,7 +179,7 @@ fn test_run_send_and_interrupt() {
     std::env::set_var("AGENT_LINK_HOME", &home);
 
     let fake = project.join("fake_cc.sh");
-    write_script(&fake, FAKE_CC);
+    write_script(&fake, &fake_cc());
     let command = format!("'{}'", fake.display());
 
     // ---- 実行 1: 動いている実行に run send すると次のターンが走る ----

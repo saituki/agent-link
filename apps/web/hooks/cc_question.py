@@ -12,7 +12,9 @@ Web の質問カードに登録し，利用者が答えるまで待つ．答え�
   （`updatedInput` が cc で効かなかったときに，コードを変えずに戻すため）．
 - 利用者が質問を取り下げたとき（`state` が `withdrawn`）は，入力欄から送った文を理由文に入れて
   `deny` する。
-- Web の場所: `AGENT_LINK_WEB_URL` → `http://127.0.0.1:${AGENT_LINK_WEB_PORT:-8200}`
+- Web の場所: `AGENT_LINK_WEB_URL` → `http://127.0.0.1:${AGENT_LINK_WEB_PORT:-8400}`
+- agent-link の run の中（`AGENT_LINK_PARENT_RUN_ID` がある）でだけ動く．
+  同じプロジェクトで sai-moon の cc が動いても，何もせず終える
 - 認証: 付けない（Web は localhost からの呼び出しを通す）
 - 標準ライブラリだけで書く．登録できなければ何も出さずに終了コード 0
   （cc はそのままツールを動かす）．
@@ -32,11 +34,11 @@ POLL_MAX_COUNT = 86400
 
 
 def server_base() -> str:
-    """Web の場所（既定は 127.0.0.1:8200）．"""
+    """Web の場所（既定は 127.0.0.1:8400）．"""
     url = os.environ.get("AGENT_LINK_WEB_URL")
     if url:
         return url.rstrip("/")
-    port = os.environ.get("AGENT_LINK_WEB_PORT") or "8200"
+    port = os.environ.get("AGENT_LINK_WEB_PORT") or "8400"
     return f"http://127.0.0.1:{port}"
 
 
@@ -166,6 +168,8 @@ def hook_output(questions: list, answers: dict | None) -> dict:
 
 
 def main() -> int:
+    if not os.environ.get("AGENT_LINK_PARENT_RUN_ID"):
+        return 0
     try:
         data = json.loads(sys.stdin.read())
     except Exception:

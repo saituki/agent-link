@@ -1,6 +1,6 @@
 """`agent-link-web`（Web の窓口の CLI）のテスト。
 
-本物の Web のサーバ（`agent_link_web.main:app`・8200 番）は起こさない。
+本物の Web のサーバ（`agent_link_web.main:app`・8400 番）は起こさない。
 `http.server.ThreadingHTTPServer` を空いている番号（ポート 0）に立てて
 決まった JSON を返す偽のサーバにし、`webcli.main([...])` を直接呼んで
 終了コード・標準出力・標準エラーを確かめる。
@@ -384,6 +384,47 @@ class WebCliTest(unittest.TestCase):
             with contextlib.redirect_stderr(err), self.assertRaises(SystemExit) as cm:
                 webcli.main([name])
             self.assertEqual(cm.exception.code, 2, name)
+
+
+class DefaultPortTest(unittest.TestCase):
+    """Web の既定ポートは 8400。sai-moon の Web（8200）と分けるため、全部の置き場でそろえる。"""
+
+    def test_default_port_is_same_everywhere(self) -> None:
+        repo = Path(__file__).resolve().parents[3]
+        want = {
+            "apps/web/src/agent_link_web/config.py": 'os.getenv("AGENT_LINK_WEB_PORT", "8400")',
+            "apps/web/src/agent_link_web/webcli.py": "os.getenv('AGENT_LINK_WEB_PORT') or '8400'",
+            "apps/web/hooks/cc_question.py": 'os.environ.get("AGENT_LINK_WEB_PORT") or "8400"',
+            "apps/web/hooks/cc_register.py": 'os.environ.get("AGENT_LINK_WEB_PORT") or "8400"',
+            "crates/agent-link-engine/src/cc_command.rs": 'pub const DEFAULT_WEB_PORT: &str = "8400";',
+            "README.md": "| `AGENT_LINK_WEB_PORT` | `8400` |",
+        }
+        for rel, text in want.items():
+            body = (repo / rel).read_text(encoding="utf-8")
+            self.assertIn(text, body, rel)
+            self.assertNotIn("8200", body.replace("8200 番（Tailscale 4444）", "").replace("8200〜8202", ""), rel)
+        with patch_env(AGENT_LINK_WEB_URL=None, AGENT_LINK_WEB_PORT=None):
+            self.assertEqual(webcli.base_url(), "http://127.0.0.1:8400")
+        with patch_env(AGENT_LINK_WEB_URL=None, AGENT_LINK_WEB_PORT="8297"):
+            self.assertEqual(webcli.base_url(), "http://127.0.0.1:8297")
+
+
+@contextlib.contextmanager
+def patch_env(**values):
+    saved = {k: os.environ.get(k) for k in values}
+    try:
+        for k, v in values.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+        yield
+    finally:
+        for k, v in saved.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
 
 
 if __name__ == "__main__":

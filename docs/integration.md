@@ -13,7 +13,7 @@
 iPhone / PC のブラウザ
    │  HTTPS  tailscale serve :4444（iPhone だけ。自分 1 人の tailnet のときだけ）
    ▼
-127.0.0.1:8200  agent-link-web（FastAPI・窓口だけ）
+127.0.0.1:8400  agent-link-web（FastAPI・窓口だけ）
    ├─ Chats   : $AGENT_LINK_HOME/web/runs/<project>/<run_id>.json を読む   ← `agent-link run export` が書き出す
    └─ Projects: 登録簿 $AGENT_LINK_HOME/registry.json を直接読む ／ `agent-link …` を呼ぶ
 ```
@@ -235,8 +235,8 @@ Web のすべての HTTP API を、コマンド 1 本から使える（接続先
 
 | 変数 | 既定値 | 用途 |
 |---|---|---|
-| `AGENT_LINK_WEB_PORT` | `8200` | 待ち受けポート |
-| `AGENT_LINK_WEB_URL` | `http://127.0.0.1:8200` | `agent-link-web` の命令とエージェントの道具がつなぐ先 |
+| `AGENT_LINK_WEB_PORT` | `8400` | 待ち受けポート |
+| `AGENT_LINK_WEB_URL` | `http://127.0.0.1:8400` | `agent-link-web` の命令とエージェントの道具がつなぐ先 |
 | `AGENT_LINK_WEB_RUNS_DIR` | `$AGENT_LINK_HOME/web/runs` | Chats が読む、書き出しフォルダ |
 | `AGENT_LINK_WEB_NO_WATCH` | （空） | `1` で状態の見張りを止める |
 | `AGENT_LINK_WEB_HOOKS_DIR` | `apps/web/hooks` | `agent-link init` が cc のフックを書くときに探す置き場 |
@@ -259,4 +259,4 @@ Rust 側にも同じ `AGENT_LINK_HOME`・`AGENT_LINK_PROJECT_ROOT` が効く。*
 | **FastAPI の登録順** | 固定パスを変数のパスより前に登録しないと 404 / 400 になる。順番を変えたら curl で一覧を確かめる |
 | **`sw.js` の `CACHE`** | 版を上げないと iPhone に古い画面が残る。画面ファイルを足したら `ASSETS` にも足す |
 | **常駐・実行を動かす操作** | 常駐の起動停止・カードの実行は、実際にエージェントを動かす。確認は `--help` と不正値で行う |
-| **8200 番の Web は触らない** | 動いている Web を確認のために止めない。確認は 8297 番など別の番号で行う |
+| **8400 番の Web は触らない** | 動いている Web を確認のために止めない。確認は 8297 番など別の番号で行う |

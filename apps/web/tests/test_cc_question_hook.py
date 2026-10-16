@@ -111,6 +111,7 @@ def run_hook(port: int, token: str | None = None, extra_env: dict | None = None)
         "PATH": "/usr/bin:/bin",
         "AGENT_LINK_WEB_URL": f"http://127.0.0.1:{port}",
         "HERDR_PANE_ID": "hl-0123456789ab",
+        "AGENT_LINK_PARENT_RUN_ID": "7",
     }
     if token is not None:
         env["AGENT_LINK_WEB_INTERNAL_TOKEN"] = token
@@ -241,6 +242,18 @@ def test_registration_failure_is_silent() -> None:
     assert out == "", repr(out)
 
 
+def test_outside_agent_link_run_is_silent() -> None:
+    """`AGENT_LINK_PARENT_RUN_ID` が無い cc（sai-moon の run など）では Web に送らず何も出さない。"""
+    web = FakeWeb([ANSWERED_STATE])
+    try:
+        code, out = run_hook(web.port, extra_env={"AGENT_LINK_PARENT_RUN_ID": ""})
+    finally:
+        web.close()
+    assert code == 0, code
+    assert out == "", repr(out)
+    assert web.registrations == [], web.registrations
+
+
 def load_hook():
     """cc_question.py を import する（`__main__` の外の関数を直接確かめる）。"""
     spec = importlib.util.spec_from_file_location("cc_question", HOOK_PATH)
@@ -279,6 +292,7 @@ if __name__ == "__main__":
     test_withdrawn_with_text_denies_with_next_message()
     test_withdrawn_without_text_ends_turn()
     test_registration_failure_is_silent()
+    test_outside_agent_link_run_is_silent()
     test_free_text_answer_becomes_answers()
     test_parent_run_id_does_not_deny()
     print("test_cc_question_hook: すべて通りました")
