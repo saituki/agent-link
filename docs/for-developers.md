@@ -1,7 +1,7 @@
 # CLI の約束（Web と実行エンジンの間）
 
 対象: **`crates/`（`agent-link`）を直す人**。
-目的: 直した結果として **agent-link-web（Web の窓口・8200 番）を壊さないこと**。
+目的: 直した結果として **agent-link-web（Web の窓口・8400 番）を壊さないこと**。
 全体の話は [`integration.md`](./integration.md)（API と画面の住所）と [`../ARCHITECTURE.md`](../ARCHITECTURE.md)、言葉の意味は [`../CONCEPT.md`](../CONCEPT.md)。
 この文書の JSON の項目は、Web のコード（`apps/web/src/agent_link_web/` と `static/`）が実際に読む物と、2026-10 に `target/release/` の `agent-link` を一時フォルダのプロジェクトで実行して確かめた物。**正はコード**。
 
@@ -459,13 +459,13 @@ settings は 2 か所で書ける。**後者（`$AGENT_LINK_HOME`）が前者（
 ### 3.6 質問と送信
 
 - 質問が開いている run に `agent-link-web send` すると、tmux には送らず質問を取り下げる（質問の状態は `withdrawn`・送った文は `answer.text`）。フックは、その文を次の指示として deny の理由文に入れる。
-- Web に合言葉は無い。`agent-link-web` と Web のフックは `AGENT_LINK_WEB_URL`（既定 `http://127.0.0.1:8200`）を、何も付けずに HTTP で呼ぶ。内部用の住所は `require_internal` で Mac 自身（127.0.0.1 / ::1）だけ受ける。
+- Web に合言葉は無い。`agent-link-web` と Web のフックは `AGENT_LINK_WEB_URL`（既定 `http://127.0.0.1:8400`）を、何も付けずに HTTP で呼ぶ。内部用の住所は `require_internal` で Mac 自身（127.0.0.1 / ::1）だけ受ける。
 
 ### 3.7 フック・拡張と Web の約束
 
 cc の質問フック（`apps/web/hooks/cc_question.py`・`cc_register.py`）は、Web の窓口を次で呼ぶ。
 
-- **Web の場所**: 環境変数 `AGENT_LINK_WEB_URL` → `http://127.0.0.1:${AGENT_LINK_WEB_PORT:-8200}`。
+- **Web の場所**: 環境変数 `AGENT_LINK_WEB_URL` → `http://127.0.0.1:${AGENT_LINK_WEB_PORT:-8400}`。
 - **使う住所**（Mac 自身（127.0.0.1）からの要求として受ける）:
 
 | 住所 | 何に使う |
@@ -546,7 +546,7 @@ rm -rf $T; unset AGENT_LINK_HOME AGENT_LINK_PROJECT_ROOT
 1. `cargo build --release`（Web は release の実行ファイルを叩く）。**PATH 上の名前 `agent-link` は変えない。**
 2. 既存の書き出しを作り直す: `agent-link run export`（プロジェクトの root で）。常駐が動いていると自動で書き出される。
 3. Web 側を直す場所: 項目の変更 → `apps/web/src/agent_link_web/` の `control.py` と、画面の `static/*.js`。値の検査の追加 → 同じモジュール。
-4. 動作確認は 8297 番など別の番号で。**動いている 8200 番の Web は触らない。**
+4. 動作確認は 8297 番など別の番号で。**動いている 8400 番の Web は触らない。**
 5. この文書の表と `docs/integration.md` の該当表を更新する。
 
 ---
@@ -568,7 +568,7 @@ rm -rf $T; unset AGENT_LINK_HOME AGENT_LINK_PROJECT_ROOT
 | `Project not found.` / `This project has no run records yet.` | 404 | 登録簿に無い／`db_exists` が偽 |
 | `Internal use only.` | 403 | 内部用の住所を Mac 自身（127.0.0.1 / ::1）以外から呼んだ |
 | `agent-link did not respond in time.` | 504 | 時間切れ |
-| 画面の `Cannot reach the Mac.` | 通信失敗 | 8200 自体に届かない（Web・tailscale・ネットワーク） |
+| 画面の `Cannot reach the Mac.` | 通信失敗 | 8400 自体に届かない（Web・tailscale・ネットワーク） |
 | プロジェクト一覧が **空** | ― | `AGENT_LINK_HOME` が正しいか、`$AGENT_LINK_HOME/registry.json` にそのプロジェクトがあるか確かめる |
 
 ### 5.2 ログの見方

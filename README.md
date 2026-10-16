@@ -11,7 +11,7 @@
 | **Web の窓口** | FastAPI と素の JavaScript。`agent-link` の CLI だけを使う（DB は開かない） | `apps/web/bin/agent-link-web` |
 
 ```
-人 ──── ブラウザ ───▶ （iPhone だけ Tailscale serve）─▶ agent-link-web (127.0.0.1:8200)
+人 ──── ブラウザ ───▶ （iPhone だけ Tailscale serve）─▶ agent-link-web (127.0.0.1:8400)
  │                                          │ CLI（--json）
  └──── CLI ───────────────────────────────▶ agent-link ──▶ daemon・headless の実行
 エージェント ──── CLI（Bash）──────────────▶ agent-link
@@ -58,7 +58,16 @@ agent-link --help && agent-link-web --help
 agent-link schema --json | head -c 200    # 命令の一覧を JSON で出す
 ```
 
-**コードを直したあと**: Python のコードは Web の再起動が要ります。静的ファイル（`apps/web/src/agent_link_web/static/`）は再起動が要らず、`sw.js` の `CACHE` と `index.html` の `?v=` を上げると反映されます。`cargo build --release` で `agent-link` が入れ替わり、Web は次の呼び出しから新しい版を使います。
+Web を起こし直す関数も `~/.zshrc` に書いておくと楽です。PATH に `agent-link` が無いシェルから起こすと、Web が `agent-link not found` で繋がらなくなるので、PATH（上の 3）と一緒に書きます。
+
+```bash
+agent-link-web-restart() {
+  kill $(lsof -tiTCP:8400 -sTCP:LISTEN) 2>/dev/null
+  (cd ~/workdir/Sai/agent-link/apps/web && nohup bin/agent-link-web serve --port 8400 >/tmp/agent-link-web-8400.log 2>&1 &)
+}
+```
+
+**コードを直したあと**: Python のコードは Web の再起動（`agent-link-web-restart`）が要ります。静的ファイル（`apps/web/src/agent_link_web/static/`）は再起動が要らず、`sw.js` の `CACHE` と `index.html` の `?v=` を上げると反映されます。`cargo build --release` で `agent-link` が入れ替わり、Web は次の呼び出しから新しい版を使います。
 
 ## 最初の一歩
 
@@ -73,21 +82,21 @@ agent-link daemon start
 
 # 3) Web を起こす
 cd ~/workdir/Sai/agent-link/apps/web
-agent-link-web serve        # 既定は 127.0.0.1:8200
+agent-link-web serve        # 既定は 127.0.0.1:8400
 
-# 4) ブラウザで http://localhost:8200/ を開く（合言葉は無い）
+# 4) ブラウザで http://localhost:8400/ を開く（合言葉は無い）
 # 5) Projects タブでプロジェクトを選び、右上の ＋ からカード（実行の予約）を作って、▶ で動かす
 ```
 
-- 背景で動かし続けるときは、`cd apps/web && nohup .venv/bin/python -m uvicorn agent_link_web.main:app --host 127.0.0.1 --port 8200 --app-dir src > ~/.agent-link/web/uvicorn-8200.log 2>&1 &` を使います（`~/.agent-link/web/` は Web が最初の起動で作ります）。
+- 背景で動かし続けるときは、`cd apps/web && nohup .venv/bin/python -m uvicorn agent_link_web.main:app --host 127.0.0.1 --port 8400 --app-dir src > ~/.agent-link/web/uvicorn-8400.log 2>&1 &` を使います（`~/.agent-link/web/` は Web が最初の起動で作ります）。
 - CLI だけでも同じことができます。`agent-link card create`（標準入力に JSON）→ `agent-link card run <run_id>`。命令の一覧は `agent-link schema --json` で見られます。Web の HTTP API は `agent-link-web api <METHOD> <path>` で呼べます。
-- `init` は、プロジェクトに `.agent-link/`・`.mcp.json`・`.claude/settings.json`・`.claude/commands/`・`.claude/skills/`・`.serena/project.yml` を書きます（既にある設定は `.bak` に退避します）。
+- `init` は、プロジェクトに `.agent-link/`（cc の設定 `.agent-link/cc-settings.json` を含む）・`.mcp.json`・`.claude/commands/`・`.claude/skills/`・`.serena/project.yml` を書きます（既にある設定は `.bak` に退避します）。
 
 ## 起動とポート
 
 | ポート | 誰 | 備考 |
 |---|---|---|
-| `8200` | `agent-link-web`（Web） | `AGENT_LINK_WEB_PORT` で変更可。確認用は 8297 番など別の番号を使う |
+| `8400` | `agent-link-web`（Web） | `AGENT_LINK_WEB_PORT` で変更可。確認用は 8297 番など別の番号を使う |
 
 **常駐**（そのプロジェクトでカードを動かすときだけ。プロジェクトごとに 1 つ）:
 
@@ -138,8 +147,8 @@ Web の Projects → Dashboard からも起動・停止できます。
 
 | 変数 | 既定値 | 用途 |
 |---|---|---|
-| `AGENT_LINK_WEB_PORT` | `8200` | 待ち受けポート |
-| `AGENT_LINK_WEB_URL` | `http://127.0.0.1:8200` | `agent-link-web` の命令とエージェントの道具がつなぐ先 |
+| `AGENT_LINK_WEB_PORT` | `8400` | 待ち受けポート |
+| `AGENT_LINK_WEB_URL` | `http://127.0.0.1:8400` | `agent-link-web` の命令とエージェントの道具がつなぐ先 |
 | `AGENT_LINK_WEB_RUNS_DIR` | `$AGENT_LINK_HOME/web/runs` | 会話の画面が読む、実行の書き出し |
 | `AGENT_LINK_WEB_NO_WATCH` | （空） | `1` で状態の見張りを止める（確かめ用のサーバ） |
 | `AGENT_LINK_WEB_HOOKS_DIR` | `apps/web/hooks` | `agent-link init` が cc のフックを書くときに探す置き場 |
@@ -159,18 +168,18 @@ Web の Projects → Dashboard からも起動・停止できます。
 | `AGENT_LINK_LONG_RUN_ALERT_MS` | 20 分 | 長時間アラートの間隔（ミリ秒） |
 | `AGENT_LINK_CC_QUESTION_MODE` | （空） | `deny` で、cc の質問フックが答えを拒否の形で返す |
 
-`AGENT_LINK_PARENT_RUN_ID`・`AGENT_LINK_BLOCK_NAME`・`AGENT_LINK_IS_SUBTASK` のほか、`doc write` の検査（`write_check`）に渡す `AGENT_LINK_WRITE_FILENAME`・`AGENT_LINK_WRITE_DESCRIPTION`、tmux の session に入れる `AGENT_LINK_AGENT_TRANSPORT` は、agent-link が自分で入れる値です。利用者は設定しません。
+`AGENT_LINK_PARENT_RUN_ID`・`AGENT_LINK_BLOCK_NAME`・`AGENT_LINK_IS_SUBTASK` のほか、`doc write` の検査（`write_check`）に渡す `AGENT_LINK_WRITE_FILENAME`・`AGENT_LINK_WRITE_DESCRIPTION`、tmux の session に入れる `AGENT_LINK_AGENT_TRANSPORT`（と、daemon の値を渡す `AGENT_LINK_WEB_URL`・`AGENT_LINK_HOME`）は、agent-link が自分で入れる値です。利用者は設定しません。
 
 ## iPhone からつなぐ（Tailscale）
 
 通知とマイクには HTTPS が要ります。Tailscale の serve で、`agent-link-web` だけを tailnet の中に公開します。
 
 ```bash
-tailscale serve --bg --https 4444 http://127.0.0.1:8200
+tailscale serve --bg --https 4447 http://127.0.0.1:8400
 tailscale serve status
 ```
 
-- iPhone からは `https://<Mac名>.<tailnet>.ts.net:4444/` を開きます。
+- iPhone からは `https://<Mac名>.<tailnet>.ts.net:4447/` を開きます（4444 番は sai-moon の Web が使います）。
 - `agent-link-web` は必ず `--host 127.0.0.1` で動かします（`agent-link-web serve` の既定です。`0.0.0.0` にすると Tailscale の外からも届きます）。
 - **tailnet が自分 1 人のときだけ使います。** 合言葉は無いので、tailnet に届く人は誰でも全機能（エージェントの起動を含む）を使えます。他の人を招くときは、先に ACL で届く機械を絞るか、serve を止めます（`docs/switch-over.md` の 7）。
 
@@ -181,7 +190,7 @@ tailscale serve status
 
 | 書かれる物 | 中身 |
 |---|---|
-| `.claude/settings.json` | CLI の許可（`Bash(agent-link *)`・`Bash(agent-link-web *)`）・cc のフック（下）・不要な道具の禁止 |
+| `.agent-link/cc-settings.json` | CLI の許可（`Bash(agent-link *)`・`Bash(agent-link-web *)`）・cc のフック（下）・statusLine・不要な道具の禁止。run の cc に `--settings` で渡す（run を始めるたびに今の版に合わせる） |
 | `.claude/commands/` | `/agent-link-finalize`（root の run を完了にする） |
 | `.mcp.json` | 外部の MCP: `serena`・`playwright`・`donsetch`・`headroom` |
 | `.claude/skills/` | design skill（`frontend-design`・`ui-ux-rules`） |
@@ -192,12 +201,12 @@ tailscale serve status
 
 ### cc のフック
 
-`.claude/settings.json` の `hooks` に、次が入ります。
+`.agent-link/cc-settings.json` の `hooks` に、次が入ります。プロジェクトの `.claude/settings.json` は書きません（sai-moon など、同じプロジェクトを使う別のアプリの物だからです）。
 
 - `UserPromptSubmit`: `agent-link cc-prompt-hook`（入力が `/agent-link-finalize` のとき、エージェントに送らずに run を完了にする）。
 - `apps/web/hooks/` に 2 本（質問 `cc_question.py`・セッションの登録 `cc_register.py`）が揃っているときだけ、`PreToolUse`（`AskUserQuestion`）と `SessionStart` も入ります。置き場は `AGENT_LINK_WEB_HOOKS_DIR` で変えられます。
 
-フックは何も出力せず、必ず終了コード 0 で終わります。Web が止まっていても cc は普通に動きます。cc のコマンドの承認（PermissionRequest）は扱いません（headless の実行では来ない）。
+フックは agent-link の run の中（`AGENT_LINK_PARENT_RUN_ID` がある）でだけ動きます。Web が止まっていても cc は普通に動きます（終了コード 0）。フックの送り先は `AGENT_LINK_WEB_URL` で、agent-link が tmux の session に入れます（daemon の `AGENT_LINK_WEB_URL` → `http://127.0.0.1:${AGENT_LINK_WEB_PORT:-8400}`）。cc のコマンドの承認（PermissionRequest）は扱いません（headless の実行では来ない）。
 
 ### 外部の MCP
 
@@ -212,12 +221,28 @@ tailscale serve status
 
 agent に渡す環境変数は `.agent-link/settings.json` か `$AGENT_LINK_HOME/settings.json` の `env` に書きます。書き方は [`docs/for-developers.md`](./docs/for-developers.md) の「`.agent-link/settings.json` の項目」にあります。
 
+## sai-moon と並べて使う
+
+agent-link と sai-moon は、同じ Mac・同じプロジェクトで並べて使えます。名前が重ならないようにしてあります。
+
+| 物 | sai-moon | agent-link |
+|---|---|---|
+| 実行ファイル | `sai-link`・`sai-web` | `agent-link`・`agent-link-web` |
+| 環境変数 | `SAI_*` | `AGENT_LINK_*` |
+| 置き場 | `~/.sai`・プロジェクトの `.sai/` | `~/.agent-link`・プロジェクトの `.agent-link/` |
+| Web | 8200 番（Tailscale 4444） | 8400 番（Tailscale 4447） |
+| cc の設定 | プロジェクトの `.claude/settings.json` | `.agent-link/cc-settings.json`（`--settings` で渡す） |
+| 完了のコマンド | `/sai-finalize` | `/agent-link-finalize` |
+
+- cc は `--settings` のフックとプロジェクトのフックを両方動かします。どちらのフックも、相手の run の中では何もしません（agent-link は `AGENT_LINK_PARENT_RUN_ID` が無ければ、sai-moon はあれば素通り）。
+- 前の agent-link（2026-10-16 より前）は、run のたびにプロジェクトの `.claude/settings.json` を agent-link 版で上書きしていました。sai-moon の run の質問が Web に届かないプロジェクトでは、そのプロジェクトで `sai-link init --update` を実行して sai-moon 版に戻します。
+
 ## 安全性
 
 | 項目 | 確かめ方 |
 |---|---|
 | 合言葉は無い | 入口の守りは「127.0.0.1 だけで待ち受ける」ことと、Tailscale serve を自分だけの tailnet に限ることだけ |
-| 待ち受けの住所 | `lsof -nP -iTCP:8200 -sTCP:LISTEN` で 127.0.0.1 だけと確かめる |
+| 待ち受けの住所 | `lsof -nP -iTCP:8400 -sTCP:LISTEN` で 127.0.0.1 だけと確かめる |
 | 内部用の API が外から呼べない | `POST /api/register`・`POST /api/questions`・`POST /api/questions/{qid}/resolved`・`GET /api/questions/{qid}` は、`require_internal` で Mac 自身（127.0.0.1 / ::1）からだけ受ける |
 | 他の DB を開いていない | プロジェクトの記録はすべて `agent-link` の CLI を通す |
 | 読み書きするファイルを iPhone から指定できない | run の md・定義の置き場は CLI が名前から決める。名前は Web が先に形を検査する |
@@ -227,7 +252,7 @@ agent に渡す環境変数は `.agent-link/settings.json` か `$AGENT_LINK_HOME
 
 テストの命令は [`AGENTS.md`](./AGENTS.md) の「テストと確認」にあります（Rust は `cargo test --workspace`、Web の画面は `apps/web/tests/test_*.js`、サーバは `apps/web/tests/test_*.py`）。CI（`.github/workflows/ci.yml`）は Linux（ubuntu-latest）で同じ命令を回します。
 
-画面の確認は 8297 番など別の番号で行います。**Mac で動いている Web（8200 番）は、確認のために止めたり再起動したりしません。**
+画面の確認は 8297 番など別の番号で行います。**Mac で動いている Web（8400 番）は、確認のために止めたり再起動したりしません。**
 
 ## 文書
 

@@ -16,8 +16,8 @@ Rust のコアにあり、このファイルは HTTP を呼ぶだけ。失敗の
     apps/web/bin/agent-link-web serve [--host <H>] [--port <P>]
 
 接続先:
-    - 接続先: `AGENT_LINK_WEB_URL`（既定 `http://127.0.0.1:8200`）
-    - 待ち受けの番号: `AGENT_LINK_WEB_PORT`（既定 8200）
+    - 接続先: `AGENT_LINK_WEB_URL` → `http://127.0.0.1:${AGENT_LINK_WEB_PORT:-8400}`
+    - 待ち受けの番号: `AGENT_LINK_WEB_PORT`（既定 8400）
 
 終了コード:
     0 = 成功、2 = 入力の誤り、3 = 見つからない、4 = 状態の衝突、
@@ -47,7 +47,10 @@ METHODS = ("GET", "POST", "PUT", "DELETE", "PATCH")
 
 def base_url() -> str:
     """Web の窓口の置き場（環境変数で差し替えられる）。"""
-    return (os.getenv("AGENT_LINK_WEB_URL") or "http://127.0.0.1:8200").rstrip("/")
+    url = os.getenv("AGENT_LINK_WEB_URL")
+    if url:
+        return url.rstrip("/")
+    return f"http://127.0.0.1:{os.getenv('AGENT_LINK_WEB_PORT') or '8400'}"
 
 
 # ---------------------------------------------------------------------------
@@ -387,7 +390,7 @@ def cmd_serve(args: argparse.Namespace) -> object:
     port = args.port
     if port is None:
         try:
-            port = int(os.getenv("AGENT_LINK_WEB_PORT", "8200"))
+            port = int(os.getenv("AGENT_LINK_WEB_PORT", "8400"))
         except ValueError:
             raise UsageError(
                 f"AGENT_LINK_WEB_PORT is not a number: {os.getenv('AGENT_LINK_WEB_PORT')}"

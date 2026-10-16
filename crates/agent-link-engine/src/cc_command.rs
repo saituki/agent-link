@@ -119,9 +119,10 @@ pub struct CcCommandBuilder {
     thinking: Option<String>,
     /// true なら `--resume <id>`（既存セッションの復元）
     resume: bool,
-    /// agent-link 側の設定ディレクトリ（`.mcp.json` / `.claude/settings.json` を持つ）。
-    /// cwd の外で起動する場合に `--mcp-config` / `--settings` で明示的に渡す。
-    config_dir: Option<std::path::PathBuf>,
+    /// agent-link の cc の設定（[`cc_settings_path`]）。`--settings` で渡す。
+    settings_file: Option<std::path::PathBuf>,
+    /// cwd に `.mcp.json` が無いときのプロジェクトルートの `.mcp.json`（`--mcp-config`）。
+    mcp_config: Option<std::path::PathBuf>,
     /// 固定部分（system prompt）のファイル（`--append-system-prompt-file`・U6・C10）
     system_prompt_file: Option<String>,
 }
@@ -134,16 +135,21 @@ impl CcCommandBuilder {
             model: None,
             thinking: None,
             resume: false,
-            config_dir: None,
+            settings_file: None,
+            mcp_config: None,
             system_prompt_file: None,
         }
     }
 
-    /// 設定ディレクトリ（`.mcp.json` / `.claude/settings.json` を持つディレクトリ）を
-    /// セットする。cwd の外で cc を起動するとき、この場所を `--mcp-config` /
-    /// `--settings` で明示的に渡す。
-    pub fn with_config_dir(mut self, dir: std::path::PathBuf) -> Self {
-        self.config_dir = Some(dir);
+    /// agent-link の cc の設定ファイルを `--settings` で渡す。
+    pub fn with_settings_file(mut self, path: std::path::PathBuf) -> Self {
+        self.settings_file = Some(path);
+        self
+    }
+
+    /// `.mcp.json` を `--mcp-config` で渡す（cwd に `.mcp.json` が無いとき）。
+    pub fn with_mcp_config(mut self, path: std::path::PathBuf) -> Self {
+        self.mcp_config = Some(path);
         self
     }
 
@@ -196,18 +202,13 @@ impl CcCommandBuilder {
             push_pair(&mut args, "--effort", &effort);
         }
 
-        // agent-link 側の設定を明示的に渡す（cwd がプロジェクトルートの外のとき）。
-        // cc は cwd の .mcp.json / .claude/settings.json を自動で読むため、
-        // 通常（cwd = プロジェクトルート）は渡さない。
-        if let Some(dir) = self.config_dir.as_deref() {
-            let mcp = dir.join(".mcp.json");
-            let settings = dir.join(".claude/settings.json");
-            if mcp.is_file() {
-                push_pair(&mut args, "--mcp-config", &mcp.to_string_lossy());
-            }
-            if settings.is_file() {
-                push_pair(&mut args, "--settings", &settings.to_string_lossy());
-            }
+        // agent-link のフック・statusLine・許可は `--settings` だけで渡す。
+        // プロジェクトの `.claude/settings.json` は sai-moon など別のアプリと取り合わないよう書かない。
+        if let Some(mcp) = self.mcp_config.as_deref() {
+            push_pair(&mut args, "--mcp-config", &mcp.to_string_lossy());
+        }
+        if let Some(settings) = self.settings_file.as_deref() {
+            push_pair(&mut args, "--settings", &settings.to_string_lossy());
         }
 
         // 固定部分（system prompt）を足す（U6・C10）。
@@ -354,7 +355,45 @@ pub fn sai_link_exe() -> String {
         .unwrap_or_else(|| "agent-link".to_string())
 }
 
-/// プロジェクト直下の `.claude/settings.json` の内容（`agent-link init` が書く）。
+/// Web の既定の待ち受けポート（`apps/web` の `config.py`・`webcli.py`・`hooks/cc_*.py` とそろえる）。
+pub const DEFAULT_WEB_PORT: &str = "8400";
+
+/// cc のフックが使う Web の住所（`AGENT_LINK_WEB_URL` → `http://127.0.0.1:${AGENT_LINK_WEB_PORT:-8400}`）。
+pub fn web_url() -> String {
+    let get = |k: &str| std::env::var(k).ok().filter(|v| !v.trim().is_empty());
+    match get("AGENT_LINK_WEB_URL") {
+        Some(url) => url.trim_end_matches('/').to_string(),
+        None => format!(
+            "http://127.0.0.1:{}",
+            get("AGENT_LINK_WEB_PORT").unwrap_or_else(|| DEFAULT_WEB_PORT.to_string())
+        ),
+    }
+}
+
+/// agent-link の cc の設定ファイル（`--settings` で渡す）の場所。
+pub fn cc_settings_path(root: &Path) -> PathBuf {
+    root.join(".agent-link/cc-settings.json")
+}
+
+/// [`cc_settings_path`] を [`cc_settings_json`] の内容に合わせ（違えば上書き）、その場所を返す。
+pub fn ensure_cc_settings(root: &Path) -> std::io::Result<PathBuf> {
+    let path = cc_settings_path(root);
+    let want = cc_settings_json();
+    let same = std::fs::read_to_string(&path)
+        .ok()
+        .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
+        .is_some_and(|v| v == want);
+    if !same {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let text = serde_json::to_string_pretty(&want).map_err(std::io::Error::other)?;
+        std::fs::write(&path, text + "\n")?;
+    }
+    Ok(path)
+}
+
+/// agent-link の cc の設定（[`cc_settings_path`] に書き、`--settings` で渡す）。
 ///
 /// - `permissions.deny`: [`CC_DENIED_TOOLS`]（道具の制限・別エージェント起動の禁止）
 /// - `permissions.allow`: agent-link の CLI（`Bash(agent-link *)` など）を無確認で使う
@@ -566,45 +605,6 @@ pub fn resolve_mcp_config(cwd: &Path) -> Option<std::path::PathBuf> {
     let root = crate::project::project_root();
     let mcp = root.join(".mcp.json");
     (root != cwd && mcp.is_file()).then_some(mcp)
-}
-
-/// cc に渡す agent-link 設定（`.claude/settings.json`）の場所を解決する。
-///
-/// 優先順位:
-/// 1. `cwd` 自身（プロジェクトルート・作業用コピーで `agent-link init` 済みの場合）
-/// 2. agent-link のプロジェクトルート（`cwd` が別プロジェクトのとき。呼び出し元が
-///    `--settings` で明示的に渡す）
-///
-/// どちらにも無ければ `None`。
-pub fn resolve_sai_config_dir(cwd: &Path) -> Option<std::path::PathBuf> {
-    if cwd.join(".claude/settings.json").is_file() {
-        return Some(cwd.to_path_buf());
-    }
-    let root = crate::project::project_root();
-    if root != cwd && root.join(".claude/settings.json").is_file() {
-        return Some(root);
-    }
-    None
-}
-
-/// cc の作業フォルダに `agent-link init` の設定ファイルがあるか確かめ、
-/// cc に渡すべき設定ディレクトリを返す。
-///
-/// worktree は commit 済みのファイルしか持たないため、未 commit だと道具の許可が
-/// 読めず、エージェントが CLI を無確認で呼べない。起動前に分かりやすく止める。
-/// `.mcp.json` は外部 MCP 用で、無くてもよい（外部の MCP を使わないだけ）。
-/// `cwd` がプロジェクトルートの外でも、agent-link 側の設定があればそれを返す
-/// （呼び出し元が `--settings` で渡す）。
-pub fn check_project_files(cwd: &Path) -> Result<std::path::PathBuf, String> {
-    if let Some(dir) = resolve_sai_config_dir(cwd) {
-        return Ok(dir);
-    }
-    Err(format!(
-        "No cc settings (.claude/settings.json) found in {} or in the agent-link project root ({}). \
-         Run `agent-link init` in the project root and commit .claude/.",
-        cwd.display(),
-        crate::project::project_root().display()
-    ))
 }
 
 /// UUID v4 形式の文字列を生成する。
@@ -865,37 +865,45 @@ mod tests {
         }
     }
 
-    /// `.claude/settings.json` が無いフォルダは起動前にエラーになること。
-    /// `.mcp.json` は要らない（外部 MCP を使わないだけ）。
+    /// cc の設定は `.agent-link/cc-settings.json` に書き、プロジェクトの `.claude/settings.json` は触らない。
+    /// 中身が同じなら書き直さず、違えば直す。
     #[test]
-    fn check_project_files_requires_cc_settings() {
-        // フォールバック先（AGENT_LINK_PROJECT_ROOT）を空にして、cwd のみを見るようにする。
-        // 実行環境の AGENT_LINK_PROJECT_ROOT に本物の設定があると結果が変わってしまうため。
-        let _env_lock = crate::common::AGENT_LINK_ENV_TEST_LOCK.lock().unwrap();
-        let dir = tempfile::tempdir().unwrap();
-        let _env_guard = EnvGuard::set_project_root(dir.path());
-        assert!(check_project_files(dir.path()).is_err());
-        // `.mcp.json` だけでは足りない
-        std::fs::write(dir.path().join(".mcp.json"), mcp_config_json().to_string()).unwrap();
-        assert!(check_project_files(dir.path()).is_err());
-        // `.claude/settings.json` があればよい
-        std::fs::create_dir_all(dir.path().join(".claude")).unwrap();
-        std::fs::write(dir.path().join(".claude/settings.json"), "{}").unwrap();
-        assert!(check_project_files(dir.path()).is_ok());
+    fn ensure_cc_settings_writes_own_file_only() {
+        let root = tempfile::tempdir().unwrap();
+        let path = ensure_cc_settings(root.path()).unwrap();
+        assert_eq!(path, root.path().join(".agent-link/cc-settings.json"));
+        let v: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(v, cc_settings_json());
+        assert!(!root.path().join(".claude/settings.json").exists());
+        std::fs::write(&path, "{}").unwrap();
+        ensure_cc_settings(root.path()).unwrap();
+        let v: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(v, cc_settings_json());
     }
 
-    /// cwd に設定が無くても agent-link のプロジェクトルートに設定があれば
-    /// その場所を返す（cwd の外で cc を起動するときに `--settings` で渡すため）。
+    /// Web の住所: `AGENT_LINK_WEB_URL` → `AGENT_LINK_WEB_PORT` → 既定 8400。
     #[test]
-    fn check_project_files_falls_back_to_project_root() {
+    fn web_url_prefers_url_then_port() {
         let _env_lock = crate::common::AGENT_LINK_ENV_TEST_LOCK.lock().unwrap();
-        let root = tempfile::tempdir().unwrap();
-        std::fs::create_dir_all(root.path().join(".claude")).unwrap();
-        std::fs::write(root.path().join(".claude/settings.json"), "{}").unwrap();
-        let other = tempfile::tempdir().unwrap();
-        let _env_guard = EnvGuard::set_project_root(root.path());
-        let resolved = check_project_files(other.path()).unwrap();
-        assert_eq!(resolved, root.path());
+        let saved: Vec<_> = ["AGENT_LINK_WEB_URL", "AGENT_LINK_WEB_PORT"]
+            .iter()
+            .map(|k| (*k, std::env::var_os(k)))
+            .collect();
+        std::env::remove_var("AGENT_LINK_WEB_URL");
+        std::env::remove_var("AGENT_LINK_WEB_PORT");
+        assert_eq!(web_url(), "http://127.0.0.1:8400");
+        std::env::set_var("AGENT_LINK_WEB_PORT", "8297");
+        assert_eq!(web_url(), "http://127.0.0.1:8297");
+        std::env::set_var("AGENT_LINK_WEB_URL", "http://127.0.0.1:9000/");
+        assert_eq!(web_url(), "http://127.0.0.1:9000");
+        for (k, v) in saved {
+            match v {
+                Some(v) => std::env::set_var(k, v),
+                None => std::env::remove_var(k),
+            }
+        }
     }
 
     /// pi 用: cwd に `.mcp.json` が無く、プロジェクトルートにだけあるときに
@@ -930,16 +938,14 @@ mod tests {
     #[test]
     fn build_passes_external_config_when_cwd_is_outside_project() {
         let dir = tempfile::tempdir().unwrap();
-        std::fs::create_dir_all(dir.path().join(".claude")).unwrap();
-        std::fs::write(dir.path().join(".mcp.json"), mcp_config_json().to_string()).unwrap();
-        std::fs::write(dir.path().join(".claude/settings.json"), "{}").unwrap();
+        let mcp = dir.path().join(".mcp.json");
+        let settings = cc_settings_path(dir.path());
         let cmd = CcCommandBuilder::new("11111111-2222-4333-8444-555555555555")
             .with_config(mock_config())
-            .with_config_dir(dir.path().to_path_buf())
+            .with_settings_file(settings.clone())
+            .with_mcp_config(mcp.clone())
             .build()
             .unwrap();
-        let mcp = dir.path().join(".mcp.json");
-        let settings = dir.path().join(".claude/settings.json");
         assert!(
             cmd.command.contains(&format!("--mcp-config '{}'", mcp.display())),
             "実際: {}",

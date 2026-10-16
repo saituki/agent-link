@@ -28,7 +28,7 @@ DB_PATH = DATA_DIR / "agent_link_web.db"
 @dataclass(frozen=True)
 class Settings:
     # 待ち受けポート
-    port: int = int(os.getenv("AGENT_LINK_WEB_PORT", "8200"))
+    port: int = int(os.getenv("AGENT_LINK_WEB_PORT", "8400"))
     # cc の記録置き場
     claude_sessions_dir: Path = Path(
         os.getenv("CLAUDE_SESSIONS_DIR", str(Path.home() / ".claude" / "projects"))

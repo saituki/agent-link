@@ -1994,6 +1994,10 @@ pub fn handle_cc_permission_hook() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut input = String::new();
     let _ = std::io::stdin().read_to_string(&mut input);
+    // agent-link の run の外（sai-moon の run など）では何も返さず、cc の承認の流れに任せる
+    if std::env::var_os("AGENT_LINK_PARENT_RUN_ID").is_none() {
+        return Ok(());
+    }
     if let Some(out) = agent_link_engine::cc_command::permission_hook_output(&input) {
         println!("{}", out);
     }

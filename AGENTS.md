@@ -82,14 +82,14 @@ for f in apps/web/tests/test_*.py; do PYTHONPATH=apps/web/src apps/web/.venv/bin
   # … curl http://127.0.0.1:8297/ などで確かめる …
   kill %1; rm -rf "$T"
   ```
-- **動いている Web（Mac の 8200 番）は、確認のために止めたり再起動したりしない。** 確認は 8297 番で行う。
+- **動いている Web（Mac の 8400 番）は、確認のために止めたり再起動したりしない。** 確認は 8297 番で行う。
 - サーバ・ブラウザ・ネットワークを使う命令には、必ず時間の上限を付ける（例 `perl -e 'alarm 180; exec @ARGV' <命令>`）。背景で起動したサーバとブラウザは、作業を終える前に止める。
 - `cargo build --release` は本体フォルダで行い、`target/release/agent-link` を必ず作り直す。`apps/web` は release の実行ファイルを叩く。
 
 ### 実行しないこと
 
-- 本物のプロジェクトでの `agent-link init`（`--update` を含む）。ただし、利用者が頼んだときに限り、agent-link 自身のルート（`~/workdir/Sai/agent-link`）で `agent-link init --update` を実行してよい（`.claude/settings.json` のフックを release のバイナリに合わせるため）。sai-tree などほかのプロジェクトでは実行しない。確かめるときは一時フォルダをプロジェクトにし（`AGENT_LINK_PROJECT_ROOT`）、`AGENT_LINK_HOME` にも別の一時フォルダを入れ、最後に消す。
+- 本物のプロジェクトでの `agent-link init`（`--update` を含む）。ただし、利用者が頼んだときに限り、agent-link 自身のルート（`~/workdir/Sai/agent-link`）で `agent-link init --update` を実行してよい（`.agent-link/cc-settings.json` のフックを release のバイナリに合わせるため。run を始めるたびにも合わせ直す）。sai-tree などほかのプロジェクトでは実行しない。確かめるときは一時フォルダをプロジェクトにし（`AGENT_LINK_PROJECT_ROOT`）、`AGENT_LINK_HOME` にも別の一時フォルダを入れ、最後に消す。
 - 利用者の環境（`~/.agent-link`・シェルの設定・`~/.local/bin`）を変える操作。文書に書くだけにする。
 - 本物の `.agent-link/blocks/*.md`・`~/.agent-link/` の中身を、確かめのために変えること。書き込みの確認は一時フォルダで行い、最後に消す。
 - sai-moon（`~/workdir/Sai/sai-moon`）と sai-tree（`~/workdir/Sai/sai-tree`）のリポジトリを直すこと。読み取り専用。
-- 動いている 8200 番の Web を止めること。
+- 動いている 8400 番の Web を止めること。

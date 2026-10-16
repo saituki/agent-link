@@ -78,8 +78,8 @@ fn test_cc_tmux_turn() {
 
     tmux::run(&id, &format!("'{}'", fake.display())).unwrap();
 
-    // 起動の前に整えたファイル（設定と初回の画面を出さない項目）。
-    assert!(project.path().join(".claude/settings.json").is_file());
+    // 起動の前に整えたファイル（初回の画面を出さない項目）。cc の設定は `--settings` で渡すので書かない。
+    assert!(!project.path().join(".claude/settings.json").exists());
     let claude_json: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(home.path().join(".claude.json")).unwrap())
             .unwrap();

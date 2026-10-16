@@ -8,7 +8,7 @@ MCP サーバ `chrome-devtools` は、画面の出ない Chrome を開き、ペ�
 
 ## 見る順番
 
-1. **開く** → `navigate_page { "pageId": 1, "type": "url", "url": "http://127.0.0.1:8200/#/home" }`
+1. **開く** → `navigate_page { "pageId": 1, "type": "url", "url": "http://127.0.0.1:8400/#/home" }`
    - 画面の住所（`#/…`）は `docs/integration.md` の一覧にある。
 2. **幅を決める** → `emulate`
    - iPhone: `{ "pageId": 1, "viewport": "390x844x3,mobile,touch" }`
@@ -29,8 +29,8 @@ MCP サーバ `chrome-devtools` は、画面の出ない Chrome を開き、ペ�
 
 ## agent-link での注意
 
-- **使うのは 8200 / 8201 / 8202 番だけ。** 旧の 8100 番・8000 番のページは開かない。サーバの起動と停止は `AGENTS.md` の約束に従う。
-- **8200 番のサーバがどのフォルダから動いているかを確かめる**（`lsof -nP -iTCP:8200 -sTCP:LISTEN` の PID を `ps -o command= -p <PID>` で見る）。本体のフォルダのサーバは、作業用コピー（worktree）で直したファイルを配らない。
+- **使うのは 8400 番（agent-link の Web）と確認用の 8297 番だけ。** 8200〜8202 番は sai-moon の物なので開かない。サーバの起動と停止は `AGENTS.md` の約束に従う。
+- **8400 番のサーバがどのフォルダから動いているかを確かめる**（`lsof -nP -iTCP:8400 -sTCP:LISTEN` の PID を `ps -o command= -p <PID>` で見る）。本体のフォルダのサーバは、作業用コピー（worktree）で直したファイルを配らない。
 - **古い画面が出ることがある。** `sw.js` が画面のファイルを溜めて（キャッシュして）いる。ファイルを直したあとは、次を実行してから `navigate_page { "pageId": 1, "type": "reload", "ignoreCache": true }` する。
 
 ```js

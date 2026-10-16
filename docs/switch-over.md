@@ -1,5 +1,7 @@
 # sai-moon から agent-link への切り替え手順書
 
+> **古い手順書（2026-10-16）。** sai-moon を止めて agent-link に移る前提で書いた。今は sai-moon と agent-link を並べて使う（`README.md` の「sai-moon と並べて使う」）。agent-link の Web は 8400 番で、sai-moon の Web（8200 番）は止めない。下の手順の 8200 番は、sai-moon の Web を指す所と、旧い agent-link の既定を指す所が混ざっている。
+
 この文書は、利用者が上から順に実行する手順書である。**agent や worker は、この手順を実行しない**（sai-moon を止める・PATH を変える・Tailscale の ACL を変えるのは、利用者の環境を変える操作だから）。
 
 - 命令は、そのまま貼れる形で書いてある。各段に「確かめ方」と「うまくいかないとき」を付けた。

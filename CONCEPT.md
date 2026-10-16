@@ -17,7 +17,7 @@ agent-link は、2 つの部品（実行エンジン・Web の窓口）ででき
  人: ブラウザ（iPhone / PC）              人・エージェント: CLI
         │ HTTPS                                      │
         ▼                                            │
-   agent-link-web（apps/web・8200）                  │
+   agent-link-web（apps/web・8400）                  │
         │  agent-link の CLI（--json）だけを使う      │
         └──────────────────────┬─────────────────────┘
                                ▼
@@ -29,7 +29,7 @@ agent-link は、2 つの部品（実行エンジン・Web の窓口）ででき
 |---|---|---|
 | **agent-link** | アプリ全体の名前と、実行エンジンの実行ファイルの名前。アプリ（主に sai-tree）を開発する道具。 | リポジトリ全体（`ARCHITECTURE.md` §1.1） |
 | **実行エンジン** | 基盤。coding agent の実行・カード・常駐・文書を扱う。Web を知らない。 | `crates/agent-link-engine`・`agent-link-view`・`agent-link-cli`。実行ファイルは `agent-link` |
-| **Web の窓口** | 画面と、質問・通知・使用量だけを持ち、DB を開かない。 | `apps/web`、CLI は `apps/web/bin/agent-link-web`、待ち受けは 127.0.0.1:8200 |
+| **Web の窓口** | 画面と、質問・通知・使用量だけを持ち、DB を開かない。 | `apps/web`、CLI は `apps/web/bin/agent-link-web`、待ち受けは 127.0.0.1:8400 |
 | **waggle** | 文書に短いトークンを付けて受け渡す仕組み。vendor したクレート群。 | `waggle/`（`waggle-core`・`waggle-store`・`waggle-store-sqlite`）。使う側は `crates/agent-link-engine/src/waggle_integration.rs` |
 | **`agent-link.db`** | 実行エンジンの DB。run・card・子タスクなどの記録が入る。Web は開かない。 | `<root>/.agent-link/engine/agent-link.db` |
 | **プロジェクト（`<root>/.agent-link/`）** | 作業の単位となるフォルダ。中の `.agent-link/` に DB・block・template・settings・成果物（`outputs/`）を置く。 | `agent-link init` が作る。`AGENT_LINK_PROJECT_ROOT` か、今のフォルダから上へたどって `.agent-link/` を持つ最初のフォルダ |
