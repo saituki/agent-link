@@ -11,14 +11,14 @@
 | **Web の窓口** | FastAPI と素の JavaScript。`agent-link` の CLI だけを使う（DB は開かない） | `apps/web/bin/agent-link-web` |
 
 ```
-人 ──── ブラウザ ───▶ Tailscale serve ─▶ agent-link-web (127.0.0.1:8200)
+人 ──── ブラウザ ───▶ （iPhone だけ Tailscale serve）─▶ agent-link-web (127.0.0.1:8200)
  │                                          │ CLI（--json）
  └──── CLI ───────────────────────────────▶ agent-link ──▶ daemon・headless の実行
 エージェント ──── CLI（Bash）──────────────▶ agent-link
 ```
 
 - 人は **CLI と Web** を使い、エージェントは **CLI** を使います（エージェントに MCP の道具は渡しません。Bash で CLI を呼びます）。
-- 画面は Web だけです。CLI でできることは Web でもでき、Web でできることは CLI（`agent-link-web`）でもできます。
+- 画面は Web だけです。Web の HTTP API は `agent-link-web api` で呼べ、CLI の命令は `agent-link schema --json` に出ます。
 - Mac 専用の常駐（launchd）・承認・遠隔ブラウザは持ちません。daemon と Web は手で起こします。
 
 仕組みの詳しい説明は [`ARCHITECTURE.md`](./ARCHITECTURE.md)、概念と用語は [`CONCEPT.md`](./CONCEPT.md) にあります。sai-moon から切り替えるときは [`docs/switch-over.md`](./docs/switch-over.md) を上から順に実行します。
@@ -32,8 +32,8 @@
 | [`uv`](https://docs.astral.sh/uv/) | `apps/web` の Python の仮想環境 |
 | tmux | cc（Claude Code）を動かす（`brew install tmux`） |
 | Node.js | 画面のテストを流すときだけ（実行には要らない） |
-| エージェント（`claude`） | カードの実行者（runner は cc）。使う方だけ入れる |
-| Tailscale | iPhone からつなぐときだけ |
+| エージェント（`claude`） | カードの実行者（cc だけ） |
+| Tailscale | iPhone からつなぐときだけ（自分 1 人の tailnet のときだけ。下の注意を読む） |
 
 ## 入れ方
 
@@ -71,17 +71,16 @@ agent-link init
 # 2) このプロジェクトの常駐（daemon）を起こす（カードを動かすときだけ要る）
 agent-link daemon start
 
-# 3) Web の合言葉を決めて、Web を起こす
+# 3) Web を起こす
 cd ~/workdir/Sai/agent-link/apps/web
-cp .env.example .env        # AGENT_LINK_WEB_TOKEN= に値（例 openssl rand -hex 16）を書く
 agent-link-web serve        # 既定は 127.0.0.1:8200
 
-# 4) ブラウザで http://localhost:8200/ を開き、合言葉を入れる
+# 4) ブラウザで http://localhost:8200/ を開く（合言葉は無い）
 # 5) Projects タブでプロジェクトを選び、右上の ＋ からカード（実行の予約）を作って、▶ で動かす
 ```
 
 - 背景で動かし続けるときは、`cd apps/web && nohup .venv/bin/python -m uvicorn agent_link_web.main:app --host 127.0.0.1 --port 8200 --app-dir src > ~/.agent-link/web/uvicorn-8200.log 2>&1 &` を使います（`~/.agent-link/web/` は Web が最初の起動で作ります）。
-- CLI だけでも同じことができます。`agent-link card create`（標準入力に JSON）→ `agent-link card run <run_id>`。命令の一覧は `agent-link schema --json`、Web の「コマンド」画面（`#/project/<名前>/commands`）でも見られます。
+- CLI だけでも同じことができます。`agent-link card create`（標準入力に JSON）→ `agent-link card run <run_id>`。命令の一覧は `agent-link schema --json` で見られます。Web の HTTP API は `agent-link-web api <METHOD> <path>` で呼べます。
 - `init` は、プロジェクトに `.agent-link/`・`.mcp.json`・`.claude/settings.json`・`.claude/commands/`・`.claude/skills/`・`.serena/project.yml` を書きます（既にある設定は `.bak` に退避します）。
 
 ## 起動とポート
@@ -105,13 +104,14 @@ Web の Projects → Dashboard からも起動・停止できます。
 
 | タブ | 何ができるか |
 |---|---|
-| **Home** | 答えを待っている質問、確認を待っている run、動いている実行を 1 画面で見る |
-| **Projects** | プロジェクトの Dashboard・Workflow・List・設定（block・template・settings）・コマンド・セッション検索 |
+| **Home** | 答えを待っている質問、todo、動いている実行、全プロジェクトの合計、Claude の使用量（5 時間枠・7 日枠と費用のカード）を 1 画面で見る |
+| **Projects** | プロジェクトの Dashboard・Workflow・List・設定（block・template・settings）・セッション検索 |
 | **Chats** | coding agent の会話を読み、文字や声で指示を送る。新しいチャットを始める。質問に答える |
-| **Account**（`#/account`） | 使用量（Usage。Claude Code・OpenRouter・DeepSeek の料金と制限）を見る |
 
 - 質問は、PC と iPhone の両方に出て、先に答えた方が採用されます。
 - iPhone（幅 390px）と PC（幅 1280px）の両方で使えます。900px 以上は 2 列になります。
+- 画面の文言と、`agent-link` の標準エラーおよび `--json` の人向けの文は英語です（音声の言語は日本語）。この README など文書は日本語です。
+- run の流れは todo → running → review →（`agent-link run advance`）→ Workflow です。Workflow に移した run は `.agent-link/outputs/<yymmdd>/<run_id>/` に入ります（日付は一番上の親 run の実行開始日）。
 - 画面と API の全部の住所は [`docs/integration.md`](./docs/integration.md) にあります。
 
 ## 設定（環境変数）
@@ -128,7 +128,7 @@ Web の Projects → Dashboard からも起動・停止できます。
 |---|---|
 | `registry.json` | プロジェクトの登録簿（`agent-link init` が書く） |
 | `blocks/`・`template/`・`settings.json` | 全プロジェクト共通の block・template・settings |
-| `web/` | Web の置き場: `runs/`（実行の書き出し）・`token`（合言葉）・`agent_link_web.db`・`vapid.json`・`agent-link-web.log` |
+| `web/` | Web の置き場: `runs/`（実行の書き出し）・`agent_link_web.db`・`vapid.json`・`agent-link-web.log` |
 
 プロジェクトの中の `<root>/.agent-link/`（`engine/agent-link.db`・`blocks/`・`template/`・`settings.json`・`outputs/`）はこれとは別です。古い置き場（sai-moon の物）は読みません。
 
@@ -138,15 +138,13 @@ Web の Projects → Dashboard からも起動・停止できます。
 
 | 変数 | 既定値 | 用途 |
 |---|---|---|
-| `AGENT_LINK_WEB_TOKEN` | （空＝認証なし・開発用） | 合言葉。iPhone 側と合わせる。**tailnet に出すときは必ず設定する** |
 | `AGENT_LINK_WEB_PORT` | `8200` | 待ち受けポート |
 | `AGENT_LINK_WEB_URL` | `http://127.0.0.1:8200` | `agent-link-web` の命令とエージェントの道具がつなぐ先 |
 | `AGENT_LINK_WEB_RUNS_DIR` | `$AGENT_LINK_HOME/web/runs` | 会話の画面が読む、実行の書き出し |
-| `AGENT_LINK_WEB_OPENROUTER_ACCOUNTS` | `main=OPENROUTER_API_KEY` | 使用量の OpenRouter の「名前=キーの入った環境変数名」（カンマ区切り） |
 | `AGENT_LINK_WEB_NO_WATCH` | （空） | `1` で状態の見張りを止める（確かめ用のサーバ） |
 | `AGENT_LINK_WEB_HOOKS_DIR` | `apps/web/hooks` | `agent-link init` が cc のフックを書くときに探す置き場 |
 | `AGENT_LINK_BIN` | `agent-link` | Web が呼ぶ `agent-link`。PATH に無ければ絶対パス（子タスクには `agent-link` が自分のパスを入れる） |
-| `CLAUDE_SESSIONS_DIR` / `PI_SESSIONS_DIR` | 各既定 | 会話の記録の置き場 |
+| `CLAUDE_SESSIONS_DIR` | `~/.claude/projects` | cc の会話の記録の置き場 |
 
 ### CLI（`agent-link`）
 
@@ -172,9 +170,9 @@ tailscale serve --bg --https 4444 http://127.0.0.1:8200
 tailscale serve status
 ```
 
-- iPhone からは `https://<Mac名>.<tailnet>.ts.net:4444/` を開き、合言葉を入れます。
+- iPhone からは `https://<Mac名>.<tailnet>.ts.net:4444/` を開きます。
 - `agent-link-web` は必ず `--host 127.0.0.1` で動かします（`agent-link-web serve` の既定です。`0.0.0.0` にすると Tailscale の外からも届きます）。
-- **tailnet に他の人を招くときは、先に ACL で届く機械を絞ります**（`docs/switch-over.md` の 7）。既定の ACL は「全員が全部の機械に届く」ためです。
+- **tailnet が自分 1 人のときだけ使います。** 合言葉は無いので、tailnet に届く人は誰でも全機能（エージェントの起動を含む）を使えます。他の人を招くときは、先に ACL で届く機械を絞るか、serve を止めます（`docs/switch-over.md` の 7）。
 
 ## エージェントとつなぐ
 
@@ -218,10 +216,9 @@ agent に渡す環境変数は `.agent-link/settings.json` か `$AGENT_LINK_HOME
 
 | 項目 | 確かめ方 |
 |---|---|
-| 合言葉が設定されている | `apps/web/.env` に `AGENT_LINK_WEB_TOKEN`。未設定なら起動時に警告が出る。tailnet に出すときは必ず設定する |
-| 合言葉のファイル | 起動すると `$AGENT_LINK_HOME/web/token` に 0600 でできる。エージェントの道具が読む。**中身を記録や画面に出さない** |
+| 合言葉は無い | 入口の守りは「127.0.0.1 だけで待ち受ける」ことと、Tailscale serve を自分だけの tailnet に限ることだけ |
 | 待ち受けの住所 | `lsof -nP -iTCP:8200 -sTCP:LISTEN` で 127.0.0.1 だけと確かめる |
-| 内部用の API が外から呼べない | `POST /api/register`・`POST /api/questions`・`POST /api/questions/{qid}/resolved` は、Mac 自身（127.0.0.1）からだけ受ける |
+| 内部用の API が外から呼べない | `POST /api/register`・`POST /api/questions`・`POST /api/questions/{qid}/resolved`・`GET /api/questions/{qid}` は、`require_internal` で Mac 自身（127.0.0.1 / ::1）からだけ受ける |
 | 他の DB を開いていない | プロジェクトの記録はすべて `agent-link` の CLI を通す |
 | 読み書きするファイルを iPhone から指定できない | run の md・定義の置き場は CLI が名前から決める。名前は Web が先に形を検査する |
 | 壊れた定義を保存しない | 定義の保存前に `agent-link` が検査し、理由を出す |

@@ -3,7 +3,7 @@
 **正はコード**（`apps/web/src/agent_link_web/` と `crates/` の実装）。この文書とコードが食い違ったら、コードに合わせて直す。
 `crates/` 側を直すときの注意は [`for-developers.md`](./for-developers.md)、全体の考え方は [`../ARCHITECTURE.md`](../ARCHITECTURE.md)、言葉の意味は [`../CONCEPT.md`](../CONCEPT.md)。
 
-この文書の API の数は、`main.py` の `@app.get`・`post`・`put`・`delete`・`api_route` を数えた **50 本**（2026-10-15 時点）。
+この文書の API の数は、`main.py` の `@app.get`・`post`・`put`・`delete`・`api_route` を数えた **46 本**（2026-10-16 時点）。
 
 ---
 
@@ -11,12 +11,11 @@
 
 ```
 iPhone / PC のブラウザ
-   │  HTTPS  tailscale serve :4444（iPhone だけ）
+   │  HTTPS  tailscale serve :4444（iPhone だけ。自分 1 人の tailnet のときだけ）
    ▼
 127.0.0.1:8200  agent-link-web（FastAPI・窓口だけ）
    ├─ Chats   : $AGENT_LINK_HOME/web/runs/<project>/<run_id>.json を読む   ← `agent-link run export` が書き出す
-   ├─ Projects: 登録簿 $AGENT_LINK_HOME/registry.json を直接読む ／ `agent-link …` を呼ぶ
-   └─ コマンド : `agent-link schema --json` を読み、`web: true` の命令を実行する
+   └─ Projects: 登録簿 $AGENT_LINK_HOME/registry.json を直接読む ／ `agent-link …` を呼ぶ
 ```
 
 | タブ / 画面 | 使う物 |
@@ -25,11 +24,10 @@ iPhone / PC のブラウザ
 | Projects（一覧・Dashboard・List・カードの作成と実行・常駐・task / review の保存） | `agent-link project summary` / `project dashboard` / `daemon start\|stop` / `run tree` / `run log\|stats\|history` / `run md` / `doc list\|read\|search` / `card options\|docs\|create\|run\|schedule` / `run advance\|finalize\|rm`。一覧の `name` / `root` / `kind` / `root_exists` / `db_exists` / `daemon_alive` は登録簿（`registry.py`）から作る |
 | Projects → Workflow | `agent-link workflow`（Workflow の配置は `agent-link` が計算する） |
 | Projects → 設定（block / template / settings） | `agent-link def list\|show\|write\|delete`（`scope` で、そのプロジェクトと `$AGENT_LINK_HOME` の両方） |
-| Projects → コマンド | `GET /api/projects/{name}/commands`（`agent-link schema --json`）と `POST …/commands/run` |
 | Projects → セッション検索 | `agent-link session search` |
 | Home（質問・プロジェクト・todo） | 上の住所を 1 本の住所（`GET /api/home`）にまとめる。`ThreadPoolExecutor` で並べる |
 | Home の全プロジェクトの合計（今週 / 今月 / 全期間） | 各プロジェクトの `agent-link project dashboard --period` を並べて足し合わせる（`GET /api/home/overview`） |
-| Account → Usage | `usage.py`（cc の枠と費用・OpenRouter・DeepSeek。古い pi の記録も読む）。cc の枠の値は `agent-link cc-statusline` が書いた `cc-rate-limits.json` を読む。CLI は呼ばない |
+| Home の Claude のカード | `usage.py`（cc の枠と費用。`GET /api/usage`）。cc の枠の値は `agent-link cc-statusline` が書いた `cc-rate-limits.json` を読む。CLI は呼ばない |
 
 ---
 
@@ -41,7 +39,7 @@ iPhone / PC のブラウザ
    - 機能は **CLI（`--json`）か HTTP API** だけを使う。
 2. **既にある物を使う。** 新しい依存ライブラリは入れない（FastAPI・標準ライブラリ・素の JS のみ）。
 3. **画面は素の JavaScript**（フレームワーク・ビルド無し）。グラフは SVG を手で描く。
-4. **合言葉（`AGENT_LINK_WEB_TOKEN`）で入口を守る。** エラーは画面に日本語でそのまま出す。
+4. **合言葉は無い。** 入口は 127.0.0.1 の待ち受けと、内部用の住所の `require_internal`（Mac 自身だけ）で守る。エラーは英語（`{"detail": "<英語の 1 文>"}`）で画面にそのまま出す。
 5. **外から来る値は CLI を呼ぶ前に検査する。** 通らない値では CLI を 1 度も呼ばない（400）。ファイルのパスは受け取らない。
 
 ---
@@ -53,7 +51,7 @@ iPhone / PC のブラウザ
 | 登録簿 | `$AGENT_LINK_HOME/registry.json` |
 | 書き出し（Chats が読む） | `$AGENT_LINK_HOME/web/runs/` |
 | 共通の block・template・settings | `$AGENT_LINK_HOME/blocks/`・`template/`・`settings.json` |
-| 合言葉・質問の保管・通知の鍵・ログ | `$AGENT_LINK_HOME/web/token`・`agent_link_web.db`・`vapid.json`・`agent-link-web.log` |
+| 質問の保管・通知の鍵・ログ | `$AGENT_LINK_HOME/web/agent_link_web.db`・`vapid.json`・`agent-link-web.log` |
 | **プロジェクト内の `.agent-link/`** | `<root>/.agent-link/`（`engine/agent-link.db`・`blocks/`・`template/`・`settings.json`・`outputs/`）。`AGENT_LINK_HOME` とは別 |
 
 - `AGENT_LINK_HOME` は空でない値があればそれ、無ければ `~/.agent-link`。2 か所（`project.rs` の `resolve_sai_home`・`registry.sai_home()`）で同じ規則を使う。
@@ -62,7 +60,7 @@ iPhone / PC のブラウザ
 
 ## 4. API 一覧
 
-すべて合言葉（`require_token`）で守る（内部用の 4 本を除く。内部用は Mac 自身（127.0.0.1 / ::1）だけ受ける）。エラーは `{"detail": "<日本語>"}`。
+合言葉は無い。内部用の 4 本（`POST /api/register`・`POST /api/questions`・`POST /api/questions/{qid}/resolved`・`GET /api/questions/{qid}`）は `require_internal` で Mac 自身（127.0.0.1 / ::1）だけ受け、ほかから来ると 403「Internal use only.」。エラーは `{"detail": "<英語>"}`。
 「呼ぶ CLI」の列は、cwd = プロジェクトの root、`AGENT_LINK_PROJECT_ROOT` = 同じ root で呼ぶ命令。終了コードから HTTP の状態への読み替えは [§7](#7-cli-の失敗の読み替え) の 1 か所。
 
 ### 4.1 プロジェクト（一覧・Dashboard・常駐）
@@ -82,7 +80,7 @@ iPhone / PC のブラウザ
 
 - 質問は `store.list_open_questions` から作る。`project` / `run_id` は `runs.load_runs` の中で `run_session_ids` に `session_id` を含む実行を探して付ける（無ければ `null`）。
 - プロジェクトの `review` / `todo` は `run tree` の `review` / `todo` フォルダを数える。
-- `todo` は件数、`todo_runs` は同じフォルダの行（`[{run_id, label}]`・ツリーの順）。todo の行には `card`（`creation_date`・`block`・`runner`・`model`・`description`）が付き、実行予約した行には `scheduled_at`（`YYYY-MM-DD HH:MM`）が付く。`review` はホームには出さない（API には残す）。
+- `todo` は件数、`todo_runs` は同じフォルダの行（`[{run_id, label}]`・ツリーの順）。todo の行には `card`（`creation_date`・`block`・`model`・`description`）が付き、実行予約した行には `scheduled_at`（`YYYY-MM-DD HH:MM`）が付く。`review` はホームには出さない（API には残す）。
 - 各プロジェクトは `ThreadPoolExecutor(max_workers=4)` で並べる。1 つが失敗しても全体は止めず `errors` に「<名前>: <理由>」を足す。結果は 10 秒だけ覚える（`home.forget()` で消す）。
 
 `/api/home/overview` は次を返す。
@@ -109,49 +107,46 @@ iPhone / PC のブラウザ
 
 | メソッド・パス | 中身 | 呼ぶ CLI |
 |---|---|---|
-| `GET /api/projects/{name}/workflow` | Workflow 盤面（札・線・separators・Kanban の 4 レーン） | `agent-link workflow` |
+| `GET /api/projects/{name}/workflow[?subtasks=1]` | Workflow 盤面（札・線・日付の区切り線・Kanban の 3 レーン）。`?subtasks=1` で子の run（`task create` で作った run）も載せる | `agent-link workflow [--subtasks]` |
 | `GET /api/projects/{name}/defs` | 定義の一覧 | `agent-link def list` |
 | `GET /api/projects/{name}/defs/{kind}/{scope}/{def_name}` | 定義 1 件の中身 | `agent-link def show --kind <kind> --scope <scope> --name <名前>` |
 | `PUT /api/projects/{name}/defs/{kind}/{scope}/{def_name}` | 定義の保存（body `{"text": …, "create": false}`。本文は標準入力。`create` が真なら `--create`） | `agent-link def write --kind … --scope … --name … [--create]` |
-| `DELETE /api/projects/{name}/defs/{kind}/{scope}/{def_name}` | 定義の削除（settings は 400「settings は消せません」） | `agent-link def delete --kind … --scope … --name …` |
+| `DELETE /api/projects/{name}/defs/{kind}/{scope}/{def_name}` | 定義の削除（settings は 400「settings cannot be deleted.」） | `agent-link def delete --kind … --scope … --name …` |
 
 - `kind` = `block` / `template` / `settings`、`scope` = `project` / `global`。`def_name` は block / template が `^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$`、settings が `settings` だけ。違えば 400。
 - `scope=global` の置き場は `$AGENT_LINK_HOME`。
-- 定義の編集は **DB が無いプロジェクトでもできる**（root が無いときだけ 404「プロジェクトのフォルダが見つかりません」）。`workflow` は実行の記録が要るので 404。
-- 本文は 256KB まで。検査は CLI を呼ぶ**前**に行う。`write --create` で同じ名前があるときは 409「同じ名前の定義があります」にする（CLI は終了コード 2 で返すため、`control.py` が読み替える）。
-- 住所の `{def_name}` は FastAPI 上の変数名も同じ（`token` は合言葉の `?token=` と衝突するため使わない）。
+- 定義の編集は **DB が無いプロジェクトでもできる**（root が無いときだけ 404「Project folder not found.」）。`workflow` は実行の記録が要るので 404「This project has no run records yet.」。
+- 本文は 256KB まで。検査は CLI を呼ぶ**前**に行う。`write --create` で同じ名前があるときは、CLI が終了コード 4 で返し、Web は 409「A definition with the same name already exists.」にする。
+- 住所の `{def_name}` は FastAPI 上の変数名も同じ。
 
 ### 4.4 List（`agent-link` 経由）
 
 | メソッド・パス | 中身 | 呼ぶ CLI |
 |---|---|---|
-| `GET /api/projects/{name}/tree` | 引き出しツリー。各 run ノードは `executer`（`human` / `agent`）を持つ。`agent` の todo には画面が ▶ 実行を出さない | `agent-link run tree` |
+| `GET /api/projects/{name}/tree` | 引き出しツリー（todo / running / review / 日付 / 親 run / 子 run の入れ子。run は `children` を持てる。`lane` は `todo`・`running`・`review`・`workflow`）。各 run ノードは `executer`（`human` / `agent`）を持つ。`agent` の todo には画面が ▶ 実行を出さない | `agent-link run tree` |
 | `GET /api/projects/{name}/search?q=…` | 文書（task / message / waggle）の本文検索。`q`（空白区切りで AND・200 文字まで）に加え `category`（カンマ区切り・空で全部）・`since` / `until`（`YYYY-MM-DD`）・`block`（完全一致）・`from_id` / `to_id`（run_id の範囲）・`limit`（1〜100・既定 50）。返り値は `{items: [{run_id, category, file, token?, block, date, snippet}], truncated}` | `agent-link doc search --word … --category … --limit …` |
-| `GET /api/projects/{name}/sessions/search` | 会話（セッション履歴）の検索。クエリは `word`・`global_round`・`round`・`id`・`block`・`date`・`status`・`type`。先頭 200 件を `{"items", "truncated"}` で返す | `agent-link session search -R … -r … --id … --block … --date … --status … --type … -w … --json` |
+| `GET /api/projects/{name}/sessions/search` | 会話（セッション履歴）の検索。クエリは `word`・`id`・`block`・`date`（`YYYY/MM/DD` か `YYYY/MM/DD-YYYY/MM/DD`）・`status`・`type`。先頭 200 件を `{"items", "truncated"}` で返す | `agent-link session search --id … --block … --date … --status … --type … -w … --json` |
 | `GET /api/projects/{name}/runs/{run_id:int}/view/{log\|stats\|history}` | run の中身 | `agent-link run log\|stats\|history <run_id>` |
 | `GET /api/projects/{name}/runs/{run_id:int}/history/calls/{call_id}` | History の 1 呼び出しの全文（`input`・`result`（20000 字まで）・`truncated`）。`call_id` は `^[A-Za-z0-9_-]{1,80}$`（通らなければ 400）。見つからなければ 404 | `agent-link run history <run_id> --call <call_id> --json` |
 | `GET /api/projects/{name}/runs/{run_id:int}/md/{task\|message\|report\|system}` | md 本文（「まだありません」は 404）。`report` は run の報告（`finalize-report.md`）、`system` は固定部分（`system-prompt.md`） | `agent-link run md <run_id> --kind <種類>` |
-| `PUT /api/projects/{name}/runs/{run_id:int}/md/{task}` | md の保存（body `{"text"}`。task は未実行の todo カードだけで、それ以外は 404「未実行のカードが見つかりません」） | `agent-link run md <run_id> --kind task --write`（標準入力） |
+| `PUT /api/projects/{name}/runs/{run_id:int}/md/{task}` | md の保存（body `{"text"}`。task は未実行の todo カードだけで、それ以外は 404） | `agent-link run md <run_id> --kind task --write`（標準入力） |
 | `GET /api/projects/{name}/runs/{run_id:int}/waggle` | 成果物の一覧 | `agent-link doc list --run <run_id> --json` |
 | `GET /api/projects/{name}/runs/{run_id:int}/waggle/{token}` | 成果物 1 件の本文 | `agent-link doc read <トークン> --json` |
-| `POST /api/projects/{name}/runs/{run_id:int}/start` | 新形式 todo の ▶ 実行（未実行カードが無ければ 404。`executer: agent` のカードは 502「このカードはエージェントが子の run として起こします（executer: agent）。…」） | `agent-link card run <run_id>` |
-| `POST /api/projects/{name}/runs/{run_id:int}/advance` | review → done → Workflow の移動（その run が無ければ 404、review / done 以外は 400「review / done の run だけ移動できます」） | `agent-link run advance <run_id>` |
+| `POST /api/projects/{name}/runs/{run_id:int}/start` | 新形式 todo の ▶ 実行（未実行カードが無ければ 404。`executer: agent` のカードと、常駐が止まっているときは 400「This card is started by an agent as a subtask run (executer: agent). …」「The daemon is stopped. Start it first.」） | `agent-link card run <run_id>` |
+| `POST /api/projects/{name}/runs/{run_id:int}/advance` | review → Workflow（日付フォルダ）への移動（その run が無ければ 404、review 以外は 400「Only a run in review can be moved.」） | `agent-link run advance <run_id>` |
 | `POST /api/projects/{name}/runs/{run_id:int}/schedule` | todo の実行予定時刻（`{"at": "YYYY-MM-DD HH:MM"}`・空で取り消し）。時刻になると常駐が `card run` と同じ流れで実行する | `agent-link card schedule <run_id> [--at "…"]` |
 | `DELETE /api/projects/{name}/runs/{run_id:int}` | List の項目を消す（子の実行と run フォルダも消える。実行中は 502） | `agent-link run rm <run_id> --yes` |
 | `GET /api/projects/{name}/card/docs` | 最近の文書（task_text に貼る `ref` 付き） | `agent-link card docs` |
 | `GET /api/projects/{name}/card/options` | 作成フォームの選択肢 | `agent-link card options` |
-| `POST /api/projects/{name}/card` | カード（task.md）の作成（任意の `executer`（`human` / `agent`。旧 `professor` も `agent` と読む）も渡せる） | `agent-link card create`（標準入力に JSON） |
-| `GET /api/projects/{name}/commands` | Web に出せる命令の一覧（`web: true` の命令と引数だけ） | `agent-link schema --json` |
-| `POST /api/projects/{name}/commands/run` | 命令を実行する（body `{"cli": "link", "path": [...], "args": {...}, "stdin": "…"}`。戻りは `{"ok": true, "json": …, "text": …}`） | `schema` が許した命令 |
+| `POST /api/projects/{name}/card` | カード（task.md）の作成。body は `block`・`model`・`thinking`・`description`・`task_text`（と `done_ids`）。Web は `executer` を渡さない（CLI の `card create` は `human` / `agent` を受ける） | `agent-link card create`（標準入力に JSON） |
 
 - 外から来る値は Web 自身が CLI を呼ぶ**前**に検査する（`run_id` は正の整数、`view` / `kind` は一覧の値だけ、`token` は英数字と `-_.:`・長さ 128 まで）→ 400。
-- 作成フォームも同じ（`block` は英数字と `-_.:`、`task_text` は 100KB まで、`runner` は `user` / `cc` / `gl`（`pi` は廃止のため 400）、`thinking` は一覧の値、入力の値は `waggle:` 形式、`global_round` / `round` は数字、`tag` は 1 行）→ 400。
-- 「コマンド」画面の実行も、`cli` は `link`、`path` は schema にある命令、`args` は `web: true` の引数だけ、型・必須・値の一覧・1 行 2000 文字・複数値 100 個まで、標準入力は 1MB まで（`stdin` が `json` の命令は JSON として読めること、`bytes` の命令は拒否）を、CLI を呼ぶ前に確かめる。時間の上限は 120 秒、標準出力は 2MB まで（超えたら 502）。
-- CLI の失敗は §7 の読み替え。404 は 2 種類で、md が無いとき（終了コード 3・stderr「まだありません」）と未実行カードが無いとき（終了コード 3・stderr「未実行のカードが見つかりません」）。
+- 作成フォームも同じ（`block` は英数字と `-_.:`、`task_text` は 100KB まで、`thinking` は一覧の値（`none`・`low`・`medium`・`high`・`xhigh`・`max`）、`model` は英数字と `._:/@+-`、`description` は 200 文字までの 1 行、`done_ids` は 1 以上の整数の配列）→ 400。廃止した `runner`・`provider`・`tag`・`round`・`global_round` は、送られても検査せず、CLI にも渡さない（断らない）。
+- CLI の失敗は §7 の読み替え。404 は 2 種類で、md が無いとき（終了コード 3・stderr「Not available yet.」）と未実行カードが無いとき（終了コード 3）。
 - 呼び出しは cwd = プロジェクトの root、かつ `AGENT_LINK_PROJECT_ROOT` = 同じ root（常駐を起動した環境変数に引きずられない）。
-- 住所の `{token}` は FastAPI 上の変数名だけ `{waggle_token}`（合言葉の `?token=` と名前が衝突するため。URL の形は同じ）。
+- 住所の `{token}` は FastAPI 上の変数名だけ `{waggle_token}`（URL の形は同じ）。
 
-### 4.5 会話・質問・通知・使用量
+### 4.5 会話・質問・通知・Claude の使用量
 
 | メソッド・パス | 中身 |
 |---|---|
@@ -168,7 +163,7 @@ iPhone / PC のブラウザ
 | `GET /api/questions/pending` / `GET /api/questions?session_id=` | 答え待ちの質問 |
 | `POST /api/questions/{qid}/answer` | 答える（記録するだけ。cc のフックが `GET /api/questions/{qid}` で取りに来る）。本文は `{"answers": [{choice_index \| choice_indices \| text}, …]}` |
 | `GET /api/push/key` / `POST /api/push/subscribe` | プッシュ通知の鍵と購読 |
-| `GET /api/usage` / `GET /api/usage/{provider}/{account}/activity` / `…/logs` | 使用量（`cc`・OpenRouter・DeepSeek・設定に無い provider。古い pi の記録も読む）。`cc` は `cc` の 5 時間枠・7 日枠（`limits`）と費用の合計（`cost`） |
+| `GET /api/usage` | Claude（cc）の使用量。`{"cc": {"limits": <5 時間枠・7 日枠または null>, "cost": {"today", "month", "sessions"}}, "saved_at": <epoch 秒>}` |
 | `GET /manifest.json` | PWA の設定（`name`・`short_name` は `agent-link`） |
 
 > **登録順の決まり**: FastAPI は登録した順に照合する。固定の住所は、変数の住所（`{run_id:int}` など）より**前**に登録する。静的ファイルの `app.mount("/")` は最後に置く。
@@ -177,7 +172,7 @@ iPhone / PC のブラウザ
 
 ## 5. `agent-link-web` の命令（CLI から Web を使う）
 
-Web のすべての HTTP API を、コマンド 1 本から使える（接続先 `AGENT_LINK_WEB_URL`・合言葉 `AGENT_LINK_WEB_TOKEN`、無ければ `$AGENT_LINK_HOME/web/token`）。合言葉は `Authorization: Bearer` で送り、値は出力に出さない。
+Web のすべての HTTP API を、コマンド 1 本から使える（接続先 `AGENT_LINK_WEB_URL`。合言葉は無い）。
 
 | 命令 | 何 |
 |---|---|
@@ -185,7 +180,7 @@ Web のすべての HTTP API を、コマンド 1 本から使える（接続先
 | `agent-link-web projects` / `home` | プロジェクトの一覧・ホームの集計 |
 | `agent-link-web questions [--run <id>] [--project <名前>]` / `question <qid>` / `answer <qid> (--choice … \| --choices … \| --text …)` | 質問の一覧・全文・答え |
 | `agent-link-web send <project> <run_id> <文>` | 実行中の run に文を送る。質問が開いていれば質問を取り下げて文を渡す |
-| `agent-link-web usage` | 使用量 |
+| `agent-link-web usage` | Claude の使用量（`GET /api/usage`） |
 | `agent-link-web api <METHOD> <path> [--data <JSON>\|--data -]` | 上の API 一覧のどれでも呼ぶ |
 
 終了コードは `agent-link` と同じ（0 成功・2 入力の誤り・3 見つからない・4 状態の衝突・1 その他）。HTTP の状態からは 400・422 → 2、404 → 3、409 → 4、そのほか → 1 に直す。
@@ -204,14 +199,12 @@ Web のすべての HTTP API を、コマンド 1 本から使える（接続先
 | `#/project/<name>/list/<run_id>/<view>` | List（`view` は log / stats / history / task / message / report / waggle。report の帯は「報告」と出る） | Projects | 表示 |
 | `#/project/<name>/defs` | 設定の一覧（block / template / settings） | Projects | 表示 |
 | `#/project/<name>/defs/<kind>/<scope>/<name>` | 設定の編集（`kind` = block / template / settings、`scope` = project / global） | Projects | 表示 |
-| `#/project/<name>/commands` | コマンド（`agent-link` の命令を入力欄から実行する） | Projects | 表示 |
 | `#/project/<name>/sessions` | セッション検索（会話の履歴の検索） | Projects | 表示 |
 | `#/` | Chats 日付一覧 | Chats | 表示 |
 | `#/day/<YYYY-MM-DD>` | Chats 実行一覧 | Chats | 表示 |
+| `#/newchat?project=<名前>&block=<block>` | 新しいチャットのシート（`project`・`block` は省略できる） | Chats | 表示 |
 | `#/run/<project>/<run_id>` | メッセージ | Chats | 隠す |
 | `#/run/<project>/<run_id>/stats` | 統計 | Chats | 隠す |
-| `#/account` | Account（Usage の区画） | Account | 表示 |
-| `#/usage/<provider>/<account>` | 使用量の内訳（`#/usage` だけは `#/account` へ送る） | Account | 表示 |
 
 - List のサイドバーの一番上の「実行［＋］［↻］」の行で、**＋** は task.md 作成フォーム、**↻** はツリーの読み直し。書きかけは `localStorage`（プロジェクトごと）。
 - Projects の 4 画面（Dashboard / Workflow / List / 設定）の見出しは同じ形（`‹`・プロジェクト名・`Dashboard|Workflow|List|設定`）。`‹` は 4 画面ともプロジェクト一覧（`#/projects`）へ戻る。
@@ -226,15 +219,15 @@ Web のすべての HTTP API を、コマンド 1 本から使える（接続先
 | CLI の結果 | HTTP |
 |---|---|
 | 終了コード 0 で標準出力が JSON | 200 |
-| 終了コード 0 で標準出力が JSON でない | 502「…の応答を読めませんでした」 |
+| 終了コード 0 で標準出力が JSON でない | 502「Could not read the response from agent-link.」 |
 | 終了コード 2 | 400 |
 | 終了コード 3 | 404 |
 | 終了コード 4 | 409 |
 | 終了コード 1 とそのほか | 502 |
-| CLI が起動できない | 503「…が見つかりません（設定の場所を確認してください）」 |
-| 時間切れ | 504「…が時間内に応答しませんでした」 |
+| CLI が起動できない | 503「agent-link not found. Check the configured path.」 |
+| 時間切れ | 504「agent-link did not respond in time.」 |
 
-`detail` は標準エラーの空でない最後の行（`sai-progress` の行を除く）。時間の上限は既定 20 秒（daemon・workflow 30 秒、検索 60 秒、「コマンド」画面の実行 120 秒など個別）。
+`detail` は標準エラーの空でない最後の行（`sai-progress` の行を除く）。英語。時間の上限は既定 20 秒（daemon・workflow 30 秒、検索 60 秒など個別）。
 
 ---
 
@@ -243,14 +236,12 @@ Web のすべての HTTP API を、コマンド 1 本から使える（接続先
 | 変数 | 既定値 | 用途 |
 |---|---|---|
 | `AGENT_LINK_WEB_PORT` | `8200` | 待ち受けポート |
-| `AGENT_LINK_WEB_TOKEN` | （空＝認証なし・開発用） | 合言葉 |
 | `AGENT_LINK_WEB_URL` | `http://127.0.0.1:8200` | `agent-link-web` の命令とエージェントの道具がつなぐ先 |
 | `AGENT_LINK_WEB_RUNS_DIR` | `$AGENT_LINK_HOME/web/runs` | Chats が読む、書き出しフォルダ |
-| `AGENT_LINK_WEB_OPENROUTER_ACCOUNTS` | `main=OPENROUTER_API_KEY` | 使用量の OpenRouter の「名前=キーの入った環境変数名」 |
 | `AGENT_LINK_WEB_NO_WATCH` | （空） | `1` で状態の見張りを止める |
 | `AGENT_LINK_WEB_HOOKS_DIR` | `apps/web/hooks` | `agent-link init` が cc のフックを書くときに探す置き場 |
 | `AGENT_LINK_BIN` | `agent-link` | Web が呼ぶ CLI。PATH に無ければ絶対パス |
-| `CLAUDE_SESSIONS_DIR` / `PI_SESSIONS_DIR` | 各既定 | 会話の記録置き場 |
+| `CLAUDE_SESSIONS_DIR` | `~/.claude/projects` | cc の会話の記録置き場 |
 | `AGENT_LINK_HOME` | `~/.agent-link` | 利用者全体の置き場（Rust 側も同じ） |
 
 Rust 側にも同じ `AGENT_LINK_HOME`・`AGENT_LINK_PROJECT_ROOT` が効く。**PATH が無いと CLI が見つからず 503 になる。**

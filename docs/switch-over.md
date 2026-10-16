@@ -9,20 +9,20 @@
 | 種類 | sai-moon（今） | agent-link（切り替え後） |
 |---|---|---|
 | 実行ファイル | `sai-link`・`sai-web` | `agent-link`・`agent-link-web` |
-| 環境変数 | `SAI_*`（例 `SAI_WEB_TOKEN`・`SAI_PROJECT_ROOT`） | `AGENT_LINK_*`（例 `AGENT_LINK_WEB_TOKEN`・`AGENT_LINK_PROJECT_ROOT`） |
+| 環境変数 | `SAI_*`（例 `SAI_WEB_TOKEN`・`SAI_PROJECT_ROOT`） | `AGENT_LINK_*`（例 `AGENT_LINK_WEB_PORT`・`AGENT_LINK_PROJECT_ROOT`。合言葉の変数は無い） |
 | プロジェクトのフォルダ | `.sai/`（DB は `.sai/sai-engine/sai-engine.db`） | `.agent-link/`（DB は `.agent-link/engine/agent-link.db`） |
 | 置き場 | `~/.sai` | `~/.agent-link` |
 | Web の DB・ログ | `~/.sai/web/sai_web.db`・`sai-web.log` | `~/.agent-link/web/agent_link_web.db`・`agent-link-web.log` |
 | template | `sai-base.md` など | `link-base.md`・`link-cli.md`・`link-task.md`・`link-user.md`・`link-report.md` |
 | cc の命令 | `/sai-finalize` | `/agent-link-finalize` |
 
-> **警告（7 の先読み）**: 今の Mac の 8200 番の Web は、合言葉が無いまま tailnet に出ている（`tailscale serve` の `:4444`）。**Linux のテスト利用者を tailnet に招く前に、必ず 7 の ACL を設定する。** 既定の ACL は「全員が全部の機械に届く」ため、そのまま招くと、テスト利用者が Mac の Web でエージェントを起動できてしまう。
+> **注意（7 の先読み）**: agent-link の Web には合言葉が無い。Tailscale serve（`:4444`）で iPhone から使うのは、**tailnet が自分 1 人のときだけ**にする。tailnet に他の人（Linux のテスト利用者など）を招くなら、招く前に 7 の ACL を設定する。既定の ACL は「全員が全部の機械に届く」ため、そのまま招くと、その人が Mac の Web でエージェントを起動できてしまう。
 
 ---
 
 ## 1. 前提
 
-- agent-link の main に、U01〜U07 がすべて入っている。
+- agent-link の main に、複製の作業（U01〜U07）と、そのあとの簡素化（cc だけ・合言葉と Account なし・日付フォルダ・画面と CLI の文を英語に）がすべて入っている。
 - release と Web の Python 環境ができている。
 
 ```bash
@@ -209,7 +209,7 @@ ls -a .agent-link .agent-link/engine
 cat ~/.agent-link/registry.json | python3 -c "import json,sys; print([e['name'] for e in json.load(sys.stdin)])"
 ```
 
-`agent-link run tree` が `{"items": []}`（空の一覧）を返す。登録簿に `sai-tree` と `agent-link` がある。`.agent-link/engine/` に `agent-link.db` がある。
+`agent-link run tree` が、`todo`・`running`・`review` の 3 つの空のフォルダ（`children` が空）だけの `items` を返す。登録簿に `sai-tree` と `agent-link` がある。`.agent-link/engine/` に `agent-link.db` がある。
 
 **うまくいかないとき**:
 - `init` が `プロジェクトが見つかりません` などで止まる: そのフォルダ（`cd` した先）で実行しているか確かめる。
@@ -218,21 +218,9 @@ cat ~/.agent-link/registry.json | python3 -c "import json,sys; print([e['name'] 
 
 ---
 
-## 6. Web を起こす（合言葉付き）
+## 6. Web を起こす
 
-### 6.1 合言葉
-
-```bash
-cd ~/workdir/Sai/agent-link/apps/web
-cp -n .env.example .env
-TOKEN=$(openssl rand -hex 16)
-perl -pi -e "s/^AGENT_LINK_WEB_TOKEN=.*/AGENT_LINK_WEB_TOKEN=$TOKEN/" .env
-grep -c '^AGENT_LINK_WEB_TOKEN=.' .env
-```
-
-`.env` は git に入れない（`.gitignore` 済み）。合言葉は `grep '^AGENT_LINK_WEB_TOKEN=' .env` で見られる。iPhone に入れる値は、これである。
-
-### 6.2 起こす
+### 6.1 起こす
 
 ```bash
 mkdir -p ~/.agent-link/web
@@ -248,17 +236,15 @@ sleep 3
 lsof -nP -iTCP:8200 -sTCP:LISTEN
 curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8200/api/health
 curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8200/api/projects
-TOKEN=$(grep '^AGENT_LINK_WEB_TOKEN=' ~/workdir/Sai/agent-link/apps/web/.env | cut -d= -f2)
-curl -s -o /dev/null -w '%{http_code}\n' -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8200/api/projects
 ```
 
-`lsof` が `127.0.0.1:8200` だけを出す。順に `200`・`401`（合言葉なし）・`200`（合言葉あり）と出る。
+`lsof` が `127.0.0.1:8200` だけを出す。`curl` は 2 つとも `200` と出る（合言葉は無い）。
 
 **うまくいかないとき**: `cat ~/.agent-link/web/uvicorn-8200.log` を読む。`Address already in use` なら 3.2 の Web が残っている（`lsof` で PID を見て `kill`）。`ModuleNotFoundError` なら `(cd ~/workdir/Sai/agent-link/apps/web && uv sync)` をやり直す。
 
-### 6.3 tailnet への出し方
+### 6.2 tailnet への出し方
 
-`tailscale serve` の `:4444 → 8200` は、そのまま使える。使っていない `:4443 → 8100` は閉じる。
+自分 1 人の tailnet のときだけ使う。合言葉は無いので、tailnet に届く人は誰でも全機能（エージェントの起動を含む）を使える。`tailscale serve` の `:4444 → 8200` は、そのまま使える。使っていない `:4443 → 8100` は閉じる。
 
 ```bash
 tailscale serve status
@@ -268,7 +254,7 @@ tailscale serve status
 
 **確かめ方**: `tailscale serve status` に `:4444 → http://127.0.0.1:8200` が残り、`:4443` が無い。`:4445 → 8299` は、3.4 で止めたなら `tailscale serve --https=4445 off` で閉じてよい。
 
-iPhone と PC で `https://<Mac の名前>.<tailnet>.ts.net:4444/` を開き、合言葉を入れる。タブは Home・Projects・Chats・Account の 4 つ。Projects に `sai-tree` と `agent-link` が出る。
+iPhone と PC で `https://<Mac の名前>.<tailnet>.ts.net:4444/` を開く。タブは Home・Projects・Chats の 3 つ。Projects に `sai-tree` と `agent-link` が出る。Home に Claude のカード（5 時間枠・7 日枠と費用）が出る。
 
 通知を使うなら、置き場が変わって VAPID の鍵が新しくなる（`~/.agent-link/web/vapid.json`）ので、iPhone で通知を登録し直す（Chats の 🔔）。
 
@@ -276,12 +262,12 @@ iPhone と PC で `https://<Mac の名前>.<tailnet>.ts.net:4444/` を開き、�
 
 ---
 
-## 7. Linux のテスト利用者を tailnet に招く前に（ACL）
+## 7. 他の人を tailnet に招くなら（ACL）
 
-**必ず、招く前に実行する。** 順序を逆にしない。
+**他の人（Linux のテスト利用者など）を tailnet に招く場合だけ必要**で、自分 1 人のままなら実行しない。招くなら、**必ず、招く前に実行する。** 順序を逆にしない。
 
 - Tailscale の既定の ACL は「全員が全部の機械に届く」。そのまま招くと、テスト利用者が Mac の `:4444`（agent-link の Web）と `:4445` に届く。
-- 今の Mac の Web は合言葉が無かった（6 で付けるまで）。合言葉があっても、不要な到達は許さない。
+- agent-link の Web には合言葉が無い。ACL で届く機械を絞らないと、招いた人は誰でも Mac の Web を使える。
 
 やること: Linux の機械に tag（例 `tag:sai-server`）を付け、テスト利用者を group にまとめ、group には Linux の 443 番と 8443 番だけを許す。Tailscale の管理画面（Access controls）の policy file を、次の形にする（`tester1@example.com` は実際の利用者に置き換える）。
 
@@ -347,9 +333,9 @@ agent-link に問題があって sai-moon に戻すとき。古い `.sai/` と `
    cd ~/workdir/Sai/sai-moon/apps/web && nohup .venv/bin/python -m uvicorn sai_web.main:app --host 127.0.0.1 --port 8200 &
    ```
 
-   （sai-moon の Web の起動の命令と、`SAI_WEB_TOKEN` の設定は、sai-moon の README に従う。切り替え前は合言葉が未設定だったので、戻すなら合言葉を付けることを勧める。）
+   （sai-moon の Web の起動の命令と、`SAI_WEB_TOKEN` の設定は、sai-moon の README に従う。）
 5. Radio（8201 番）が要るなら、sai-moon の `apps/radio/README.md` の命令で起こす。
 
 **確かめ方**: `command -v sai-link` が sai-moon を指す。`lsof -nP -iTCP:8200 -sTCP:LISTEN` が sai-moon の Web を出す。Web の画面に、古い記録（run 1〜289）が見える。
 
-**うまくいかないとき**: 古い画面が iPhone に残るときは、6.3 の最後の手順（アプリを閉じて開き直す・サイトのデータを消す）を行う。agent-link の `.agent-link/` は、戻しても消えない。もう使わないなら、利用者の判断で消す。
+**うまくいかないとき**: 古い画面が iPhone に残るときは、6.2 の最後の手順（アプリを閉じて開き直す・サイトのデータを消す）を行う。agent-link の `.agent-link/` は、戻しても消えない。もう使わないなら、利用者の判断で消す。

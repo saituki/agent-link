@@ -17,7 +17,7 @@
 | 部品 | クレート・フォルダ | 実行ファイル | 持つもの |
 |---|---|---|---|
 | **実行エンジン**（基盤） | `crates/agent-link-engine`・`crates/agent-link-view`・`crates/agent-link-cli` | `agent-link` | 実行の DB（`agent-link.db`）・常駐（daemon）・ブロック定義の解析と検査・カード・文書（waggle トークン）・Workflow の配置の計算・実行の書き出し |
-| **Web の窓口** | `apps/web` | `apps/web/bin/agent-link-web` | 画面（FastAPI + 素の JavaScript）。質問・通知・使用量 |
+| **Web の窓口** | `apps/web` | `apps/web/bin/agent-link-web` | 画面（FastAPI + 素の JavaScript）。質問・通知・Claude の使用量 |
 
 - `waggle/` は文書のトークンを扱う vendor クレート群で、原則編集しない。
 - 部品の関係の細部（誰が誰を知っているか）は §2.1 の境界で決める。
@@ -32,10 +32,8 @@
 
 ### 1.3 Web と CLI の同等
 
-- **CLI でできることは Web でもでき、Web でできることは CLI でもできる。**
-- CLI → Web: `agent-link schema --json` は命令の一覧を出す。Web の「コマンド」画面（`#/project/<名前>/commands`）は、これを読んで `web: true` の命令を入力欄つきで出す。
-  CLI に命令を足せば、Web の画面を足さなくても「コマンド」画面から使える。
-- Web → CLI: Web の HTTP API は、すべて `agent-link-web api <METHOD> <path>` から呼べる。Web にしか無い機能（質問・送信・使用量）にも専用の命令がある（`agent-link-web questions`・`answer`・`send`・`usage`）。
+- **Web の HTTP API は `agent-link-web api <METHOD> <path>` で呼べる。CLI の命令は `agent-link schema --json` に出る。** 人もエージェントも、画面を開かずに同じことをコマンドで行える。
+- Web にしか無い機能（質問・送信・Claude の使用量）にも専用の命令がある（`agent-link-web questions`・`answer`・`send`・`usage`）。
 - Web の専用の画面は、**一覧・図・編集のように専用の見た目が要るときだけ**足す。
 
 ### 1.4 層の図
@@ -45,7 +43,7 @@
 ```
 ┌──────────────────── 入口 ────────────────────┐
 │ 人: ブラウザ（iPhone / PC）       人・エージェント: CLI │
-│      │ HTTPS（Tailscale serve）             │         │
+│      │ HTTPS（iPhone だけ Tailscale serve）  │         │
 │      ▼                                      │         │
 │ agent-link-web  127.0.0.1:8200 FastAPI      │         │
 │      │ agent-link の CLI（--json）だけを使う            │
@@ -89,11 +87,11 @@
 `agent-link` は次の約束を守る（全文は `docs/for-developers.md`）。
 
 1. **終了コード**: 0 成功、2 入力の誤り（clap の使い方の誤りも 2）、3 見つからない、4 状態の衝突、1 その他の失敗。
-2. **失敗**: 標準出力には何も書かない。標準エラーの最後の行に、日本語で理由を 1 行書く。clap の誤りは最後の行が `引数の誤り: <clap の文の 1 行目>`。
+2. **失敗**: 標準出力には何も書かない。標準エラーの最後の行に、英語で理由を 1 行書く。clap の誤りは最後の行が `Invalid arguments: <clap の文の 1 行目>`。`--json` の返り値のうち人が読む文（`message` など）も英語。
 3. **成功**: `--json` があれば標準出力に JSON を 1 つだけ書く。Web が付けるフラグは CLI が必ず受け付ける。
 4. **進み具合**: 時間のかかる命令は、標準エラーに `sai-progress step=<数>`・`sai-progress msg=<文>` を出してよい。
 5. **プロジェクトの決め方**: `AGENT_LINK_PROJECT_ROOT`（空でない値）→ cwd から上へたどり `.agent-link/` を持つ最初のフォルダ（ホームとそれより上は数えない）。見つからなければ 2。`init` は「`AGENT_LINK_PROJECT_ROOT` → cwd」だけ。`schema` はプロジェクトを要らない。
-6. **`schema --json`**: 命令の一覧（`bin`・`version`・`commands[]`（`path`・`about`・`stdin`・`json`・`web`・`args[]`））を出す。
+6. **`schema --json`**: 命令の一覧（`bin`・`version`・`commands[]`（`path`・`about`・`stdin`・`json`・`web`・`args[]`））を出す。`web` の印は出力に残っているが、Web の画面は読まない。
 
 ### 2.4 そのほかの原則
 
@@ -102,10 +100,10 @@
 2. **足りない機能はコアに足す。** Web に要る処理がコアに無ければ、コアのクレートへ足して CLI の命令に出す。`apps/web` で計算し直さない。
 3. **外から来る値は、CLI を呼ぶ前に Web が検査する。** 名前の形・大きさ・種類の一覧を Web が先に確かめる。通らない値では CLI を 1 度も呼ばない（400）。ファイルのパスは iPhone から受け取らない。置き場はコアが名前から決める。
 4. **依存を増やさない。** サーバは FastAPI と標準ライブラリ、画面は素の JavaScript（フレームワーク・ビルド無し）。グラフと Workflow の線は SVG を手で描く。md の色分けも自前の簡易版で行う。
-5. **入口を守る。** 合言葉（`AGENT_LINK_WEB_TOKEN`）で守り、127.0.0.1 でだけ待ち受ける。外へは Tailscale serve で tailnet の中にだけ出す。tailnet に他の人を招くときは、先に ACL で届く機械を絞る（`docs/switch-over.md` の 7）。
-6. **エラーは日本語でそのまま画面に出す。** 何が起きたか、次に何をすればよいかが分かる文にする。
+5. **入口を守る。** 合言葉は無い。127.0.0.1 でだけ待ち受け、フックの住所（`POST /api/register` など）は `require_internal` で Mac 自身（127.0.0.1 / ::1）だけに絞る。Tailscale serve は、tailnet が自分だけのときだけ使う（他の人が届くと全機能を使われる。`docs/switch-over.md` の 7）。
+6. **エラーは英語でそのまま画面に出す。** 何が起きたか、次に何をすればよいかが分かる文にする。CLI の標準エラーの最後の行と Web の `detail` は英語で書く（文書とエージェント向けの文は日本語のまま）。
 7. **iPhone と PC の両方を前提にする。** 幅 900px（`ui.js` の `AGENT_LINK_WIDE_PX`）を境に、狭い画面は下のタブの 1 列、広い画面は左の縦のタブと 2 列にする。
-8. **言葉で迷わせない。** 表示は日本語にする（`data-tab` や住所などの識別子は英語のまま）。独自の言葉は `saiTerm` の札で説明する。空の画面には Next Action を出す（`saiEmpty`）。
+8. **言葉で迷わせない。** 画面の文言は英語にする（音声の言語は日本語。`data-tab` や住所などの識別子も英語）。独自の言葉は `saiTerm` の札で説明する。空の画面には Next Action を出す（`saiEmpty`）。
 9. **答えは先着。** 質問は PC と iPhone の両方に同時に出し、先に答えた方を採用する。
 
 ---
@@ -133,14 +131,13 @@
 | `template/` | 全プロジェクト共通の template |
 | `settings.json` | 全プロジェクト共通の settings（プロジェクトの `.agent-link/settings.json` を**キー単位で上書き**する） |
 | `web/runs/<project_name>/<run_id>.json` | 実行エンジンが書き出す実行の記録。会話の画面が読む |
-| `web/token` | Web の合言葉（0600）。エージェントの道具が読む |
 | `web/agent_link_web.db` | 質問・通知の購読 |
 | `web/vapid.json` | プッシュ通知の鍵 |
 | `web/agent-link-web.log` | Web のログ |
 
 ### 3.3 `AGENT_LINK_HOME` に入らないもの
 
-- **プロジェクトの中の `<root>/.agent-link/`** は別。`engine/agent-link.db`（同じフォルダに `daemon.pid`・`daemon.status`・`daemon.log`・`notifications/`・`waggle-blobs/`）・`blocks/`・`template/`・`settings.json`・`outputs/` がここにある。
+- **プロジェクトの中の `<root>/.agent-link/`** は別。`engine/agent-link.db`（同じフォルダに `daemon.pid`・`daemon.status`・`daemon.log`・`notifications/`・`waggle-blobs/`）・`blocks/`・`template/`・`settings.json`・`outputs/` がここにある。`outputs/` の中は `todo/`・`running/`・`review/` と、Workflow に移した run の日付フォルダ `<yymmdd>/`（日付は一番上の親 run の実行開始日・ローカル時刻。子の run は親の日付フォルダに入る）。
 - `~/.claude/projects` などは元の置き場のまま。
 
 ---
@@ -151,18 +148,17 @@
 
 | ファイル | 受け持ち |
 |---|---|
-| `main.py` | FastAPI の住所の登録・合言葉（`require_token`）・内部用の住所を Mac 自身（127.0.0.1）だけに絞る守り |
+| `main.py` | FastAPI の住所の登録・内部用の住所を Mac 自身（127.0.0.1 / ::1）だけに絞る守り（`require_internal`） |
 | `cli.py` | `agent-link` を呼ぶ共通の受け口（§4.2）。終了コードを HTTP の状態に直す 1 か所 |
 | `control.py` | `agent-link` の呼び出し（プロジェクト・List・Workflow・定義の編集・カード・文書・会話の検索・常駐）。cwd と `AGENT_LINK_PROJECT_ROOT` を必ずプロジェクトの root にする |
-| `commands.py` | 「コマンド」画面。`schema --json` を読んで命令の一覧を作り、入力欄から命令を実行する |
 | `home.py` | ホームの集計（`GET /api/home`）。プロジェクトごとに並べて呼び、失敗は `errors` に入れる。10 秒覚える |
 | `registry.py` | 登録簿 `registry.json` の読み込み（プロジェクトの一覧）と `sai_home()` |
 | `runs.py` / `sessions.py` | 実行エンジンの書き出し（`web/runs/`）と会話の記録（.jsonl）の読み取り |
 | `questions.py` / `store.py` | 質問の保管と回答（先着）・通知の購読 |
 | `watch.py` / `notify.py` | 2 秒ごとの状態の監視（headless の state.json を読む）・プッシュ通知 |
-| `usage.py` | 使用量（Claude Code・OpenRouter・DeepSeek。古い pi の記録も読む） |
+| `usage.py` | Claude の使用量（cc の 5 時間枠・7 日枠と費用。`GET /api/usage` が `{"cc", "saved_at"}` を返す） |
 | `config.py` | 設定（環境変数と `apps/web/.env`） |
-| `webcli.py` | `agent-link-web` の命令（`serve`・`projects`・`home`・`questions`・`question`・`answer`・`send`・`usage`・`api`） |
+| `webcli.py` | `agent-link-web` の命令（`serve`・`projects`・`home`・`questions`・`question`・`answer`・`send`・`usage`・`api`）。HTTP の状態を終了コードに直す |
 | `hooks/`（`apps/web/hooks/`） | cc のフック（質問・セッションの登録）。何も出力せず、必ず終了コード 0 で終わる |
 
 ### 4.2 CLI を呼ぶ約束
@@ -186,29 +182,27 @@
 
 `detail` は標準エラーの空でない最後の行（`sai-progress` で始まる行は除く）。無ければ「<CLI 名> が失敗しました」。
 
-### 4.3 「コマンド」画面と `agent-link-web api`
+### 4.3 `agent-link-web api`
 
-- `GET /api/projects/{name}/commands` は、`schema --json` を 60 秒だけ覚えて、`web: true` の命令と引数だけを返す。`stdin` が `bytes` の命令は出さない（iPhone からファイルを送れないため）。
-- `POST /api/projects/{name}/commands/run`（body は `{"cli": "link", "path": ["card", "run"], "args": {…}, "stdin": "…"}`）は、値を **CLI を呼ぶ前に** schema に照らして検査し（通らなければ 400）、argv を `[bin, *path, <--json>, オプション, フラグ, --, 位置引数]` の順に組んで実行する。失敗の読み替えは §4.2 と同じ。
-- `agent-link-web api <METHOD> <path> [--data <JSON>|--data -]` は、Web のすべての HTTP API をそのまま呼ぶ。合言葉は `Authorization: Bearer` で送り、値は出力・ログに出さない。終了コードは HTTP の状態から 400・422 → 2、404 → 3、409 → 4、そのほか → 1 に直す。
+- `agent-link-web api <METHOD> <path> [--data <JSON>|--data -]` は、Web のすべての HTTP API をそのまま呼ぶ。接続先は `AGENT_LINK_WEB_URL`（既定 `http://127.0.0.1:8200`）。終了コードは HTTP の状態から 400・422 → 2、404 → 3、409 → 4、そのほか → 1 に直す。
+- CLI の命令の一覧は `agent-link schema --json`（プロジェクトを要らない）。
 
 ### 4.4 画面（`apps/web/src/agent_link_web/static/`）
 
-- **枠**: `index.html` が全画面の `<section class="view">` とタブを持ち、JS を決まった順に読む。タブは Home・Projects・Chats・Account（`data-tab` は `home`・`project`・`agent`・`account`）。Usage は Account の中の区画。
+- **枠**: `index.html` が全画面の `<section class="view">` とタブを持ち、JS を決まった順に読む。タブは Home・Projects・Chats（`data-tab` は `home`・`project`・`agent`）。Claude の使用量は Home のカード。
 - **画面の登録**: 各画面の JS が `window.SaiRoutes` に「住所の照合・描画」を登録し、`app.js` が照合して切り替える。**`app.js` に画面ごとの分岐を足さない。**
-- **共通部品**（`ui.js`）: `saiApi`（通信と日本語のエラー）・`saiToast`・`saiConfirm`・`saiPrompt`・`saiSheet`（下から出る板）・`saiEmpty`（空の画面の案内）・`saiTerm`（用語の札。用語は `AGENT_LINK_TERMS`）・`saiIsWide` / `saiSplitShow`（広い画面の 2 列）。新しい画面はこれを使い、同じ物を作り直さない。
+- **共通部品**（`ui.js`）: `saiApi`（通信とエラーの表示）・`saiToast`・`saiConfirm`・`saiPrompt`・`saiSheet`（下から出る板）・`saiEmpty`（空の画面の案内）・`saiTerm`（用語の札。用語は `AGENT_LINK_TERMS`）・`saiIsWide` / `saiSplitShow`（広い画面の 2 列）。新しい画面はこれを使い、同じ物を作り直さない。
 - **md の表示**（`markdown.js`）: `renderMarkdown(text, {toolbar: true})`。コードの色分けは `mdHighlight`。
-- **名前の重なり**: 画面ファイルは `<script>` で順に読むので、一番外側の名前が重なると後の物で上書きされる。画面ごとの頭（`sai` 共通・`hm` ホーム・`wf` Workflow・`df` 設定・`ac` Account など）を付け、`apps/web/tests/test_globals.js` で検査する。
+- **名前の重なり**: 画面ファイルは `<script>` で順に読むので、一番外側の名前が重なると後の物で上書きされる。画面ごとの頭（`sai` 共通・`hm` ホーム・`wf` Workflow・`df` 設定など）を付け、`apps/web/tests/test_globals.js` で検査する。
 - **版**: `sw.js` の `CACHE` と `index.html` の `?v=` をそろえて上げる。上げないと iPhone に古い画面が残る。`apps/web/tests/test_migrate.js` が版の数字を固定しているので、これも一緒に上げる。画面ファイルを足したら `ASSETS` にも足し、消したら `ASSETS` からも外す。
 - **再起動**: 静的ファイルは Web の再起動が要らない。`apps/web/src/agent_link_web/*.py` を直したら Web の再起動が要る。
 
 | ファイル | 画面 |
 |---|---|
 | `app.js` | 切り替えの本体・Chats（日付・実行・メッセージ）・タブ |
-| `home.js` | Home |
+| `home.js` | Home（質問・todo・合計・最近・Claude のカード） |
 | `project.js` / `workflow.js` / `linkview.js` / `cardform.js` / `stats.js` / `defs.js` | Projects（一覧・Dashboard・Workflow・List・カードの作成・統計・設定） |
-| `commands.js` / `sessionsearch.js` | 「コマンド」画面・セッション検索（会話の検索と、文書（task / message / waggle）の本文検索を同じ画面で） |
-| `account.js` / `usage.js` | Account（区画の枠）・Usage（Account の中の区画） |
+| `sessionsearch.js` | セッション検索（会話の検索と、文書（task / message / waggle）の本文検索を同じ画面で） |
 | `newchat.js` | Chats の新しいチャット（生成中の文・中断） |
 | `voiceask.js` | 質問の読み上げと音声回答 |
 | `canvaslayout.js` | 配置・全体表示・拡大の純関数（Workflow が使う） |
@@ -224,11 +218,11 @@
 ## 5. 機能を足すときの手順
 
 1. **処理はどこにあるか。** コア（`agent-link-engine`・`agent-link-view`）にあればそれを使う。無ければコアに足す。CLI や `apps/web` に処理を写さない。
-2. **CLI の命令に出す。** `agent-link` に命令を足す。成功は標準出力に JSON 1 個、失敗は決まった終了コードと日本語の理由 1 行（§2.3）。
-   命令は `schema --json` に**自動で**出る。Web に出してよい命令には `web` の印を付ける。ここまでで「コマンド」画面から使える。
+2. **CLI の命令に出す。** `agent-link` に命令を足す。成功は標準出力に JSON 1 個、失敗は決まった終了コードと英語の理由 1 行（§2.3）。
+   命令は `schema --json` に**自動で**出る。ここまでで、CLI から使える。
 3. **Web の専用の画面が要るときだけ足す。** `apps/web` の `control.py` に関数を書き、値の検査を CLI を呼ぶ前に置く。`main.py` に登録する。
    テストは偽の CLI で、検査で CLI が呼ばれないことまで確かめる。
-4. **画面を足す。** 新しい JS に `window.SaiRoutes` で登録し、`index.html` に枠と読み込みを足し、`sw.js` の版と `ASSETS` を上げる。`ui.js` の部品を使い、390px と 1280px の両方で確かめる。
+4. **画面を足す。** 新しい JS に `window.SaiRoutes` で登録し、`index.html` に枠と読み込みを足し、`sw.js` の版と `ASSETS` を上げる。`ui.js` の部品を使い、390px と 1280px の両方で確かめる。画面の文言は英語にする。
 5. **文書を直す。** `README.md`（使い方）・この文書（仕組みが変わったとき）・`docs/integration.md`（API と住所）・`docs/for-developers.md`（Web が読む JSON の項目）・`CONCEPT.md`（概念と用語が増えたとき）。
    Web が読む項目を変えたら、`docs/for-developers.md` と `apps/web` を**一緒に**直す。
 
@@ -272,7 +266,7 @@ agent-link/
 │   ├── integration.md        # Web の API と画面の住所・各 API が呼ぶ CLI の命令
 │   ├── for-developers.md     # CLI の約束と Web が読む JSON の項目
 │   ├── switch-over.md        # sai-moon から切り替える手順書
-│   └── plan/                 # 実装計画書（ガイド・U01〜U07）。読むだけ
+│   └── plan/                 # 実装計画書。読むだけ
 ├── .agent-link/              # このプロジェクト自身の中のデータ（.gitignore 済み）
 ├── CONCEPT.md                # 概念と用語の定義
 ├── AGENTS.md                 # このリポジトリで作業するエージェントへの指示
@@ -293,6 +287,14 @@ agent-link/
 | **Mac の常駐（launchd）・herdr・cc のコマンド承認・遠隔ブラウザ・5 時間枠・pi** | 持たない。daemon と Web は手で起こす。headless の実行（擬似 pane）で動く。engine の `herdr.rs` は擬似 pane の型などの名残 |
 | **論文・研究（Paper・Research）・Radio・MLflow・sai-ts・sai-prep** | 持たない（sai-tree の機能） |
 | **多人数モード・サーバ（ログイン・コンテナ）・Customer サポート** | 持たない（sai-tree の機能） |
+| **runner の選択（`runner: user`・`agent-link card start\|finish`・gl・pi）・provider・tag** | やめた。runner は cc だけ。block 定義の `tag`・`provider`・`round` と settings.json の `default_provider` も使わない。古い `runner`・`provider`・`tag` の項目は読み飛ばし、書き出さない |
+| **round・global_round** | やめた。Workflow に移した run は `<yymmdd>/`（日付フォルダ）に入る。`run list`・`run log`・`session search`（`-R`・`-r`）の round 系の項目も無い |
+| **done（状態）** | やめた。流れは todo → running → review →（`agent-link run advance`）→ Workflow。Kanban は 3 レーン（`todo`・`running`・`review`） |
+| **Account タブ・Usage の詳細** | やめた。Claude の使用量は Home のカード（`GET /api/usage` は `{"cc", "saved_at"}`） |
+| **OpenRouter・DeepSeek・pi の使用量と環境変数** | やめた（`AGENT_LINK_WEB_OPENROUTER_ACCOUNTS`・`PI_SESSIONS_DIR` も無い） |
+| **合言葉**（`AGENT_LINK_WEB_TOKEN`・`$AGENT_LINK_HOME/web/token`） | やめた。入口の守りは 127.0.0.1 の待ち受けと `require_internal` だけ |
+| **「コマンド」画面とその API**（`/api/projects/{name}/commands[/run]`） | やめた。`agent-link schema --json` は残る |
+| **review の記入判定（reflection）** | やめた。Workflow の札と Kanban に「未記入」の印は無い |
 | **古い記録の読み替え** | しない。古い記録のフォルダや古い置き場を読みに行く処理は無い（agent-link は新しい `.agent-link/` から始める） |
 
 範囲外:
@@ -307,3 +309,4 @@ agent-link/
 
 - sai-tree（研究室の Linux 多人数サーバ）を複製して、agent-link を作った（要件定義書 `docs/plan/requirements.md`）。sai-moon・sai-tree は読み取り専用で、直さない。
 - 作業は U01〜U07 の計画書（`docs/plan/unit-U*.md`）の順に進めた。U01〜U04 が論文・研究・多人数モード・周辺アプリの削除、U05・U06 が名前の変更（Rust・Web）、U07 が文書・CI と切り替えの手順書。
+- そのあと簡素化を行った（`docs/plan/` の簡素化の計画書）。cc だけにする・合言葉と Account をなくす・done と round をなくして日付フォルダにする・Workflow の子の表示の切り替え・画面と CLI の文を英語にする、を行い、文書を合わせた。

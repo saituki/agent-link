@@ -33,7 +33,7 @@
 ## 作業の約束
 
 - **`apps/web` は DB（`agent-link.db`）を開かない。** CLI（`agent-link`）の JSON・書き出し・登録簿だけを使う。足りない処理はコアに足して CLI から出す（`ARCHITECTURE.md` §2.4）。
-- **CLI を直したら** 終了コード・`--json`・標準出力と標準エラーの約束を守る（`ARCHITECTURE.md` §2.3）。`apps/web` が読む JSON の項目を変えたら、`docs/for-developers.md` と `apps/web` を一緒に直す。
+- **CLI を直したら** 終了コード・`--json`・標準出力と標準エラーの約束を守る（`ARCHITECTURE.md` §2.3）。標準エラーの最後の行と `--json` の人向けの文は英語で書く（clap の誤りの頭は `Invalid arguments: `）。`apps/web` が読む JSON の項目を変えたら、`docs/for-developers.md` と `apps/web` を一緒に直す。
 - **`AGENT_LINK_HOME` の規則は 2 か所にある**（`crates/agent-link-engine/src/project.rs` の `resolve_sai_home`・`apps/web/src/agent_link_web/registry.py` の `sai_home()`）。そろえて直す。
 - **依存を増やさない。** サーバは FastAPI と標準ライブラリ、画面は素の JavaScript。npm などで新しいパッケージを入れない。
 - iPhone（幅 390px）と PC（幅 1280px・900px 以上は 2 列）の両方で使える画面にする。外から来る値は CLI を呼ぶ前に `apps/web` が検査する（通らなければ 400）。ファイルのパスは iPhone から受け取らない。
@@ -44,8 +44,9 @@
 ### 画面のコード
 
 - 新しい画面は `window.SaiRoutes` に登録する。`app.js` に画面ごとの分岐を足さない。
+- 画面の文言は英語にする（音声の言語は日本語）。Web の `detail`（エラーの文）も英語。文書とエージェント向けの文は日本語のまま。
 - `ui.js` の部品（`saiApi`・`saiToast`・`saiConfirm`・`saiSheet`・`saiEmpty`・`saiTerm` など）と、`markdown.js` の `renderMarkdown` を使う。同じ物を作り直さない。
-- 一番外側の関数・変数には画面ごとの頭（`sai`・`hm`・`wf`・`df`・`ac` など）を付ける。`apps/web/tests/test_globals.js` で重なりを検査している。
+- 一番外側の関数・変数には画面ごとの頭（`sai`・`hm`・`wf`・`df` など）を付ける。`apps/web/tests/test_globals.js` で重なりを検査している。
 - 画面ファイルを変えて配るときは、`sw.js` の `CACHE` と `index.html` の `?v=` をそろえて上げる。`apps/web/tests/test_migrate.js` が版の数字（`agent-link-web-v<数>`・`?v=<数>`）を固定しているので、それも合わせる。ファイルを足したら `ASSETS` にも足す。
 
 ### テストと確認
@@ -55,21 +56,21 @@
 ```bash
 cd ~/workdir/Sai/agent-link
 
-# Rust（811 件）
+# Rust（784 件）
 perl -e 'alarm 1800; exec @ARGV' cargo test --workspace
 
-# Web（JS 24 本）
+# Web（JS 22 本）
 for f in apps/web/tests/test_*.js; do node "$f" || exit 1; done
 
-# Web（Python 20 本）
+# Web（Python 18 本）
 for f in apps/web/tests/test_*.py; do PYTHONPATH=apps/web/src apps/web/.venv/bin/python "$f" || exit 1; done
 ```
 
 | 対象 | 本数 | CI のジョブ |
 |---|---|---|
-| Rust（`cargo test --workspace`） | 811 件 | Rust（ubuntu） |
-| Web の JS | 24 本 | Web（ubuntu） |
-| Web の Python | 20 本 | Web（ubuntu） |
+| Rust（`cargo test --workspace`） | 784 件（ほかに ignored 3 件） | Rust（ubuntu） |
+| Web の JS | 22 本 | Web（ubuntu） |
+| Web の Python | 18 本 | Web（ubuntu） |
 
 - 環境変数の名前は `AGENT_LINK_*` だけである。sai-moon が入れる環境変数は名前が違うので混ざらず、`env -u` で外す必要は無い。
 - CI の Linux（ubuntu-latest）で同じ命令が通る。リポジトリ直下に `tests/` は無い。テストはクレート・アプリの中にある。
@@ -77,7 +78,7 @@ for f in apps/web/tests/test_*.py; do PYTHONPATH=apps/web/src apps/web/.venv/bin
 - **Web を確かめるサーバは、一時フォルダの置き場（`AGENT_LINK_HOME`）で起こす。** 確認用は 8297 番で起こし、終わったら必ず止める。
   ```bash
   T=$(mktemp -d)
-  AGENT_LINK_WEB_NO_WATCH=1 AGENT_LINK_HOME="$T" AGENT_LINK_WEB_TOKEN= perl -e 'alarm 180; exec @ARGV' apps/web/bin/agent-link-web serve --port 8297 &
+  AGENT_LINK_WEB_NO_WATCH=1 AGENT_LINK_HOME="$T" perl -e 'alarm 180; exec @ARGV' apps/web/bin/agent-link-web serve --port 8297 &
   # … curl http://127.0.0.1:8297/ などで確かめる …
   kill %1; rm -rf "$T"
   ```
