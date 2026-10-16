@@ -303,8 +303,6 @@ pub struct CardEntry {
     pub card_path: Option<PathBuf>,
     /// 対応 execution id（実行済みのみ `Some`）
     pub exec_id: Option<i64>,
-    /// runner（pi / cc など。todo は未実行で空）
-    pub runner: String,
     /// 起動者（`human` / `agent`）。カードが無い run は `human`。
     pub executer: String,
 }
@@ -438,7 +436,6 @@ pub fn collect_card_entries_from(
             lane,
             card_path,
             exec_id: Some(run_id),
-            runner: e.runner.clone(),
             executer: executer_for_run(run_id),
         });
     }
@@ -461,7 +458,6 @@ pub fn collect_card_entries_from(
             lane: KanbanLane::Todo,
             card_path: Some(info.path.clone()),
             exec_id: None,
-            runner: String::new(),
             executer: info.executer.clone(),
         });
     }

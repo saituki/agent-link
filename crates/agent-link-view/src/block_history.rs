@@ -219,32 +219,12 @@ pub fn build(store: &agent_link_engine::db::SaiStore, exec_id: i64) -> Option<Hi
 
     // 近似統計（種別別トークン + Timeline イベント）を jsonl 走査 1 回で取得する。
     // DB の旧パスが残っていても outputs 側へフォールバックする。
-    // runner=gl は `~/.agent-link-gemini/sessions/` の最新セッション（空でない最初の1件）。
-    // runner=cc は この run の transcript（全体で一番新しいセッションは使わない）。
-    let (type_tokens, events) = if exec.runner == "gl" {
-        if let Some(st) = agent_link_engine::session::gemini_session_files(30)
-            .into_iter()
-            .find_map(|path| {
-                agent_link_engine::session::extract_gemini_history_stats(&path)
-                    .ok()
-                    .filter(|st| !st.events.is_empty())
-            })
-        {
-            (st.type_tokens, st.events)
-        } else {
-            Default::default()
-        }
-    } else if exec.runner == "cc" {
+    // この run の transcript から取る（全体で一番新しいセッションは使わない）。
+    let (type_tokens, events) =
         agent_link_engine::phone_export::resolve_transcript(&exec, &root)
             .and_then(|path| agent_link_engine::session::extract_cc_history_stats(&path).ok())
             .map(|s| (s.type_tokens, s.events))
-            .unwrap_or_default()
-    } else {
-        agent_link_engine::session::resolve_session_dir(exec.session_dir.as_deref(), exec_id)
-            .and_then(|dir| agent_link_engine::session::extract_history_stats(&dir).ok())
-            .map(|s| (s.type_tokens, s.events))
-            .unwrap_or_default()
-    };
+            .unwrap_or_default();
 
     let cli = cli_summary(&events);
 

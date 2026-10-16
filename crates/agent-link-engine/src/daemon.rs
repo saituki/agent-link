@@ -564,17 +564,14 @@ impl Daemon {
         // 実行時設定のオーバーライド（§6・P8: ExecutionOverrides をそのまま使用）
         let overrides = ExecutionOverrides {
             model: req.overrides.model.clone(),
-            provider: req.overrides.provider.clone(),
             thinking: req.overrides.thinking.clone(),
             timeout: req.overrides.timeout,
             round: req.overrides.round,
             global_round: req.overrides.global_round,
-            tag: req.overrides.tag.clone(),
             direction: req.overrides.direction,
             worktree: req.overrides.worktree.clone(),
             cwd: req.overrides.cwd.clone(),
             keep_pane: req.overrides.keep_pane,
-            runner: req.overrides.runner,
         };
 
         // プレースホルダー（{{input.*}} / waggle トークン）の展開は
@@ -872,7 +869,7 @@ impl Daemon {
 
     /// 変わった実行だけ `~/.agent-link/phone/runs/<project_name>/<run_id>.json` へ書き出す。
     ///
-    /// - `todo` / `pending` と runner=`user` は対象外（`phone_export::should_export`）
+    /// - `todo` / `pending` は対象外（`phone_export::should_export`）
     /// - `status` / `finished_at` / `session_stats_json` が変わった実行だけ書き直す
     /// - 終了状態になった実行は **次の周期でもう一度** 書き直す
     ///   （終了直後は `session_stats_json` や transcript の最終行が遅れて入ることがあるため）
@@ -907,7 +904,7 @@ impl Daemon {
         let (mut written, mut skipped, mut failed) = (0usize, 0usize, 0usize);
         for exec in &execs {
             let Some(run_id) = exec.id else { continue };
-            if !phone_export::should_export(&exec.status, &exec.runner) {
+            if !phone_export::should_export(&exec.status) {
                 continue;
             }
             let sig = phone_export::ExportSig::of(exec);
@@ -1418,7 +1415,6 @@ mod tests {
             "ghost-block".to_string(),
             "幽霊テスト".to_string(),
             "inherit".to_string(),
-            None,
             "off".to_string(),
             "false".to_string(),
             "false".to_string(),
@@ -1461,17 +1457,14 @@ mod tests {
             user_inputs,
             overrides: ExecutionOverrides {
                 model: Some("anthropic/claude-sonnet-4-5".to_string()),
-                provider: None,
                 thinking: Some("high".to_string()),
                 timeout: Some(900),
                 round: Some(1),
                 global_round: Some(2),
-                tag: Some("test".to_string()),
                 worktree: None,
                 cwd: None,
                 direction: Some(SplitDirection::Right),
                 keep_pane: true,
-                runner: crate::runner::RunnerKind::Cc,
             },
             card_path: Some(".agent-link/todo/card-20260905-000000-0001.md".to_string()),
             reserved_run_id: Some(7),

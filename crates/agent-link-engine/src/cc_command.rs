@@ -1,13 +1,12 @@
 //! # Claude Code（`cc`）起動コマンドビルダー
 //!
 //! `BlockConfig` から Claude Code の起動コマンド文字列を構築します。
-//! `runner=cc` のとき `orchestrator::prepare_pipeline` から使用されます。
+//! `orchestrator::prepare_pipeline` から使用されます。
 //!
 //! ## pi との違い
 //!
 //! - 起動バイナリは `claude`（`AGENT_LINK_CLAUDE_BIN` があればそれを優先する）
 //! - セッションは `--session-id <uuid>` で明示指定する（pi の `--session-dir` に相当）
-//! - provider は Claude Code に存在しないため無視する
 //! - `thinking` は Claude Code の `--effort <level>` として渡す
 //!   （pi では `--thinking`、cc では `--effort`。値は同一の 6 段階）
 //! - cc は対話モードの `claude` を tmux の session の中で動かす（[`crate::tmux`]）。
@@ -31,6 +30,13 @@ use std::path::{Path, PathBuf};
 
 use crate::block_config::BlockConfig;
 use crate::herdr::shell_escape_single_quotes;
+
+/// Claude Code のプロンプト本文を確定送信するキー。
+///
+/// Claude Code はマルチライン入力を `Alt+Enter` で確定する
+/// （`~/.claude/keybindings.json` で `enter` = 改行 / `alt+enter` = 送信 に
+/// 割り当てられているユーザー環境を前提とする）。
+pub const CC_SUBMIT_KEY: &str = "Alt+Enter";
 
 /// `.mcp.json` に書く Playwright MCP のパッケージ（版を固定する）。
 ///
@@ -293,7 +299,7 @@ pub fn normalize_model(model: &str) -> Option<String> {
 /// - 空 / `none` / 無効値 → `None`（フラグ省略・cc の既定 effort に委ねる）
 /// - `low` / `medium` / `high` / `xhigh` / `max` → そのまま
 ///
-/// agent-link 上の項目名は runner を問わず `thinking` のままで、
+/// agent-link 上の項目名は `thinking` のままで、
 /// 実行時にのみ pi → `--thinking`、cc → `--effort` に対応する。
 pub fn normalize_effort(thinking: &str) -> Option<String> {
     let t = thinking.trim().to_lowercase();
@@ -639,7 +645,6 @@ mod tests {
             name: "test-block".to_string(),
             description: None,
             model: Some("anthropic/claude-sonnet-4-5".to_string()),
-            provider: Some("anthropic".to_string()),
             thinking: Some("high".to_string()),
             tools: None,
             extensions: None,
@@ -649,7 +654,6 @@ mod tests {
             worktree: None,
             enable: Some(true),
             category: None,
-            tag: None,
             round: None,
             templates: None,
             id: None,

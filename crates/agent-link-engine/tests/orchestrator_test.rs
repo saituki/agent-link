@@ -44,7 +44,6 @@ fn test_config() -> PipelineConfig {
             name: "integration-test".to_string(),
             description: None,
             model: None,
-            provider: None,
             thinking: None,
             tools: None,
             extensions: None,
@@ -54,7 +53,6 @@ fn test_config() -> PipelineConfig {
             worktree: None,
             enable: None,
             category: None,
-            tag: None,
             round: None,
             templates: None,
             id: None,
@@ -74,7 +72,6 @@ fn test_config() -> PipelineConfig {
         base_pane_id: None,
         pane_id: None,
         is_subtask: false,
-        runner: agent_link_engine::runner::RunnerKind::Cc,
     }
 }
 
@@ -207,7 +204,6 @@ fn test_pipeline_config_from_parsed_block() {
         base_pane_id: None,
         pane_id: None,
         is_subtask: false,
-        runner: agent_link_engine::runner::RunnerKind::Cc,
     };
 
     assert_eq!(config.block_config.name, "test-block");
@@ -232,7 +228,6 @@ fn test_pipeline_config_all_fields_set() {
             name: "full-config-test".to_string(),
             description: Some("テスト用の完全設定".to_string()),
             model: Some("anthropic/claude-sonnet-4-5".to_string()),
-            provider: Some("openrouter".to_string()),
             thinking: Some("high".to_string()),
             tools: None,
             extensions: None,
@@ -242,7 +237,6 @@ fn test_pipeline_config_all_fields_set() {
             worktree: Some("isolation".to_string()),
             enable: Some(true),
             category: Some("test".to_string()),
-            tag: None,
             round: None,
             templates: None,
             id: None,
@@ -260,7 +254,6 @@ fn test_pipeline_config_all_fields_set() {
         base_pane_id: None,
         pane_id: None,
         is_subtask: false,
-        runner: agent_link_engine::runner::RunnerKind::Cc,
     };
 
     // 各フィールドの検証
@@ -269,7 +262,6 @@ fn test_pipeline_config_all_fields_set() {
         config.block_config.model.as_deref(),
         Some("anthropic/claude-sonnet-4-5")
     );
-    assert_eq!(config.block_config.provider.as_deref(), Some("openrouter"));
     assert_eq!(config.block_config.thinking.as_deref(), Some("high"));
     assert_eq!(config.block_config.skills.as_deref(), Some("ce-brainstorm"));
     assert_eq!(config.block_config.timeout, Some(600));

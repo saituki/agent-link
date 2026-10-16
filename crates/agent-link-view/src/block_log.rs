@@ -21,8 +21,6 @@ pub struct BlockDetail {
     pub user_block_description: Option<String>,
     /// user-block の入力ファイルパス（[Output] セクションで表示）
     pub user_block_file: Option<String>,
-    /// 実行時のタグ（execution_history 優先、なければ block_metadata）
-    pub tag: Option<String>,
     /// 実行時のラウンド（execution_history 優先、なければ block_metadata）
     pub round: Option<i64>,
     /// 実行時のグローバルラウンド（GR）
@@ -160,14 +158,13 @@ struct InputRef<'a> {
 impl serde::Serialize for BlockDetail {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         use serde::ser::SerializeStruct;
-        let len = 25;
+        let len = 24;
         let mut st = serializer.serialize_struct("BlockDetail", len)?;
         st.serialize_field("exec_id", &self.exec_id)?;
         st.serialize_field("block_name", &self.block_name)?;
         st.serialize_field("is_user_block", &self.is_user_block)?;
         st.serialize_field("user_block_description", &self.user_block_description)?;
         st.serialize_field("user_block_file", &self.user_block_file)?;
-        st.serialize_field("tag", &self.tag)?;
         st.serialize_field("round", &self.round)?;
         st.serialize_field("global_round", &self.global_round)?;
         st.serialize_field("model", &self.model)?;
@@ -288,10 +285,6 @@ pub fn build(store: &agent_link_engine::db::SaiStore, exec_id: i64) -> Option<Bl
     // 構造化版（作られた順。`list_connections_by_block` が created_at 順で返す）
     let connections = structured_connections(store, &all_connections, exec_id);
 
-    let tag = exec
-        .as_ref()
-        .and_then(|e| e.tag.clone())
-        .or(block.tag.clone());
     let round = exec.as_ref().and_then(|e| e.round).or(block.round);
     let global_round = exec.as_ref().and_then(|e| e.global_round);
     let model = exec
@@ -382,7 +375,6 @@ pub fn build(store: &agent_link_engine::db::SaiStore, exec_id: i64) -> Option<Bl
         is_user_block,
         user_block_description,
         user_block_file,
-        tag,
         round,
         global_round,
         model,
@@ -549,7 +541,6 @@ mod tests {
             block_name.to_string(),
             "テスト用ブロック".to_string(),
             "anthropic/claude-sonnet-4-5".to_string(),
-            None,
             "off".to_string(),
             "true".to_string(),
             "true".to_string(),
@@ -654,7 +645,6 @@ mod conn_line_tests {
             name.to_string(),
             String::new(),
             "m".to_string(),
-            None,
             "off".to_string(),
             "true".to_string(),
             "true".to_string(),
@@ -677,7 +667,7 @@ mod conn_line_tests {
         let e1 = store.create_execution(b1, None).unwrap();
         let e2 = store.create_execution(b2, None).unwrap();
         store
-            .update_execution_overrides(e1, None, Some(3), Some(2), None, None, None)
+            .update_execution_overrides(e1, Some(3), Some(2), None, None, None)
             .unwrap();
         store
             .insert_connection(&agent_link_engine::db::BlockConnection::new_waggle(

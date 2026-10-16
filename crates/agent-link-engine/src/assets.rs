@@ -6,8 +6,8 @@
 //!
 //! 配り方は共通の取り決めに従う（`init.rs` の [`install_assets`] を参照）。
 //!
-//! - block は `model:` を `inherit`、`provider:` を書かない（この PC 専用の値を配らない）。
-//! - 更新（`--update`）のときは、利用者がブロックごとに選んだ `model`・`provider`・`thinking`
+//! - block は `model:` を `inherit` にする（この PC 専用の値を配らない）。
+//! - 更新（`--update`）のときは、利用者がブロックごとに選んだ `model`・`thinking`
 //!   を元のファイルの値で残す。消してはいけない。
 
 use std::path::{Path, PathBuf};
@@ -46,8 +46,8 @@ pub const BASE_TEMPLATES: &[(&str, &str)] = &[
 
 /// block を更新するとき、元のファイルにあった値で残す frontmatter の項目。
 ///
-/// 利用者がブロックごとに選んだモデル・提供元・思考の深さを、更新で消さないため。
-const PRESERVED_BLOCK_KEYS: &[&str] = &["model", "provider", "thinking"];
+/// 利用者がブロックごとに選んだモデル・思考の深さを、更新で消さないため。
+const PRESERVED_BLOCK_KEYS: &[&str] = &["model", "thinking"];
 
 /// 1 つの部品を配った結果。
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -208,14 +208,13 @@ fn frontmatter_key(line: &str) -> Option<&str> {
 mod tests {
     use super::*;
 
-    /// 保持する 3 項目だけが元の値になり、他は新しい版のままであること。
+    /// 保持する 2 項目だけが元の値になり、他は新しい版のままであること。
     #[test]
     fn test_merge_block_content_keeps_user_frontmatter() {
         let new_content = "---\nid: kantoku\nmodel: inherit\nthinking: low\n---\n\n新しい本文\n";
-        let old_content = "---\nid: kantoku\nmodel: sonnet\nprovider: openrouter-x\nthinking: max\n---\n\n古い本文\n";
+        let old_content = "---\nid: kantoku\nmodel: sonnet\nthinking: max\n---\n\n古い本文\n";
         let merged = merge_block_content(new_content, old_content);
         assert!(merged.contains("model: sonnet\n"), "{}", merged);
-        assert!(merged.contains("provider: openrouter-x\n"), "{}", merged);
         assert!(merged.contains("thinking: max\n"), "{}", merged);
         assert!(!merged.contains("model: inherit"), "{}", merged);
         assert!(!merged.contains("thinking: low"), "{}", merged);
@@ -226,11 +225,11 @@ mod tests {
     #[test]
     fn test_merge_block_content_adds_missing_key() {
         let new_content = "---\nid: main\nmodel: inherit\n---\n\n本文\n";
-        let old_content = "---\nid: main\nmodel: opus\nprovider: openrouter-y\n---\n\n";
+        let old_content = "---\nid: main\nmodel: opus\nthinking: max\n---\n\n";
         let merged = merge_block_content(new_content, old_content);
         assert!(merged.contains("model: opus\n"), "{}", merged);
-        // 新しい版に無い provider は frontmatter の最後に足す
-        assert!(merged.contains("provider: openrouter-y\n"), "{}", merged);
+        // 新しい版に無い thinking は frontmatter の最後に足す
+        assert!(merged.contains("thinking: max\n"), "{}", merged);
         assert!(merged.ends_with("\n本文\n"), "{}", merged);
     }
 

@@ -10,8 +10,6 @@ use agent_link_engine::db::SaiStore;
 
 /// cc のモデル選択肢（固定）。
 pub const CC_MODELS: [&str; 3] = ["opus", "sonnet", "haiku"];
-/// runner の選択肢（pi は廃止）。
-pub const RUNNER_OPTIONS: [&str; 2] = ["user", "cc"];
 /// thinking 選択肢（`validation.rs` の新 6 値と一致）。
 pub const THINKING_OPTIONS: [&str; 6] = ["none", "low", "medium", "high", "xhigh", "max"];
 
@@ -40,29 +38,6 @@ pub fn load_block_choices() -> Vec<(String, String)> {
     }
     out.sort_by(|a, b| a.0.cmp(&b.0));
     out
-}
-
-/// pi の使用可能 provider 一覧（`models.json` 由来・昇順・重複なし）。
-pub fn load_provider_choices() -> Vec<String> {
-    let mut providers: Vec<String> = agent_link_engine::common::load_available_models()
-        .into_iter()
-        .filter_map(|full| full.split_once('/').map(|(p, _)| p.to_string()))
-        .collect();
-    providers.sort();
-    providers.dedup();
-    providers
-}
-
-/// 指定 provider 配下の model 一覧（`/` より後ろ・昇順）。
-pub fn load_model_choices(provider: &str) -> Vec<String> {
-    let prefix = format!("{}/", provider);
-    let mut models: Vec<String> = agent_link_engine::common::load_available_models()
-        .into_iter()
-        .filter_map(|full| full.strip_prefix(&prefix).map(|m| m.to_string()))
-        .collect();
-    models.sort();
-    models.dedup();
-    models
 }
 
 // ============================================================================
@@ -100,7 +75,7 @@ pub fn resolve_block_path(block_id: &str) -> Option<PathBuf> {
 
 /// task.md 作成時の自動追記フィールドを埋める。
 ///
-/// - `model` / `provider` / `thinking`: `.agent-link/settings.json` のデフォルト
+/// - `model` / `thinking`: `.agent-link/settings.json` のデフォルト
 /// - ラウンド系は空欄のまま（利用者が決める）
 pub fn apply_card_auto_fields(fm: &mut agent_link_engine::kanban::CardFrontmatter) {
     // settings.json（プロジェクト → グローバルのマージ）からデフォルトを読む。
@@ -108,9 +83,6 @@ pub fn apply_card_auto_fields(fm: &mut agent_link_engine::kanban::CardFrontmatte
     let (settings, _) = agent_link_engine::settings::load_settings_quiet();
     if let Some(model) = settings.default_model {
         fm.model = model;
-    }
-    if let Some(provider) = settings.default_provider {
-        fm.provider = provider;
     }
     if let Some(thinking) = settings.default_thinking_level {
         // 新 6 値のうち `none` は「明示指定なし」と同じ扱いのため書き込まない。
@@ -161,12 +133,8 @@ fn reserve_run_for_card(card: &agent_link_engine::kanban::KanbanCard) -> Result<
 /// 各項目の空文字 = スキップ（TUI と同じく自動値を使う）。
 #[derive(Debug, Clone, Default)]
 pub struct CardSpec {
-    /// runner（空 = スキップ → 自動値 cc）
-    pub runner: String,
     /// block_id（空 = スキップ）
     pub block: String,
-    /// provider（空 = スキップ）
-    pub provider: String,
     /// model（空 = スキップ）
     pub model: String,
     /// thinking（空 = スキップ）
@@ -175,28 +143,15 @@ pub struct CardSpec {
     pub global_round: String,
     /// ローカルラウンド（空 = 空欄）
     pub round: String,
-    /// タグ（空 = スキップ）
-    pub tag: String,
     /// `# task_text` 見出しの直下に挿入する本文（TUI は常に空・nvim で書くため）
     pub task_text: String,
 }
 
 /// `phone card create` の検査（TUI の段階入力と同じ規則）。
 ///
-/// - runner / thinking は一覧の値（空 = スキップは許容）
+/// - thinking は一覧の値（空 = スキップは許容）
 /// - block が指定されていれば存在する定義であること
 pub fn validate_card_spec(spec: &CardSpec) -> Result<(), String> {
-    let runner = spec.runner.trim();
-    if runner == "pi" {
-        return Err("runner の pi は廃止しました。cc を使ってください".to_string());
-    }
-    if !runner.is_empty() && !RUNNER_OPTIONS.contains(&runner) {
-        return Err(format!(
-            "runner が不正です: {}（選択肢: {}）",
-            runner,
-            RUNNER_OPTIONS.join(", ")
-        ));
-    }
     let thinking = spec.thinking.trim();
     if !thinking.is_empty() && !THINKING_OPTIONS.contains(&thinking) {
         return Err(format!(
@@ -218,8 +173,8 @@ pub fn validate_card_spec(spec: &CardSpec) -> Result<(), String> {
 
 /// ウィザード / CLI の値でカード md を作成する。
 ///
-/// - `runner` / `block` / `provider` / `model` / `thinking` は指定値を優先する
-///   （空・スキップ時は自動値: runner=cc・model/provider/thinking=settings.json）
+/// - `block` / `model` / `thinking` は指定値を優先する
+///   （空・スキップ時は自動値: model/thinking=settings.json）
 /// - `task_text` は `# task_text` 見出しの直下に置く
 pub fn create_card(spec: &CardSpec) -> Result<PathBuf, String> {
     let body = if spec.task_text.trim().is_empty() {
@@ -233,14 +188,8 @@ pub fn create_card(spec: &CardSpec) -> Result<PathBuf, String> {
     // 自動フィールド（settings.json のデフォルト）
     apply_card_auto_fields(&mut fm);
     // 確定値で上書き（空・スキップ時は自動値を維持）
-    if !spec.runner.trim().is_empty() {
-        fm.runner = spec.runner.trim().to_string();
-    }
     if !spec.block.trim().is_empty() {
         fm.block = spec.block.trim().to_string();
-    }
-    if !spec.provider.trim().is_empty() {
-        fm.provider = spec.provider.trim().to_string();
     }
     if !spec.model.trim().is_empty() {
         fm.model = spec.model.trim().to_string();
@@ -255,9 +204,6 @@ pub fn create_card(spec: &CardSpec) -> Result<PathBuf, String> {
     if !spec.round.trim().is_empty() {
         fm.round = spec.round.trim().to_string();
     }
-    if !spec.tag.trim().is_empty() {
-        fm.tag = spec.tag.trim().to_string();
-    }
     write_card_file(&agent_link_engine::kanban::KanbanCard {
         frontmatter: fm,
         body,
@@ -268,34 +214,17 @@ pub fn create_card(spec: &CardSpec) -> Result<PathBuf, String> {
 mod tests {
     use super::*;
 
-    /// runner / thinking は一覧の値以外を弾く（空 = スキップは許容）。
+    /// thinking は一覧の値以外を弾く（空 = スキップは許容）。
     #[test]
-    fn spec_rejects_unknown_runner_and_thinking() {
+    fn spec_rejects_unknown_thinking() {
         let mut spec = CardSpec {
-            runner: "unknown-runner".to_string(),
+            thinking: "ultra".to_string(),
             ..Default::default()
         };
-        assert!(validate_card_spec(&spec).is_err());
-        spec.runner = String::new();
-        spec.thinking = "ultra".to_string();
         assert!(validate_card_spec(&spec).is_err());
         spec.thinking = "high".to_string();
         assert!(validate_card_spec(&spec).is_ok());
-    }
-
-    /// runner の pi は廃止のため、理由を付けて断る。cc と user は通る。
-    #[test]
-    fn spec_rejects_pi_runner_and_accepts_cc_user() {
-        let mut spec = CardSpec {
-            runner: "pi".to_string(),
-            ..Default::default()
-        };
-        let err = validate_card_spec(&spec).unwrap_err();
-        assert!(err.contains("runner の pi は廃止しました"), "err={}", err);
-        spec.runner = "cc".to_string();
+        spec.thinking = String::new();
         assert!(validate_card_spec(&spec).is_ok());
-        spec.runner = "user".to_string();
-        assert!(validate_card_spec(&spec).is_ok());
-        assert_eq!(RUNNER_OPTIONS, ["user", "cc"]);
     }
 }

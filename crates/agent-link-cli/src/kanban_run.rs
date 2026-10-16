@@ -35,7 +35,6 @@ pub fn kanban_block_run(
     fields: &[String],
     round: Option<i64>,
     global_round: Option<i64>,
-    tag: Option<String>,
     think: Option<String>,
     model: Option<String>,
     block_timeout: Option<u32>,
@@ -73,7 +72,6 @@ pub fn kanban_block_run(
         fields,
         round,
         global_round,
-        tag,
         think,
         model,
         block_timeout,
@@ -93,7 +91,6 @@ pub fn run_card_request(
     fields: &[String],
     round: Option<i64>,
     global_round: Option<i64>,
-    tag: Option<String>,
     think: Option<String>,
     model: Option<String>,
     block_timeout: Option<u32>,
@@ -143,7 +140,7 @@ pub fn run_card_request(
     let reserved_run_id: Option<i64> = card.frontmatter.run_id.trim().parse().ok();
 
     // 実行設定：task.md 優先、未記載は block.md のデフォルト。
-    // round / global_round は block.md にデフォルトが無い。未記載なら 1 を使う。tag は任意。
+    // round / global_round は block.md にデフォルトが無い。未記載なら 1 を使う。
     let round = resolve_round(round, &card.frontmatter.round, "round")?;
     let global_round = resolve_round(global_round, &card.frontmatter.global_round, "global_round")?;
     let non_empty = |s: &str| {
@@ -154,28 +151,20 @@ pub fn run_card_request(
             Some(t.to_string())
         }
     };
-    let tag = tag.or_else(|| non_empty(&card.frontmatter.tag));
     let thinking = think
         .or_else(|| non_empty(&card.frontmatter.thinking))
         .or_else(|| parsed.config.thinking.clone());
     let model = model
         .or_else(|| non_empty(&card.frontmatter.model))
         .or_else(|| parsed.config.model.clone());
-    let provider = non_empty(&card.frontmatter.provider);
     // timeout は廃止（block.md の値を使用。task.md では指定しない）。
     let timeout = block_timeout.or(parsed.config.timeout);
     let mut overrides = agent_link_engine::orchestrator::ExecutionOverrides::default();
     overrides.round = Some(round);
     overrides.global_round = Some(global_round);
-    overrides.tag = tag;
     overrides.thinking = thinking;
     overrides.model = model;
-    overrides.provider = provider;
     overrides.timeout = timeout;
-    // 実行主体（`cc` 等）。未記載・`pi` の旧カードは cc（pi は廃止）。
-    overrides.runner = agent_link_engine::runner::RunnerKind::parse(&card.frontmatter.runner);
-    // runner=pi の task.md には runner 記載が無い旧カードもあるため、ここでは分岐しない。
-    // runner=user の場合は TUI 側でデーモン要求を送らずフォルダ移動のみ行う。
     stamp_card_execution_date(&card_path)?;
     let card_rel = card_relative_path(&card_path);
     agent_link_engine::daemon::write_block_run_request_full(
@@ -410,54 +399,10 @@ fn prompt_number(prompt: &str, default: Option<i64>) -> Result<i64, Box<dyn std:
     }
 }
 
-/// Tag 入力（デフォルト＋入力のカンマ結合。`--interactive` と同等・R125）。
-fn prompt_tag(default_tag: Option<&str>) -> Result<Option<String>, Box<dyn std::error::Error>> {
-    let default_display = default_tag.unwrap_or("(なし)");
-    let prompt = format!("Tag（デフォルト: {}）", default_display);
-    let input = prompt_optional_with_default(&prompt, None)?;
-    match input {
-        None => Ok(default_tag.map(String::from)),
-        Some(v) => {
-            let trimmed = v.trim();
-            if trimmed.is_empty() {
-                Ok(default_tag.map(String::from))
-            } else {
-                match default_tag {
-                    Some(def) => Ok(Some(format!("{}, {}", def, trimmed))),
-                    None => Ok(Some(trimmed.to_string())),
-                }
-            }
-        }
-    }
-}
-
 /// Thinking budget 選択（6値。`validation.rs` と一致・R123）。
 fn prompt_think(default_think: Option<&str>) -> Result<Option<String>, Box<dyn std::error::Error>> {
     let options = &["none", "low", "medium", "high", "xhigh", "max"];
     prompt_select("Thinking budget", options, default_think)
-}
-
-/// Model 選択（`~/.pi/agent/models.json`＋`inherit`。`--interactive` と同等・R124）。
-fn prompt_model(default_model: Option<&str>) -> Result<Option<String>, Box<dyn std::error::Error>> {
-    let available = agent_link_engine::common::load_available_models();
-    let default_model = default_model.unwrap_or("inherit");
-    let mut options: Vec<String> = vec!["inherit".to_string()];
-    if default_model != "inherit" && !options.contains(&default_model.to_string()) {
-        options.push(default_model.to_string());
-    }
-    for m in &available {
-        if !options.contains(m) {
-            options.push(m.clone());
-        }
-    }
-    let default_idx = options.iter().position(|o| o == default_model).unwrap_or(0);
-    let refs: Vec<&str> = options.iter().map(|s| s.as_str()).collect();
-    let idx = Select::new()
-        .with_prompt(format!("Model（デフォルト: {}）", options[default_idx]))
-        .items(&refs)
-        .default(default_idx)
-        .interact()?;
-    Ok(Some(options[idx].clone()))
 }
 
 /// 選択肢から1つ選ぶ（dialoguer Select。デフォルトは frontmatter 値）。

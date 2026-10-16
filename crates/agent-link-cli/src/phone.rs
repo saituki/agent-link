@@ -21,11 +21,11 @@ use serde_json::{json, Value};
 use agent_link_engine::db::store::exec_usage_totals;
 use agent_link_engine::db::SaiStore;
 use agent_link_view::{
-    block_history, block_log, cache_stats, card_entries, card_wizard, left_tree, phone_view, user_run,
+    block_history, block_log, cache_stats, card_entries, card_wizard, left_tree, phone_view,
 };
 
 use crate::cli::{
-    PhoneCardCmd, PhoneCmd, PhoneUserCmd, EXIT_DB, EXIT_NOT_FOUND, EXIT_PARSE, EXIT_USAGE,
+    PhoneCardCmd, PhoneCmd, EXIT_DB, EXIT_NOT_FOUND, EXIT_PARSE, EXIT_USAGE,
 };
 
 // ============================================================================
@@ -134,18 +134,13 @@ fn val(r: PhoneResult<Value>) -> PhoneResult<PhoneOut> {
 
 /// `phone card create` の stdin 入力（項目名は計画 12 §3.2 のとおり）。
 ///
-/// 空文字 = スキップ（TUI と同じく自動値を使う）。
+/// 空文字 = スキップ（TUI と同じく自動値を使う）。廃止した項目（`runner`・`provider`・`tag`）が
+/// 入っていてもエラーにせず無視する（serde は未知の項目を読み飛ばす）。
 #[derive(Debug, Default, Deserialize)]
 struct CardCreateInput {
-    /// runner（空 = スキップ）
-    #[serde(default)]
-    runner: String,
     /// block_id（空 = スキップ）
     #[serde(default)]
     block: String,
-    /// provider（空 = スキップ）
-    #[serde(default)]
-    provider: String,
     /// model（空 = スキップ）
     #[serde(default)]
     model: String,
@@ -158,9 +153,6 @@ struct CardCreateInput {
     /// ローカルラウンド（空 = card run が 1 を使う）
     #[serde(default)]
     round: String,
-    /// タグ（空 = スキップ）
-    #[serde(default)]
-    tag: String,
     /// タスク本文の直下に挿入する本文
     #[serde(default)]
     task_text: String,
@@ -261,10 +253,6 @@ pub(crate) fn run(cmd: PhoneCmd) -> PhoneResult<PhoneOut> {
         })),
         PhoneCmd::Workflow => val(workflow()),
         PhoneCmd::Def { cmd } => val(crate::phone_def::run(cmd)),
-        PhoneCmd::User { cmd } => val(match cmd {
-            PhoneUserCmd::Start { run_id } => user_start(run_id),
-            PhoneUserCmd::Finish { run_id } => user_finish(run_id),
-        }),
     }
 }
 
@@ -323,8 +311,6 @@ fn workflow() -> PhoneResult<Value> {
             "run_id": run_id,
             "phase": b.phase,
             "name": b.name,
-            "tag": b.tag,
-            "runner": b.runner,
             "status": b.last_status,
             "created_at": b.created_at,
             "description": b.description,
@@ -434,7 +420,6 @@ fn lanes_json(entries: &[card_entries::CardEntry]) -> Value {
             "title": e.title,
             "date": e.date,
             "description": e.description,
-            "runner": e.runner,
             "executer": e.executer,
         });
         use agent_link_engine::kanban::KanbanLane as L;
@@ -688,7 +673,6 @@ fn todo_card_meta(run_id: i64) -> Option<Value> {
     Some(json!({
         "creation_date": fm.creation_date,
         "block": fm.block,
-        "runner": fm.runner,
         "model": fm.model,
         "description": fm.description,
     }))
@@ -772,7 +756,7 @@ fn nest_tree(items: Vec<left_tree::LeftTreeItem>) -> Vec<Value> {
                     if let Some(at) = todo_scheduled_at(run_id) {
                         val["scheduled_at"] = json!(at);
                     }
-                    // todo の一覧に出す task.md の項目（作成日・block・runner・model・説明）
+                    // todo の一覧に出す task.md の項目（作成日・block・model・説明）
                     if let Some(meta) = todo_card_meta(run_id) {
                         val["card"] = meta;
                     }
@@ -832,18 +816,9 @@ pub(crate) fn history_call(run_id: i64, call_id: &str) -> PhoneResult<Value> {
     let exec = store
         .get_execution_by_id(run_id)
         .map_err(|_| PhoneError::not_found(format!("実行が見つかりません: ID{}", run_id)))?;
-    let found = match exec.runner.as_str() {
-        "cc" => {
-            let root = agent_link_engine::project::project_root();
-            agent_link_engine::phone_export::resolve_transcript(&exec, &root)
-                .and_then(|path| agent_link_engine::session::history_call(&path, "cc", call_id))
-        }
-        "gl" => None,
-        runner => {
-            agent_link_engine::session::resolve_session_dir(exec.session_dir.as_deref(), run_id)
-                .and_then(|dir| agent_link_engine::session::history_call(&dir, runner, call_id))
-        }
-    };
+    let root = agent_link_engine::project::project_root();
+    let found = agent_link_engine::phone_export::resolve_transcript(&exec, &root)
+        .and_then(|path| agent_link_engine::session::history_call(&path, call_id));
     let call = found
         .ok_or_else(|| PhoneError::not_found(format!("呼び出しが見つかりません: {}", call_id)))?;
     serde_json::to_value(call).map_err(|e| PhoneError::internal(e.to_string()))
@@ -992,7 +967,7 @@ fn waggle(run_id: i64, token: Option<&str>) -> PhoneResult<Value> {
 // card — options / inputs / create
 // ============================================================================
 
-/// `phone card options`: ウィザードの選択肢（runner / block / provider / model / …）。
+/// `phone card options`: ウィザードの選択肢（block / model / thinking / …）。
 fn card_options() -> PhoneResult<Value> {
     // DB が無いプロジェクトでは他の phone 命令と同じ終了コードで止める
     open_store()?;
@@ -1001,17 +976,10 @@ fn card_options() -> PhoneResult<Value> {
         .into_iter()
         .map(|(label, id)| json!({ "label": label, "id": id }))
         .collect();
-    let mut providers = serde_json::Map::new();
-    for p in card_wizard::load_provider_choices() {
-        let models = card_wizard::load_model_choices(&p);
-        providers.insert(p, json!(models));
-    }
     let (_, warnings) = agent_link_engine::settings::load_settings_quiet();
 
     Ok(json!({
-        "runners": card_wizard::RUNNER_OPTIONS,
         "blocks": blocks,
-        "providers": providers,
         "cc_models": card_wizard::CC_MODELS,
         "thinking": card_wizard::THINKING_OPTIONS,
         "warnings": warnings,
@@ -1140,17 +1108,14 @@ fn card_create_from(parsed: CardCreateInput) -> PhoneResult<Value> {
         format!("{}\n\n{}", doc_refs.join("\n"), parsed.task_text.trim_end())
     };
     let spec = card_wizard::CardSpec {
-        runner: parsed.runner,
         block: parsed.block,
-        provider: parsed.provider,
         model: parsed.model,
         thinking: parsed.thinking,
         global_round: parsed.global_round,
         round: parsed.round,
-        tag: parsed.tag,
         task_text,
     };
-    // TUI と同じ検査（runner / thinking は一覧の値・block は存在するもの）
+    // TUI と同じ検査（thinking は一覧の値・block は存在するもの）
     card_wizard::validate_card_spec(&spec).map_err(PhoneError::usage)?;
 
     // 起動者（空は人が起こす）。旧カードの値は `agent` に寄せる。知らない値は終了コード 2。
@@ -1207,6 +1172,7 @@ fn card_create_from(parsed: CardCreateInput) -> PhoneResult<Value> {
 /// - 標準のキー（run_id など）は受け付けない（終了コード 2）。
 /// - 値の改行は空白に置き換える。
 fn validate_card_meta(meta: &HashMap<String, String>) -> PhoneResult<Vec<(String, String)>> {
+    // 廃止した `runner`・`provider`・`tag` も、`meta` で同名を書かせないため残す。
     const STANDARD_KEYS: [&str; 15] = [
         "runner",
         "creation_date",
@@ -1314,7 +1280,7 @@ fn card_run(run_id: i64) -> PhoneResult<Value> {
 
     // 3. 実行要求（対話なし。`block run --kanban --card … --yes` と同じ流れ）
     crate::kanban_run::run_card_request(
-        &target, None, &[], None, None, None, None, None, None,
+        &target, None, &[], None, None, None, None, None,
     )
     .map_err(|e| PhoneError::usage(e.to_string()))?;
 
@@ -1431,63 +1397,6 @@ fn rm(run_id: i64) -> PhoneResult<Value> {
     let summary =
         agent_link_engine::run_dir::delete_run(&store, run_id).map_err(PhoneError::internal)?;
     Ok(json!({ "run_id": run_id, "executions": summary.executions }))
-}
-
-// ============================================================================
-// user start / finish — 利用者の札（runner: user）を始める・終える
-// ============================================================================
-
-/// `phone user start <run_id>`: todo の `runner: user` のカードを running にする。
-///
-/// - 対象: `outputs/todo/<run_id>/task.md` があり、`phone tree` の todo に出るもの
-///   （`resolve_target_card` と同じ確かめ。送信済み・DB 紐付け済みは弾く）
-/// - 実行主体は利用者なので常駐（デーモン）は確かめない（`phone card run` とは
-///   道筋が違う）
-/// - 中身は [`agent_link_view::user_run::start_user_run`]（TUI の Enter と同じ関数）
-/// - 成功: stdout に `{"run_id": N, "status": "running"}` / 終了コード 0
-/// - カード無し: 終了コード 3、`runner: user` で無い・開始失敗: 終了コード 1
-fn user_start(run_id: i64) -> PhoneResult<Value> {
-    // 1. 対象カードの解決（無ければ終了コード 3）
-    let task = agent_link_engine::project::sai_path(agent_link_engine::run_dir::OUTPUTS_DIR)
-        .join(agent_link_engine::run_dir::TODO_OWNER)
-        .join(run_id.to_string())
-        .join(agent_link_engine::run_dir::TASK_FILE);
-    if !task.is_file() {
-        return Err(PhoneError::not_found(TODO_NOT_FOUND));
-    }
-    let store = open_store()?;
-    let path = resolve_target_card(&store, run_id, task)?;
-
-    // 2. 利用者の札か（`runner: user` でなければ受け付けない）
-    let text = std::fs::read_to_string(&path)
-        .map_err(|e| PhoneError::internal(format!("task.md を読めません: {}", e)))?;
-    let card = agent_link_engine::kanban::parse_card(&text)
-        .ok_or_else(|| PhoneError::not_found(TODO_NOT_FOUND))?;
-    if !card.frontmatter.is_user_runner() {
-        return Err(PhoneError::usage("runner: user のカードではありません"));
-    }
-
-    // 3. 始める（常駐は要らない）
-    user_run::start_user_run(&store, run_id, &card).map_err(PhoneError::usage)?;
-
-    Ok(json!({ "run_id": run_id, "status": "running" }))
-}
-
-/// `phone user finish <run_id>`: 実行中の利用者の札を review へ移す。
-///
-/// - 対象: 実行があり、`runner` が `user` で `status` が `running`
-///   （`phone finalize` と同じように常駐は確かめない）
-/// - 中身は [`agent_link_view::user_run::finish_user_run`]（TUI の `e` と同じ関数）
-/// - 成功: stdout に `{"run_id": N, "status": "review"}` / 終了コード 0
-/// - 実行無し: 終了コード 3、実行中の利用者の札でない・移動失敗: 終了コード 1
-fn user_finish(run_id: i64) -> PhoneResult<Value> {
-    let store = open_store()?;
-    if store.get_execution_by_id(run_id).is_err() {
-        return Err(PhoneError::not_found(EXEC_NOT_FOUND));
-    }
-    user_run::finish_user_run(&store, run_id).map_err(PhoneError::usage)?;
-
-    Ok(json!({ "run_id": run_id, "status": "review" }))
 }
 
 // ============================================================================
@@ -2106,7 +2015,7 @@ mod tests {
             return;
         };
         for key in [
-            "id", "run_id", "phase", "name", "tag", "runner", "status", "created_at",
+            "id", "run_id", "phase", "name", "status", "created_at",
             "description", "cost", "orphaned", "review", "global_round", "round", "parent_run_id",
             "batch_id", "x", "y", "w", "h",
         ] {
@@ -2181,7 +2090,6 @@ mod tests {
             None,
             None,
             None,
-            None,
         )
         .unwrap_err();
         assert_eq!(
@@ -2197,7 +2105,6 @@ mod tests {
             &root.join(".agent-link/outputs/todo/781/task.md"),
             None,
             &[],
-            None,
             None,
             None,
             None,
@@ -2226,30 +2133,6 @@ mod tests {
         // run_id が合わないカード・message は保存できない
         assert_eq!(md_save(779, "task", &edited).unwrap_err().code, EXIT_NOT_FOUND);
         assert_eq!(md_save(781, "message", "x").unwrap_err().code, EXIT_USAGE);
-    }
-
-    /// todo に `runner:` を指定したカード（予約 run 方式）を書き出す。
-    fn write_task_with_runner(root: &std::path::Path, run_id: i64, runner: &str) {
-        let dir = root.join(".agent-link/outputs/todo").join(run_id.to_string());
-        std::fs::create_dir_all(&dir).unwrap();
-        let text = [
-            "---",
-            &format!("runner: {}", runner),
-            "creation_date: 2026/09/24 00:00:00",
-            "execution_date: -",
-            "origin_run_id: -",
-            &format!("run_id: {}", run_id),
-            "round: -",
-            "global_round: -",
-            "description: テストカード",
-            "---",
-            "",
-            "# task_text",
-            "",
-            "テスト",
-        ]
-        .join("\n");
-        std::fs::write(dir.join("task.md"), text).unwrap();
     }
 
     /// U12: `card create` は `description` を frontmatter に書き、旧カードの値は `agent` にする。
@@ -2291,83 +2174,40 @@ mod tests {
         assert!(err.msg.contains("human / agent"), "msg={}", err.msg);
     }
 
-    /// `phone user start` / `phone user finish` の対象選択と終了コード。
-    ///
-    /// 共通契約 C-12: カード無し・実行無しは 3、`runner: user` で無いのは 1。
-    /// 常駐は確かめないため、常駐を起動しなくても 0 まで到達する。
+    /// `card create` は廃止した `runner` / `provider` / `tag` が入力に入っていてもエラーにせず、
+    /// 作った task.md にそれらの行を書かない。`card options` にも `runners` / `providers` は無い。
     #[test]
-    fn user_start_finish_exit_codes() {
+    fn card_create_ignores_removed_fields() {
         let _env = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let tmp = tempfile::tempdir().unwrap();
         let root = tmp.path();
         let _guard = RootGuard::set(root);
-
-        // DB を作る（一時ルート配下）
         let db = root.join(".agent-link/engine/agent-link.db");
         std::fs::create_dir_all(db.parent().unwrap()).unwrap();
-        let store = SaiStore::open(&db).unwrap();
-        // 利用者の札になる予約 run と、pi の実行
-        let user_run_id = store.create_reserved_run(None).unwrap();
-        let block_id = insert_test_block(&store);
-        let pi_run = store.create_execution(block_id, None).unwrap();
-        store.update_execution_status(pi_run, "running").unwrap();
-        drop(store);
+        drop(SaiStore::open(&db).unwrap());
 
-        write_task_with_runner(root, user_run_id, "user");
+        let parsed: super::CardCreateInput = serde_json::from_str(
+            r#"{"runner":"cc","provider":"x","tag":"y","task_text":"本文"}"#,
+        )
+        .expect("消した項目が入っていても読める");
+        let out = super::card_create_from(parsed).unwrap();
+        let path = std::path::PathBuf::from(out["path"].as_str().unwrap());
+        let text = std::fs::read_to_string(&path).unwrap();
+        for key in ["runner:", "provider:", "tag:"] {
+            assert!(!text.contains(key), "{key} が残っている: {text}");
+        }
+        assert!(text.starts_with("---\ncreation_date:"), "{text}");
 
-        // (1) カードが無い run_id → 終了コード 3
-        let err = user_start(999_999_999).unwrap_err();
-        assert_eq!(err.code, EXIT_NOT_FOUND);
-        assert_eq!(err.msg, TODO_NOT_FOUND);
+        let options = card_options().unwrap();
+        assert!(options.get("runners").is_none() && options.get("providers").is_none());
+        assert!(options.get("cc_models").is_some());
 
-        // (2) `runner: user` でないカード → 終了コード 1
-        write_task_with_runner(root, pi_run, "pi");
-        let err = user_start(pi_run).unwrap_err();
-        assert_eq!(err.code, EXIT_USAGE);
-        assert_eq!(err.msg, "runner: user のカードではありません");
-
-        // (3) 利用者のカード → 終了コード 0・`status: running`
-        let out = user_start(user_run_id).unwrap();
-        assert_eq!(out["run_id"].as_i64(), Some(user_run_id));
-        assert_eq!(out["status"], "running");
-        let store = SaiStore::open(&db).unwrap();
-        let exec = store.get_execution_by_id(user_run_id).unwrap();
-        assert_eq!(exec.status, "running");
-        assert_eq!(exec.runner, "user");
-        assert_eq!(
-            agent_link_engine::run_dir::find_run_dir(user_run_id).unwrap().0,
-            agent_link_engine::run_dir::RUNNING_OWNER
-        );
-        drop(store);
-
-        // (4) 実行が無い → 終了コード 3
-        let err = user_finish(999_999_999).unwrap_err();
-        assert_eq!(err.code, EXIT_NOT_FOUND);
-        assert_eq!(err.msg, EXEC_NOT_FOUND);
-
-        // (5) `runner: user` でない実行 → 終了コード 1
-        let err = user_finish(pi_run).unwrap_err();
-        assert_eq!(err.code, EXIT_USAGE);
-        assert_eq!(err.msg, "実行中の利用者の札ではありません");
-
-        // (6) 実行中の利用者の札 → 終了コード 0・`status: review`
-        let out = user_finish(user_run_id).unwrap();
-        assert_eq!(out["run_id"].as_i64(), Some(user_run_id));
-        assert_eq!(out["status"], "review");
-        let store = SaiStore::open(&db).unwrap();
-        assert_eq!(
-            store.get_execution_by_id(user_run_id).unwrap().status,
-            "completed"
-        );
-        assert_eq!(
-            agent_link_engine::run_dir::find_run_dir(user_run_id).unwrap().0,
-            agent_link_engine::run_dir::REVIEW_OWNER
-        );
-        drop(store);
-
-        // (7) もう一度終えようとしても実行中の札ではないので 1
-        let err = user_finish(user_run_id).unwrap_err();
-        assert_eq!(err.code, EXIT_USAGE);
+        // `meta` では消した項目と同じ名前を引き続き使えない
+        let bad = super::CardCreateInput {
+            meta: HashMap::from([("runner".to_string(), "cc".to_string())]),
+            ..Default::default()
+        };
+        assert_eq!(super::card_create_from(bad).unwrap_err().code, EXIT_PARSE);
     }
 
     /// テスト用のブロックを作る（実行レコードを差し込むため）。
@@ -2377,7 +2217,6 @@ mod tests {
                 "b".to_string(),
                 "テスト".to_string(),
                 "m".to_string(),
-                None,
                 "off".to_string(),
                 "true".to_string(),
                 "true".to_string(),
@@ -2520,7 +2359,6 @@ mod tests {
             name.to_string(),
             "テスト用ブロック".to_string(),
             model.to_string(),
-            None,
             "off".to_string(),
             "true".to_string(),
             "true".to_string(),

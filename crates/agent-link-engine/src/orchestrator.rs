@@ -61,7 +61,6 @@ use crate::cc_command::CcCommandBuilder;
 use crate::placeholder::{
     resolve_placeholder_values, shift_headings, split_fixed_and_variable, PlaceholderValue,
 };
-use crate::runner::RunnerKind;
 use crate::doc_write_notify;
 use crate::session::{
     create_session_dir, create_session_file, SessionError,
@@ -110,8 +109,6 @@ pub struct PipelineConfig {
     pub pane_id: Option<String>,
     /// サブタスクとして実行中かどうか（true の場合、エージェントのプロセスに AGENT_LINK_IS_SUBTASK=1 を付与）
     pub is_subtask: bool,
-    /// 実行主体（`cc` / `gl`）。既定 `Cc`。
-    pub runner: RunnerKind,
 }
 
 impl Default for PipelineConfig {
@@ -120,7 +117,6 @@ impl Default for PipelineConfig {
             name: "default".to_string(),
             description: None,
             model: None,
-            provider: None,
             thinking: None,
             tools: None,
             extensions: None,
@@ -130,7 +126,6 @@ impl Default for PipelineConfig {
             worktree: None,
             enable: None,
             category: None,
-            tag: None,
             round: None,
             templates: None,
             id: None,
@@ -148,7 +143,6 @@ impl Default for PipelineConfig {
             base_pane_id: None,
             pane_id: None,
             is_subtask: false,
-            runner: RunnerKind::Cc,
         }
     }
 }
@@ -274,9 +268,6 @@ pub type RunningExecutions = Arc<Mutex<HashMap<i64, mpsc::Sender<CompletionEvent
 pub struct ExecutionOverrides {
     /// モデル指定（例: "anthropic/claude-sonnet-4-5"）
     pub model: Option<String>,
-    /// provider 指定（例: "anthropic"）。None なら model 解決・ブロック定義・settings.json の順
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub provider: Option<String>,
     /// thinking budget: off / minimal / low / medium / high / xhigh
     pub thinking: Option<String>,
     /// タイムアウト（**秒**）。None ならフロントマター値または 300 秒
@@ -286,8 +277,6 @@ pub struct ExecutionOverrides {
     pub round: Option<i64>,
     /// グローバルラウンド番号（GR）
     pub global_round: Option<i64>,
-    /// タグ
-    pub tag: Option<String>,
     /// ペイン分割方向
     pub direction: Option<SplitDirection>,
     /// worktree 指定（"isolation" / "none" / リテラルブランチ名）
@@ -298,9 +287,6 @@ pub struct ExecutionOverrides {
     /// デバッグ用にペインを維持するか（1.10 の修正: 全経路で伝播）
     #[serde(default)]
     pub keep_pane: bool,
-    /// 実行主体（`cc` / `gl`）。未指定は `cc`。
-    #[serde(default)]
-    pub runner: RunnerKind,
 }
 
 /// `resolve_execution_settings` の解決結果。
@@ -318,12 +304,8 @@ pub struct ResolvedExecutionSettings {
     pub round: Option<i64>,
     /// 解決後のグローバルラウンド番号（DB 保存用）
     pub global_round: Option<i64>,
-    /// 解決後のタグ（DB 保存用）
-    pub tag: Option<String>,
     /// デバッグ用にペインを維持するか
     pub keep_pane: bool,
-    /// 解決後の実行主体（`cc` / `gl`）。
-    pub runner: RunnerKind,
 }
 
 /// 実行時設定を解決する共通関数（§6）。
@@ -342,17 +324,6 @@ pub fn resolve_execution_settings(
     if let Some(ref model) = overrides.model {
         if !model.is_empty() {
             config.model = Some(model.clone());
-            // モデルが明示上書きされた場合、provider が未指定のときのみ
-            // モデルから再解決する。task.md / block.md に明示された provider
-            // （例: `open-router2`）を上書きしてはならない（過去バグ: model 接頭辞
-            // "z-ai" で provider を潰し `Unknown provider "z-ai"` で起動失敗）。
-            if model != "inherit"
-                && (config.provider.is_none() || config.provider.as_deref() == Some(""))
-            {
-                if let Some(p) = crate::settings::resolve_provider_for_model(model) {
-                    config.provider = Some(p);
-                }
-            }
         }
     }
     if let Some(ref thinking) = overrides.thinking {
@@ -371,30 +342,17 @@ pub fn resolve_execution_settings(
             }
         }
     }
-    // provider は model 自動解決の後に適用する（task.md 明示指定を最優先）
-    if let Some(ref provider) = overrides.provider {
-        if !provider.is_empty() {
-            config.provider = Some(provider.clone());
-        }
-    }
     if let Some(timeout) = overrides.timeout {
         config.timeout = Some(timeout);
     }
 
     // 2. R11: `.agent-link/settings.json` のデフォルト値を補完
-    //    ブロック定義に model/provider/thinking が無い場合、settings.json の値を参照する。
+    //    ブロック定義に model/thinking が無い場合、settings.json の値を参照する。
     let settings = crate::settings::load_settings();
     if config.model.is_none() || config.model.as_deref() == Some("") {
         if let Some(ref model) = settings.default_model {
             if !model.is_empty() {
                 config.model = Some(model.clone());
-            }
-        }
-    }
-    if config.provider.is_none() || config.provider.as_deref() == Some("") {
-        if let Some(ref provider) = settings.default_provider {
-            if !provider.is_empty() {
-                config.provider = Some(provider.clone());
             }
         }
     }
@@ -430,7 +388,6 @@ pub fn resolve_execution_settings(
         .filter(|w| w != "none" && !w.is_empty());
     let round = overrides.round.or(config.round.map(|v| v as i64));
     let global_round = overrides.global_round;
-    let tag = overrides.tag.clone().or_else(|| config.tag.clone());
 
     ResolvedExecutionSettings {
         config,
@@ -439,9 +396,7 @@ pub fn resolve_execution_settings(
         worktree,
         round,
         global_round,
-        tag,
         keep_pane: overrides.keep_pane,
-        runner: overrides.runner,
     }
 }
 
@@ -496,9 +451,7 @@ pub struct PreparedPipeline {
     pub task_id: Option<i64>,
     /// 親実行 ID（U3。停止通知 JSON の parent_run_id に使用）
     pub parent_run_id: Option<i64>,
-    /// 実行主体（`cc` / `gl`）。
-    pub runner: RunnerKind,
-    /// プロンプト確定送信キー（cc は Alt+Enter / gl は Enter）。
+    /// プロンプト確定送信キー（cc は Alt+Enter）。
     pub submit_key: &'static str,
     /// エージェント側セッション ID（cc のみ。`--session-id` に渡し DB 保存する）。
     pub agent_session_id: Option<String>,
@@ -733,44 +686,35 @@ pub fn prepare_pipeline(config: &PipelineConfig) -> Result<PreparedPipeline, Orc
         }
     };
 
-    // ── Step 4+5: 起動コマンド構築（runner 分岐） ──
-    let (mut agent_command, agent_args, agent_session_id) = match config.runner {
-        RunnerKind::Cc => {
-            let cwd = config
-                .cwd
-                .clone()
-                .unwrap_or_else(crate::project::project_root);
-            // 道具・MCP・statusLine は `agent-link init` が作る .claude/settings.json と
-            // .mcp.json で制御する。無ければ agent-link の MCP が使えないので起動前に止める。
-            // cwd がプロジェクトルートの外（別プロジェクトの cwd 等）でも、
-            // agent-link 側の設定があればそれを `--mcp-config` / `--settings` で渡す。
-            let config_dir = crate::cc_command::check_project_files(&cwd)
-                .map_err(OrchestratorError::CommandError)?;
-            let session_id = crate::cc_command::generate_uuid_v4();
-            let mut builder =
-                CcCommandBuilder::new(&session_id).with_config(config.block_config.clone());
-            // cwd 自身に設定が無い（プロジェクトルートから渡す）ときだけ明示指定する。
-            if config_dir != cwd {
-                builder = builder.with_config_dir(config_dir);
-            }
-            // 固定部分（template と本文）を system-prompt.md から足す（U6）
-            if let Some(path) = &system_prompt_path {
-                builder = builder.with_system_prompt_file(path.to_string_lossy());
-            }
-            let cc_cmd = builder.build()
-                .map_err(|e| {
-                    OrchestratorError::CommandError(format!("cc コマンド構築失敗: {}", e))
-                })?;
-            // エージェント側セッション ID（`--session-id` に渡し DB へ保存する）
-            (cc_cmd.command, cc_cmd.args, Some(session_id))
+    // ── Step 4+5: 起動コマンド構築 ──
+    let (mut agent_command, agent_args, agent_session_id) = {
+        let cwd = config
+            .cwd
+            .clone()
+            .unwrap_or_else(crate::project::project_root);
+        // 道具・MCP・statusLine は `agent-link init` が作る .claude/settings.json と
+        // .mcp.json で制御する。無ければ agent-link の MCP が使えないので起動前に止める。
+        // cwd がプロジェクトルートの外（別プロジェクトの cwd 等）でも、
+        // agent-link 側の設定があればそれを `--mcp-config` / `--settings` で渡す。
+        let config_dir = crate::cc_command::check_project_files(&cwd)
+            .map_err(OrchestratorError::CommandError)?;
+        let session_id = crate::cc_command::generate_uuid_v4();
+        let mut builder =
+            CcCommandBuilder::new(&session_id).with_config(config.block_config.clone());
+        // cwd 自身に設定が無い（プロジェクトルートから渡す）ときだけ明示指定する。
+        if config_dir != cwd {
+            builder = builder.with_config_dir(config_dir);
         }
-        RunnerKind::Gl => {
-            // gl（sai-gemini-tui）は sai-tree では使わない（headless は cc / pi だけ）。
-            return Err(OrchestratorError::CommandError(
-                "gl は sai-tree では使えません（runner は cc を指定してください）"
-                    .to_string(),
-            ));
+        // 固定部分（template と本文）を system-prompt.md から足す（U6）
+        if let Some(path) = &system_prompt_path {
+            builder = builder.with_system_prompt_file(path.to_string_lossy());
         }
+        let cc_cmd = builder.build()
+            .map_err(|e| {
+                OrchestratorError::CommandError(format!("cc コマンド構築失敗: {}", e))
+            })?;
+        // エージェント側セッション ID（`--session-id` に渡し DB へ保存する）
+        (cc_cmd.command, cc_cmd.args, Some(session_id))
     };
 
     // ── 設定ファイル (env:) の環境変数をコマンド先頭に付与 ──
@@ -869,8 +813,7 @@ pub fn prepare_pipeline(config: &PipelineConfig) -> Result<PreparedPipeline, Orc
         pane_id: config.pane_id.clone(),
         task_id: None,       // U3: 後段（run_pipeline_with_watcher）で設定
         parent_run_id: None, // U3: 後段で設定
-        runner: config.runner,
-        submit_key: config.runner.submit_key(),
+        submit_key: crate::cc_command::CC_SUBMIT_KEY,
         agent_session_id,
     })
 }
@@ -1174,30 +1117,18 @@ fn claude_session_path(prepared: &PreparedPipeline) -> Option<std::path::PathBuf
     crate::session::claude_session_file(cwd, sid)
 }
 
-/// runner に応じて出力・トランスクリプト・セッション統計を抽出する。
-///
-/// - pi: run セッション dir 内の pi JSONL を集計
-/// - cc: `~/.claude/projects/<slug>/<uuid>.jsonl` を集計
-/// - gl: agent-link 側の出力・統計は空（会話は `session::gemini_*` で読む）
+/// 出力・トランスクリプト・セッション統計を抽出する（`~/.claude/projects/<slug>/<uuid>.jsonl` を集計）。
 fn extract_outputs_for_pipeline(prepared: &PreparedPipeline) -> (String, String, Option<String>) {
-    match prepared.runner {
-        RunnerKind::Cc => match claude_session_path(prepared) {
-            Some(path) => {
-                let output =
-                    crate::session::extract_claude_final_output(&path).unwrap_or_default();
-                let transcript = crate::session::extract_claude_full_transcript(&path);
-                let stats = crate::session::extract_claude_session_stats(&path)
-                    .ok()
-                    .and_then(|s| serde_json::to_string(&s).ok());
-                (output, transcript, stats)
-            }
-            None => (String::new(), String::new(), None),
-        },
-        RunnerKind::Gl => {
-            // gl は sai-gemini 側で会話するため、agent-link 側の出力・統計は空。
-            // 会話内容は `session::gemini_*` で `~/.agent-link-gemini/sessions/` から読む。
-            (String::new(), String::new(), None)
+    match claude_session_path(prepared) {
+        Some(path) => {
+            let output = crate::session::extract_claude_final_output(&path).unwrap_or_default();
+            let transcript = crate::session::extract_claude_full_transcript(&path);
+            let stats = crate::session::extract_claude_session_stats(&path)
+                .ok()
+                .and_then(|s| serde_json::to_string(&s).ok());
+            (output, transcript, stats)
         }
+        None => (String::new(), String::new(), None),
     }
 }
 
@@ -1327,7 +1258,6 @@ pub fn upsert_block_metadata(
                 .model
                 .clone()
                 .unwrap_or_else(|| "inherit".to_string()),
-            provider: config.provider.clone(),
             thinking: config.thinking.clone().unwrap_or_else(|| "none".to_string()),
             tools: config
                 .tools
@@ -1348,7 +1278,6 @@ pub fn upsert_block_metadata(
             enable: config.enable.unwrap_or(true),
             file_path: file_path_str,
             body_hash: None,
-            tag: config.tag.clone(),
             round: config.round.map(|v| v as i64),
             created_at,
             updated_at: String::new(),
@@ -1850,14 +1779,11 @@ fn write_run_task_md(
     let mut fm = crate::kanban::CardFrontmatter::new_card(crate::kanban::card_creation_date());
     fm.execution_date = fm.creation_date.clone();
     fm.run_id = run_id.to_string();
-    fm.runner = resolved.runner.as_str().to_string();
     fm.block = resolved.config.block_id().to_string();
     fm.model = resolved.config.model.clone().unwrap_or_default();
-    fm.provider = resolved.config.provider.clone().unwrap_or_default();
     fm.thinking = resolved.config.thinking.clone().unwrap_or_default();
     fm.round = resolved.round.map(|v| v.to_string()).unwrap_or_default();
     fm.global_round = resolved.global_round.map(|v| v.to_string()).unwrap_or_default();
-    fm.tag = resolved.tag.clone().unwrap_or_default();
     let task = task_id.and_then(|t| store.get_task_by_id(t).ok());
     fm.description = task
         .as_ref()
@@ -1929,22 +1855,17 @@ pub fn execute_block_pipeline_full(
         let _ = store.update_task_execution_id(tid, run_id);
     }
 
-    // P1-2: サブタスクが親から round/global_round/tag を引き継げるよう、
+    // P1-2: サブタスクが親から round/global_round を引き継げるよう、
     // 実行レコード作成直後（実行前）にオーバーライド値を保存する。
     // （旧来は完了時にしか保存しておらず、親実行中に起動するサブが None を読んでいた）
     let _ = store.update_execution_overrides(
         run_id,
-        resolved.tag.as_deref(),
         resolved.round,
         resolved.global_round,
         resolved.config.model.as_deref(),
         resolved.config.thinking.as_deref(),
         resolved.config.timeout.map(|v| v as i32),
     );
-    // provider も保存する（`p` 再開コマンドの `--provider` 出力用・P2）
-    let _ = store.update_execution_provider(run_id, resolved.config.provider.as_deref());
-    // 実行主体（pi / cc）を保存する（カード frontmatter の `runner:` 由来）
-    let _ = store.update_execution_runner(run_id, resolved.runner.as_str());
 
     // kanban 実行時は実行開始直後に run フォルダを todo→running へ移動し（R403）、
     // DB の `kanban_card_path` を保存する。旧カード（`run_id: -`）は従来の書戻しを維持。
@@ -2026,7 +1947,6 @@ pub fn execute_block_pipeline_full(
         base_pane_id,
         pane_id,
         is_subtask: parent_run_id.is_some(),
-        runner: resolved.runner,
     };
 
     let start = Instant::now();
@@ -2115,14 +2035,12 @@ pub fn execute_block_pipeline_full(
             // 実行時オーバーライド値を保存（右SB表示用）
             let _ = store.update_execution_overrides(
                 run_id,
-                resolved.tag.as_deref(),
                 resolved.round,
                 resolved.global_round,
                 resolved.config.model.as_deref(),
                 resolved.config.thinking.as_deref(),
                 resolved.config.timeout.map(|v| v as i32),
             );
-            let _ = store.update_execution_provider(run_id, resolved.config.provider.as_deref());
             // L1: 完了時に実行 usage（provider の実際の token / cost）を自動保存する。
             // ベストエフォート（セッションが無い・保存に失敗しても完了は止めない）。
             if let Err(e) = crate::usage::record_execution_usage(store, run_id) {
@@ -2142,13 +2060,9 @@ pub fn execute_block_pipeline_full(
             if let Ok(exec) = store.get_execution_by_id(run_id) {
                 // cc 実行は `~/.claude` 側の JSONL から統計を抽出する
                 // （cwd は worktree を考慮しないプロジェクトルートで近似）
-                let claude_json = if exec.runner == "cc" {
-                    exec.agent_session_id.as_deref().and_then(|sid| {
-                        crate::session::claude_session_file(&crate::project::project_root(), sid)
-                    })
-                } else {
-                    None
-                };
+                let claude_json = exec.agent_session_id.as_deref().and_then(|sid| {
+                    crate::session::claude_session_file(&crate::project::project_root(), sid)
+                });
                 if let Some(path) = claude_json {
                     if let Some(stats_json) = crate::session::extract_claude_session_stats(&path)
                         .ok()
@@ -2381,7 +2295,7 @@ pub fn render_message_md(block_name: &str, run_id: i64, messages: &[(String, Str
 /// `session_dir` が空・存在しない・jsonl が無い場合は空メッセージ列として
 /// frontmatter のみの md を保存する。保存したパスを返す。
 pub fn write_message_file(store: &crate::db::SaiStore, run_id: i64) -> std::io::Result<PathBuf> {
-    let (block_name, runner, session_dir, exec) = match store.get_execution_by_id(run_id) {
+    let (block_name, session_dir, exec) = match store.get_execution_by_id(run_id) {
         Ok(exec) => {
             let name = store
                 .get_block_by_id(exec.block_id)
@@ -2390,7 +2304,7 @@ pub fn write_message_file(store: &crate::db::SaiStore, run_id: i64) -> std::io::
             let dir = crate::session::resolve_session_dir(exec.session_dir.as_deref(), run_id)
                 .map(|p| p.to_string_lossy().to_string())
                 .unwrap_or_default();
-            (name, exec.runner.clone(), dir, Some(exec))
+            (name, dir, Some(exec))
         }
         Err(e) => {
             return Err(std::io::Error::new(
@@ -2399,37 +2313,20 @@ pub fn write_message_file(store: &crate::db::SaiStore, run_id: i64) -> std::io::
             ))
         }
     };
-    // runner=gl は sai-gemini の最新セッション JSONL（空でない最初の1件）から抽出する。
-    let gemini_messages = if runner == "gl" {
-        crate::session::gemini_session_files(30)
-            .into_iter()
-            .find_map(|path| {
-                crate::session::extract_gemini_user_assistant_messages(&path)
-                    .ok()
-                    .filter(|msgs| !msgs.is_empty())
-            })
-    } else {
-        None
-    };
-    // runner=cc は、その run の `agent_session_id` に対応する会話ファイル
+    // cc は、その run の `agent_session_id` に対応する会話ファイル
     // （`resolve_transcript`）から抽出する。
     // `cc_session_files(...)`（`~/.claude/projects/` 全体で一番新しいもの）を使うと
     // 別の run の会話が出るため使わない。見つからないときは空にする。
-    let cc_messages = match (runner == "cc", exec.as_ref()) {
-        (true, Some(exec)) => crate::phone_export::resolve_transcript(
-            exec,
-            &crate::project::project_root(),
+    let cc_messages = exec.as_ref().and_then(|exec| {
+        crate::phone_export::resolve_transcript(exec, &crate::project::project_root()).and_then(
+            |path| {
+                crate::session::extract_cc_user_assistant_messages(&path)
+                    .ok()
+                    .filter(|msgs| !msgs.is_empty())
+            },
         )
-        .and_then(|path| {
-            crate::session::extract_cc_user_assistant_messages(&path)
-                .ok()
-                .filter(|msgs| !msgs.is_empty())
-        }),
-        _ => None,
-    };
-    let messages = if let Some(msgs) = gemini_messages {
-        msgs
-    } else if let Some(msgs) = cc_messages {
+    });
+    let messages = if let Some(msgs) = cc_messages {
         msgs
     } else if session_dir.is_empty() {
         Vec::new()
@@ -2490,12 +2387,9 @@ fn stamp_card_run_id(card_rel: &str, run_id: i64) {
 
 /// 子タスクの実行設定（`task_create` の要素から来る値）。
 ///
-/// 各項目の `None` は「次の出所に従う」を表す（model / thinking はカード → ブロック定義、
-/// runner はカード → `cc`）。
+/// 各項目の `None` は「次の出所に従う」を表す（model / thinking はカード → ブロック定義）。
 #[derive(Debug, Clone, Default)]
 pub struct SubtaskSettings {
-    /// 実行主体（`cc`。`None` はカードの runner、無ければ `cc`）
-    pub runner: Option<String>,
     /// model（`None` はカードの model、無ければブロック定義に従う）
     pub model: Option<String>,
     /// thinking（`None` はカードの thinking、無ければブロック定義に従う）
@@ -2519,7 +2413,7 @@ pub struct SubtaskSettings {
 /// * `worktree` — タスクの worktree 指定（"isolation" / "none" / ブランチ名）
 /// * `task_cwd` — タスクの作業フォルダ（親が指定した絶対パス。None ならプロジェクトルート）
 /// * `task_timeout` — タスクの時間上限（秒。親が `task_create` で指定。None ならブロック定義に従う）
-/// * `settings` — 子の実行設定（`task_create` の runner / model / thinking。None はカード → 既定の順）
+/// * `settings` — 子の実行設定（`task_create` の model / thinking。None はカード → 既定の順）
 /// * `batch_id` — タスクバッチ ID（P3-A。DAG のフェーズ合成に使用）
 /// * `card_run_id` — 起こす todo カードの run_id（U2。`Some` なら予約済みの run_id と
 ///   `task.md`（`sci_*` を含む）をそのまま使う。`None` は従来どおり新規に run を作る）
@@ -2594,11 +2488,11 @@ pub fn run_subtask(
         }
     }
 
-    // 親実行から round / global_round / tag を継承（§6.2・既存実装を維持）
+    // 親実行から round / global_round を継承（§6.2・既存実装を維持）
     let parent_exec = store.get_execution_by_id(parent_run_id).ok();
 
     // U2: todo のカードを自分の子として起こす場合の実行設定。
-    // カード（`.agent-link/outputs/todo/<run_id>/task.md`）の model / provider / thinking があれば
+    // カード（`.agent-link/outputs/todo/<run_id>/task.md`）の model / thinking があれば
     // ブロック定義より優先する（`kanban_run::run_card_request` と同じ扱い）。
     // 空欄のときはブロック定義の値に任せる。
     let card = card_run_id
@@ -2612,7 +2506,6 @@ pub fn run_subtask(
             settings.model,
             card.as_ref().map(|c| c.frontmatter.model.as_str()),
         ),
-        provider: card.as_ref().and_then(|c| non_empty_str(&c.frontmatter.provider)),
         thinking: subtask_setting(
             settings.thinking,
             card.as_ref().map(|c| c.frontmatter.thinking.as_str()),
@@ -2622,23 +2515,11 @@ pub fn run_subtask(
         timeout: task_timeout,
         round: parent_exec.as_ref().and_then(|e| e.round),
         global_round: parent_exec.as_ref().and_then(|e| e.global_round),
-        tag: parent_exec.as_ref().and_then(|e| e.tag.clone()),
         // U2・R4: タブ内で交互分割する場合は方向を明示指定（None ならデフォルト）
         direction,
         worktree,
         cwd: task_cwd,
         keep_pane: false,
-        // 実行主体: task_create の runner → カードの runner → cc の順
-        runner: settings
-            .runner
-            .as_deref()
-            .map(RunnerKind::parse)
-            .or_else(|| {
-                card.as_ref()
-                    .and_then(|c| non_empty_str(&c.frontmatter.runner))
-                    .map(|r| RunnerKind::parse(&r))
-            })
-            .unwrap_or(RunnerKind::Cc),
     };
 
     // カード指定の子（U2）は、予約済みの run_id と run フォルダの task.md を使い回す。
@@ -3637,7 +3518,7 @@ fn execute_completion_with_doc_write(
         return;
     }
     *progress.lock().unwrap() = PipelineProgress::ExtractingOutput;
-    // runner に応じて出力・トランスクリプト・統計を抽出する（pi / cc）
+    // 出力・トランスクリプト・統計を抽出する
     let (_output, full_transcript, session_stats_json) = extract_outputs_for_pipeline(&prepared);
 
     // 一時ファイルのみクリーンアップ（セッション・ペインは維持）
@@ -3702,7 +3583,7 @@ pub struct TurnResult {
 /// * `message` — 送信する追加指示テキスト
 /// * `timeout_ms` — 完了待機のタイムアウト（ミリ秒）
 /// * `session_dir` — セッションファイルのディレクトリ（出力抽出用）
-/// * `submit_key` — 入力確定キー（`RunnerKind::submit_key()`。cc は `Alt+Enter`、gl は `Enter`）
+/// * `submit_key` — 入力確定キー（`cc_command::CC_SUBMIT_KEY`。`Alt+Enter`）
 /// * `task_id` — 長時間アラートを `results/` に書き込むためのタスク ID（`None` なら書かない）
 /// * `parent_run_id` — 通知に添える親実行 ID
 /// * `run_id` — このターンの実行の ID。`Some` のときは、この run の `file_written` だけを集める
@@ -3920,7 +3801,7 @@ fn interruptible_sleep(
 /// * `herdr` — herdr クライアント
 /// * `pane_id` — 送信先 pane
 /// * `text` — 送信するプロンプト本文
-/// * `submit_key` — 確定キー（`RunnerKind::submit_key()`。cc は `Alt+Enter`。
+/// * `submit_key` — 確定キー（`cc_command::CC_SUBMIT_KEY`。`Alt+Enter`。
 ///   `~/.claude/keybindings.json` の設定に従う）
 /// * `cancel_flag` — キャンセルフラグ（無い場合は `None`）
 ///
@@ -4387,7 +4268,6 @@ mod tests {
                 name: "test-block".to_string(),
                 description: Some("テスト用".to_string()),
                 model: Some("anthropic/claude-sonnet-4-5".to_string()),
-                provider: None,
                 thinking: None,
                 tools: None,
                 extensions: None,
@@ -4397,7 +4277,6 @@ mod tests {
                 worktree: None,
                 enable: None,
                 category: None,
-                tag: None,
                 round: None,
                 templates: None,
                 id: None,
@@ -4413,7 +4292,6 @@ mod tests {
             base_pane_id: None,
             pane_id: None,
             is_subtask: false,
-            runner: RunnerKind::Cc,
         }
     }
 
@@ -4643,23 +4521,6 @@ mod tests {
         crate::session::cleanup_session_dir(&prepared.session_dir);
     }
 
-    /// gl は sai-tree では使えない（prepare_pipeline が失敗する）。
-    #[test]
-    fn test_prepare_pipeline_gl_is_rejected() {
-        let _env_lock = finalize_env_lock();
-        let _project_root_guard = EnvVarGuard::remove("AGENT_LINK_PROJECT_ROOT");
-
-        let mut gl = minimal_config();
-        gl.run_id = Some(1234);
-        gl.runner = RunnerKind::Gl;
-        let err = prepare_pipeline(&gl).expect_err("gl は拒否されるべき");
-        assert!(
-            err.to_string().contains("gl"),
-            "理由に gl が入る: {}",
-            err
-        );
-    }
-
     /// サブブロックの起動コマンドには AGENT_LINK_IS_SUBTASK=1 と AGENT_LINK_BIN（実行ファイルのパス）が付く。
     /// 子が AGENT_LINK_BIN で agent-link の場所を知るため。
     #[test]
@@ -4710,7 +4571,7 @@ mod tests {
         crate::session::cleanup_session_dir(&prepared.session_dir);
     }
 
-    /// `runner=cc` かつ cwd がプロジェクトルートの外のとき、agent-link 側の設定
+    /// cwd がプロジェクトルートの外のとき、agent-link 側の設定
     /// （`.mcp.json` / `.claude/settings.json`）が `--mcp-config` /
     /// `--settings` で渡り、設定チェックで止まらないこと。
     #[test]
@@ -4730,7 +4591,6 @@ mod tests {
         let external = finalize_test_temp_dir("cc-external-cwd");
         std::fs::remove_file(external.join(".claude/settings.json")).unwrap();
         let mut config = minimal_config();
-        config.runner = RunnerKind::Cc;
         config.cwd = Some(external);
         config.run_id = Some(4321);
 
@@ -5131,7 +4991,6 @@ mod tests {
             name: "wt-test".to_string(),
             description: None,
             model: None,
-            provider: None,
             thinking: None,
             tools: None,
             extensions: None,
@@ -5141,7 +5000,6 @@ mod tests {
             worktree: worktree.map(str::to_string),
             enable: None,
             category: None,
-            tag: None,
             round: None,
             templates: None,
             id: None,
@@ -5343,7 +5201,6 @@ mod tests {
             name: "test".to_string(),
             description: None,
             model: Some("inherit".to_string()),
-            provider: None,
             thinking: None,
             tools: None,
             extensions: None,
@@ -5353,7 +5210,6 @@ mod tests {
             worktree: None,
             enable: None,
             category: None,
-            tag: None,
             round: None,
             templates: None,
             id: None,
@@ -5370,7 +5226,6 @@ mod tests {
             name: "test".to_string(),
             description: None,
             model: Some("inherit".to_string()),
-            provider: None,
             thinking: Some("low".to_string()),
             tools: None,
             extensions: None,
@@ -5380,24 +5235,20 @@ mod tests {
             worktree: Some("none".to_string()),
             enable: None,
             category: None,
-            tag: Some("brst".to_string()),
             round: Some(2),
             templates: None,
             id: None,
         };
         let overrides = ExecutionOverrides {
             model: Some("anthropic/claude-sonnet-4-5".to_string()),
-            provider: None,
             thinking: Some("high".to_string()),
             timeout: Some(900),
             round: Some(3),
             global_round: Some(1),
-            tag: Some("plan".to_string()),
             direction: Some(SplitDirection::Down),
             worktree: Some("isolation".to_string()),
             cwd: None,
             keep_pane: false,
-            runner: RunnerKind::Cc,
         };
         let resolved = resolve_execution_settings(&config, &overrides);
         // オーバーライドが優先される
@@ -5411,99 +5262,6 @@ mod tests {
         assert_eq!(resolved.config.thinking.as_deref(), Some("high"));
         assert_eq!(resolved.round, Some(3));
         assert_eq!(resolved.global_round, Some(1));
-        assert_eq!(resolved.tag.as_deref(), Some("plan"));
-    }
-
-    /// モデルを明示上書きしても、block.md / task.md に明示された provider は保持される。
-    ///
-    /// 過去バグ: model オーバーライド時に接頭辞（`z-ai/glm-5.3-flash` → `z-ai`）を
-    /// provider と断定して明示 provider を上書きし、pi が
-    /// `Unknown provider "z-ai"` で起動失敗していた。モデル ID 自体が `/` を
-    /// 含む OpenRouter 系 ID では接頭辞解決は不正確なため、明示 provider を最優先とする。
-    #[test]
-    fn test_resolve_execution_settings_model_override_keeps_provider() {
-        // models.json 解決が AGENT_LINK_PROJECT_ROOT に依存するため、環境変数を触るテストと直列化する（U4）
-        let _env_lock = finalize_env_lock();
-        // ブロック定義: model=z-ai/glm-5.3-flash + provider=open-router2（実ブロック sai.md と同形）
-        let config = BlockConfig {
-            name: "test".to_string(),
-            description: None,
-            model: Some("z-ai/glm-5.3-flash".to_string()),
-            provider: Some("open-router2".to_string()),
-            thinking: None,
-            tools: None,
-            extensions: None,
-            skills: None,
-            subblocks: None,
-            timeout: None,
-            worktree: None,
-            enable: None,
-            category: None,
-            tag: None,
-            round: None,
-            templates: None,
-            id: None,
-        };
-
-        // task.md 経由で model が上書きされるケース（provider はオーバーライドなし）
-        let overrides = ExecutionOverrides {
-            model: Some("z-ai/glm-5.3-flash".to_string()),
-            ..ExecutionOverrides::default()
-        };
-        let resolved = resolve_execution_settings(&config, &overrides);
-
-        assert_eq!(
-            resolved.config.model.as_deref(),
-            Some("z-ai/glm-5.3-flash")
-        );
-        // 明示 provider は model からの再解決で上書きされない
-        // （pi へは `--provider open-router2 --model z-ai/glm-5.3-flash` として渡る）
-        assert_eq!(
-            resolved.config.provider.as_deref(),
-            Some("open-router2"),
-            "明示 provider は model オーバーライド時も保持されるべき"
-        );
-    }
-
-    /// task.md の `provider: zzz` オーバーライドは最優先で `--provider zzz` に
-    /// 反映される（model 接頭辞を provider と誤解釈しない・P2）。
-    #[test]
-    fn test_resolve_execution_settings_task_provider_wins_over_model_prefix() {
-        // models.json 解決が AGENT_LINK_PROJECT_ROOT に依存するため、環境変数を触るテストと直列化する（U4）
-        let _env_lock = finalize_env_lock();
-        let config = BlockConfig {
-            name: "test".to_string(),
-            description: None,
-            model: None,
-            provider: None,
-            thinking: None,
-            tools: None,
-            extensions: None,
-            skills: None,
-            subblocks: None,
-            timeout: None,
-            worktree: None,
-            enable: None,
-            category: None,
-            tag: None,
-            round: None,
-            templates: None,
-            id: None,
-        };
-        // task.md: `model: z-ai/glm-5.3-flash` + `provider: open-router2`
-        let overrides = ExecutionOverrides {
-            model: Some("z-ai/glm-5.3-flash".to_string()),
-            provider: Some("open-router2".to_string()),
-            ..ExecutionOverrides::default()
-        };
-        let resolved = resolve_execution_settings(&config, &overrides);
-
-        assert_eq!(resolved.config.model.as_deref(), Some("z-ai/glm-5.3-flash"));
-        assert_eq!(
-            resolved.config.provider.as_deref(),
-            Some("open-router2"),
-            "task.md の provider は最優先で反映されるべき"
-        );
     }
 
     #[test]
@@ -5513,7 +5271,6 @@ mod tests {
             name: "test".to_string(),
             description: None,
             model: None,
-            provider: None,
             thinking: None,
             tools: None,
             extensions: None,
@@ -5523,7 +5280,6 @@ mod tests {
             worktree: None,
             enable: None,
             category: None,
-            tag: None,
             round: None,
             templates: None,
             id: None,
@@ -5591,7 +5347,7 @@ mod tests {
         // ブロック定義を登録（ファイルパスは存在しなくても upsert は動作する）
         let _block_id = store.insert_block(&create_test_block("test-sub")).unwrap();
 
-        // 親（メイン）実行を作成し、実行開始時に round / global_round / tag を保存
+        // 親（メイン）実行を作成し、実行開始時に round / global_round を保存
         // （P1-2: execute_block_pipeline が実行レコード作成直後に保存するのと同じ操作）
         let parent_block_id = store
             .insert_block(&create_test_block("test-parent"))
@@ -5600,8 +5356,6 @@ mod tests {
         store
             .update_execution_overrides(
                 parent_run_id,
-                Some("test"),
-                // tag
                 Some(1),
                 // round
                 Some(5),
@@ -5618,7 +5372,6 @@ mod tests {
             name: "test-sub".to_string(),
             description: None,
             model: Some("inherit".to_string()),
-            provider: None,
             thinking: None,
             tools: None,
             extensions: None,
@@ -5628,7 +5381,6 @@ mod tests {
             worktree: None,
             enable: None,
             category: None,
-            tag: None,
             round: None,
             templates: None,
             id: None,
@@ -5650,7 +5402,6 @@ mod tests {
         store
             .update_execution_overrides(
                 prep.run_id,
-                parent_exec.tag.as_deref(),
                 parent_exec.round,
                 parent_exec.global_round,
                 None,
@@ -5722,7 +5473,6 @@ mod tests {
             name: block_id.to_string(),
             description: None,
             model: None,
-            provider: None,
             thinking: None,
             tools: None,
             extensions: None,
@@ -5732,7 +5482,6 @@ mod tests {
             worktree: None,
             enable: None,
             category: None,
-            tag: None,
             round: None,
             templates: None,
         }
@@ -6089,7 +5838,6 @@ mod tests {
         let run_a = store.create_execution(block_id, None).unwrap();
         let run_b = store.create_execution(block_id, None).unwrap();
         for (run_id, sid) in [(run_a, sid_a), (run_b, sid_b)] {
-            store.update_execution_runner(run_id, "cc").unwrap();
             store
                 .update_execution_agent_session_id(run_id, sid)
                 .unwrap();
@@ -6129,7 +5877,6 @@ mod tests {
         let block = crate::db::models::test_helpers::create_test_block("cc-msg-empty");
         let block_id = store.insert_block(&block).unwrap();
         let run_id = store.create_execution(block_id, None).unwrap();
-        store.update_execution_runner(run_id, "cc").unwrap();
         // agent_session_id を入れないので解決できない
         let md = write_message_file(&store, run_id).expect("message.md を書ける");
         let text = std::fs::read_to_string(&md).unwrap();

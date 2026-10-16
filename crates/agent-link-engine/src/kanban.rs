@@ -31,19 +31,16 @@ pub const TODO_DIR: &str = ".agent-link/todo";
 ///
 /// これ以外のキーは `extra`（旧 `file_token` 入力の名残）として `id: 値` で保持する。
 /// `description` は Card 表示用（Workflow / Kanban 共通・3行目以降に表示）。
-const FIXED_FM_KEYS: [&str; 13] = [
+const FIXED_FM_KEYS: [&str; 10] = [
     "creation_date",
     "execution_date",
     "run_id",
     "description",
-    "runner",
     "block",
     "thinking",
     "model",
-    "provider",
     "round",
     "global_round",
-    "tag",
     "inputs",
 ];
 
@@ -55,7 +52,15 @@ const FIXED_FM_KEYS: [&str; 13] = [
 const META_FM_KEYS: [&str; 3] = ["source_doc", "scheduled_at", "executer"];
 
 /// 廃止したキー（旧カードに残っていても読み飛ばす・書き出さない）。
-const LEGACY_FM_KEYS: [&str; 4] = ["origin_run_id", "origin_block", "after_job", "target_node"];
+const LEGACY_FM_KEYS: [&str; 7] = [
+    "origin_run_id",
+    "origin_block",
+    "after_job",
+    "target_node",
+    "runner",
+    "provider",
+    "tag",
+];
 
 /// `executer: agent` のカードで、人が起こす道を試したときの文言。
 ///
@@ -102,25 +107,16 @@ pub struct CardFrontmatter {
     /// `Shift+C` 作成時は空。`c` で開いた md の frontmatter `description:` に
     /// 記載した文字がそのまま表示される。欠損した旧カードは空扱い。
     pub description: String,
-    /// 実行主体（`pi` / `user`）。未記載は `pi` 扱い。
-    ///
-    /// - `pi`: `pi agent` が実行すべきタスク（デーモンへ実行要求）
-    /// - `user`: ユーザーが実行すべきタスク（DB＋フォルダ移動のみ・特別な処理なし）
-    pub runner: String,
     /// 実行ブロック ID（`block:`）。未記載時はエラー（CLI 引数での上書き可）。
     pub block: String,
     /// thinking budget（空欄時は block.md の値を使用）
     pub thinking: String,
     /// モデル（空欄時は block.md の値を使用）
     pub model: String,
-    /// pi agent の provider（空欄時は model 解決・block.md の値を使用）
-    pub provider: String,
     /// ラウンド番号（block.md にデフォルトなし・task.md 必須）
     pub round: String,
     /// グローバルラウンド番号（block.md にデフォルトなし・task.md 必須）
     pub global_round: String,
-    /// タグ（任意）
-    pub tag: String,
     /// 固定キー以外の frontmatter（旧 `file_token` 入力・後方互換用。`id → 値`）
     pub extra: HashMap<String, String>,
     /// メタ情報（`source_doc` / `scheduled_at`。入力検査の対象外）
@@ -143,22 +139,14 @@ impl CardFrontmatter {
             execution_date: "-".to_string(),
             run_id: "-".to_string(),
             description: String::new(),
-            runner: "cc".to_string(),
             block: String::new(),
             thinking: String::new(),
             model: String::new(),
-            provider: String::new(),
             round: String::new(),
             global_round: String::new(),
-            tag: String::new(),
             extra: HashMap::new(),
             meta: HashMap::new(),
         }
-    }
-
-    /// 実行主体が `user` か（未記載は `pi` 扱い）。
-    pub fn is_user_runner(&self) -> bool {
-        self.runner.trim().eq_ignore_ascii_case("user")
     }
 
     /// 起動者（`human` / `agent`）。未記載・空・知らない値は `human` 扱い。
@@ -260,21 +248,11 @@ pub fn parse_card(text: &str) -> Option<KanbanCard> {
         run_id: get("run_id"),
         // 旧カード（`description:` なし）は空扱い（後方互換）
         description: get("description"),
-        runner: {
-            let r = get("runner");
-            if r.is_empty() {
-                "cc".to_string()
-            } else {
-                r
-            }
-        },
         block: get("block"),
         thinking: get("thinking"),
         model: get("model"),
-        provider: get("provider"),
         round: get("round"),
         global_round: get("global_round"),
-        tag: get("tag"),
         extra: {
             // メタキーと廃止したキーは extra から除外する。
             let mut extra = HashMap::new();
@@ -320,18 +298,15 @@ pub fn render_card(card: &KanbanCard) -> String {
     let mut extra_keys: Vec<&String> = card.frontmatter.extra.keys().collect();
     extra_keys.sort();
     let mut fm = format!(
-        "---\nrunner: {}\ncreation_date: {}\nexecution_date: {}\nrun_id: {}\nblock: {}\nthinking: {}\nmodel: {}\nprovider: {}\nround: {}\nglobal_round: {}\ntag: {}\ndescription: {}",
-        card.frontmatter.runner,
+        "---\ncreation_date: {}\nexecution_date: {}\nrun_id: {}\nblock: {}\nthinking: {}\nmodel: {}\nround: {}\nglobal_round: {}\ndescription: {}",
         card.frontmatter.creation_date,
         card.frontmatter.execution_date,
         card.frontmatter.run_id,
         card.frontmatter.block,
         card.frontmatter.thinking,
         card.frontmatter.model,
-        card.frontmatter.provider,
         card.frontmatter.round,
         card.frontmatter.global_round,
-        card.frontmatter.tag,
         card.frontmatter.description,
     );
     for k in META_FM_KEYS {
@@ -609,6 +584,19 @@ mod tests {
         let rendered = render_card(&card);
         let reparsed = parse_card(&rendered).expect("再パースできる");
         assert_eq!(card, reparsed);
+    }
+
+    /// 古い task.md の `runner` / `provider` / `tag` は読み飛ばし、`extra` に入れず、書き出さない。
+    #[test]
+    fn legacy_runner_provider_tag_are_dropped() {
+        let text = "---\nrunner: pi\ncreation_date: 2026/08/01 10:00:00\nexecution_date: -\nrun_id: -\nblock: worker\nprovider: x\ntag: y\n---\n\n本文\n";
+        let card = parse_card(text).expect("パースできる");
+        assert!(card.frontmatter.extra.is_empty());
+        let rendered = render_card(&card);
+        assert!(!rendered.contains("runner:"), "{rendered}");
+        assert!(!rendered.contains("provider:"), "{rendered}");
+        assert!(!rendered.contains("tag:"), "{rendered}");
+        assert!(rendered.starts_with("---\ncreation_date: 2026/08/01 10:00:00\n"));
     }
 
     #[test]

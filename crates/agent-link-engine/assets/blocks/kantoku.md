@@ -80,7 +80,7 @@ subblocks:
    - `block`: `review`
    - `global_round`: 自分と同じ値（空なら空）
    - `round`: 自分の round + 1
-   - `runner`・`model`・`provider`・`thinking`: 書かない（既定値になる）
+   - `model`・`thinking`: 書かない（既定値になる）
    - `task_text`: 下のひな形
 3. 作ったカードの `path` を編集し、`description:` に `review: <要件定義書の件名>`、`origin_run_id:` に自分の run_id を書く。
 4. `agent-link card run <review の run_id>` で起動し、上と同じく running に出たことを確かめる。

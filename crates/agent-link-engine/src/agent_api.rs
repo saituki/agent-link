@@ -259,7 +259,6 @@ fn task_to_json(t: &Task, defs: &[(PathBuf, BlockConfig)]) -> Value {
         "worktree": t.worktree,
         "cwd": t.cwd,
         "timeout": t.timeout,
-        "runner": t.runner,
         "card": t.card_run_id,
         "worktree_info": worktree_info_json(t, defs),
         "execution_id": t.execution_id,
@@ -567,8 +566,6 @@ struct NormalizedTask {
     carried_over: bool,
     /// 起こす todo カードの run_id（U2。`Some` なら予約済みの run_id をそのまま子として使う）
     card_run_id: Option<i64>,
-    /// 子の実行主体（`cc` のみ。`None` はカードの runner、無ければ `cc`）
-    runner: Option<String>,
     /// 子の model（`None` はカード → ブロック定義 → settings.json の順）
     model: Option<String>,
     /// 子の thinking（`None` はカード → ブロック定義 → settings.json の順）
@@ -771,26 +768,7 @@ pub fn task_create(
                 }
             },
         };
-        // 子の実行主体（cc だけ受け付ける。pi は廃止のため理由を添えて task_create の時点で弾く）
-        let runner = match item.get("runner") {
-            None | Some(Value::Null) => None,
-            Some(v) => match v.as_str().map(|s| s.trim().to_ascii_lowercase()) {
-                Some(s) if s == "cc" => Some(s),
-                Some(s) if s.is_empty() => None,
-                Some(s) if s == "pi" => {
-                    return Err(format!(
-                        "client_id '{}' の runner の pi は廃止しました。runner は省略するか cc にしてください",
-                        client_id
-                    ))
-                }
-                _ => {
-                    return Err(format!(
-                        "client_id '{}' の runner は cc だけです",
-                        client_id
-                    ))
-                }
-            },
-        };
+        // `runner` は廃止した項目。古い入力に残っていても無視する（エラーにしない）。
         // 子の model（省略・空はブロック定義に従う）。cc が黙って捨てる名前は入口で断る。
         // 判定は cc_command::normalize_model と同じにする（inherit は親の既定に従う指定として通す）。
         let model = match item.get("model") {
@@ -844,7 +822,6 @@ pub fn task_create(
             timeout,
             carried_over,
             card_run_id,
-            runner,
             model,
             thinking,
         });
@@ -934,7 +911,6 @@ pub fn task_create(
                 "worktree": t.worktree,
                 "cwd": resolved_cwd.get(&t.client_id),
                 "timeout": t.timeout,
-                "runner": t.runner,
                 "model": t.model,
                 "thinking": t.thinking,
                 "carried_over": t.carried_over,
@@ -1600,7 +1576,7 @@ fn run_pane(run_id: i64) -> Result<(ExecutionHistory, String), String> {
 /// 戻り値は `{"run_id", "pane_id", "status": "sent"}`。
 /// 終了している・質問待ちのときは `Err`（CLI は終了コード 4）。
 pub fn run_send(run_id: i64, text: &str) -> Result<Value, String> {
-    let (exec, pane_id) = run_pane(run_id)?;
+    let (_exec, pane_id) = run_pane(run_id)?;
     let herdr = crate::herdr::HerdrClient::new();
     let info = herdr
         .get_pane_status(&pane_id)
@@ -1611,7 +1587,7 @@ pub fn run_send(run_id: i64, text: &str) -> Result<Value, String> {
             run_id
         ));
     }
-    let submit_key = crate::runner::RunnerKind::parse(&exec.runner).submit_key();
+    let submit_key = crate::cc_command::CC_SUBMIT_KEY;
     crate::orchestrator::submit_prompt_verified(&herdr, &pane_id, text, submit_key, None)
         .map_err(|e| format!("pane への送信に失敗: {}", e))?;
     Ok(json!({
@@ -1951,7 +1927,7 @@ pub fn task_manage(
 
             match send_route(task_id, &task.status, pane_agent_status.as_deref())? {
                 SendRoute::DirectToPane => {
-                    let (_task, exec, pane_id) = task_pane(task_id)?;
+                    let (_task, _exec, pane_id) = task_pane(task_id)?;
                     // 説明に追記する（履歴・記録用。task_manager の send と同じ形式）。
                     let new_desc = if task.description.is_empty() {
                         format!("[追加入力指示]\n{}", message)
@@ -1963,7 +1939,7 @@ pub fn task_manage(
                         .map_err(|e| format!("説明の更新に失敗: {}", e))?;
 
                     let herdr = crate::herdr::HerdrClient::new();
-                    let submit_key = crate::runner::RunnerKind::parse(&exec.runner).submit_key();
+                    let submit_key = crate::cc_command::CC_SUBMIT_KEY;
                     // 1 回目の実行は task_report まで待機が続くので、ターン実行は別に起こさない。
                     // ここで送った指示は同じ実行の続きとして処理される。
                     crate::orchestrator::submit_prompt_verified(
@@ -2267,7 +2243,7 @@ fn sai_read_list_inner(run_id: Option<i64>, include_running: bool) -> Result<Val
         None => {
             // ponytail: 全件は上限なしで取る。件数が増えたら limit 引数を足す
             store
-                .list_waggle_tokens(None, None, -1, include_running)
+                .list_waggle_tokens(None, -1, include_running)
                 .map_err(|e| format!("waggle トークン一覧の取得に失敗しました: {}", e))?
                 .into_iter()
                 .map(|e| (e.token, e.execution_id))
@@ -2890,8 +2866,8 @@ mod tests {
             dir.join("task.md"),
             format!(
                 "---\ncreation_date: 2026/09/30 10:00:00\nexecution_date: -\nrun_id: {rid}\n\
-                 description: {desc}\nrunner: pi\nblock: {block}\nthinking: \nmodel: \n\
-                 provider: \nround: 1\nglobal_round: 1\ntag: \nexecuter: {executer}\n\
+                 description: {desc}\nblock: {block}\nthinking: \nmodel: \n\
+                 round: 1\nglobal_round: 1\nexecuter: {executer}\n\
                  note: n1\n---\n\n# task_text\n\n{text}\n",
                 rid = run_id,
                 desc = description,
@@ -2978,37 +2954,32 @@ mod tests {
         drop(guard);
     }
 
-    /// `runner` は cc だけ通り、通知に載る。pi は廃止の理由を付けて、それ以外は一般の理由で断る。
+    /// 廃止した `runner` を書いても、値が何でもエラーにせず無視して作れる。出力の JSON に `runner` は無い。
     #[test]
-    fn task_create_runner_accepts_cc_and_rejects_pi_and_others() {
+    fn task_create_ignores_runner() {
         let guard = EnvGuard::new();
         let store = Arc::new(crate::common::open_db().unwrap());
         let parent_run_id = create_test_parent_run(&store, "runner-parent");
         std::env::set_var("AGENT_LINK_PARENT_RUN_ID", &parent_run_id.to_string());
         write_test_block(&guard.project_root, "runner-block");
 
-        let pi = json!([{ "client_id": "R1", "subject": "件名", "task_text": "本文",
-            "block_type": "runner-block", "runner": "pi" }]);
-        let err = task_create(&pi, None, None, None).unwrap_err();
-        assert!(err.contains("runner の pi は廃止しました"), "err={}", err);
-
-        let gl = json!([{ "client_id": "R1", "subject": "件名", "task_text": "本文",
-            "block_type": "runner-block", "runner": "gl" }]);
-        let err = task_create(&gl, None, None, None).unwrap_err();
-        assert!(err.contains("runner は cc だけです"), "err={}", err);
-
-        let ok = json!([{ "client_id": "R1", "subject": "件名", "task_text": "本文",
-            "block_type": "runner-block", "runner": "CC" }]);
-        let result = task_create(&ok, None, None, None).unwrap();
+        let items = json!([
+            { "client_id": "R1", "subject": "件名", "task_text": "本文",
+              "block_type": "runner-block", "runner": "pi" },
+            { "client_id": "R2", "subject": "件名", "task_text": "本文",
+              "block_type": "runner-block", "runner": "gl" },
+            { "client_id": "R3", "subject": "件名", "task_text": "本文",
+              "block_type": "runner-block", "runner": "cc" },
+        ]);
+        let result = task_create(&items, None, None, None).unwrap();
         assert_eq!(result["status"], "approved");
         let notif = read_task_created_notification();
-        assert_eq!(notif.tasks[0].runner.as_deref(), Some("cc"));
+        assert_eq!(notif.tasks.len(), 3);
 
         let manager = crate::task_manager::TaskManager::new(store.clone());
         let ids = manager.process_task_created(&notif).unwrap();
         let created = manager.get_task(ids[0]).unwrap();
-        assert_eq!(created.runner.as_deref(), Some("cc"));
-        assert_eq!(task_to_json(&created, &[])["runner"], json!("cc"));
+        assert!(task_to_json(&created, &[]).get("runner").is_none());
 
         drop(guard);
     }

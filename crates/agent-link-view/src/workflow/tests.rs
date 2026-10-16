@@ -18,7 +18,6 @@ fn block(
     exec_id: i64,
     block_id: i64,
     name: &str,
-    tag: &str,
     gr: i64,
     lr: i64,
     parent: Option<i64>,
@@ -29,13 +28,11 @@ fn block(
         exec_id,
         block_id,
         name: name.to_string(),
-        tag: Some(tag.to_string()),
         global_round: Some(gr),
         round: Some(lr),
         parent_exec_id: parent,
         batch_id: batch_id.map(|s| s.to_string()),
         phase: None,
-        runner: "pi".to_string(),
         last_status: "completed".to_string(),
         last_duration_ms: Some(1000),
         created_at: created_at.to_string(),
@@ -56,12 +53,11 @@ fn conn(from: i64, to: i64, ty: &str) -> ConnectionDisplayData {
 fn fixture_blocks() -> Vec<BlockDisplayData> {
     vec![
         // round 1 の実メイン
-        block(10, 1, "plan", "plan", 1, 1, None, None, "2026-09-26T10:00:00"),
+        block(10, 1, "plan", 1, 1, None, None, "2026-09-26T10:00:00"),
         // 10 のバッチ 1 サブ（2 件）
         block(
             11,
             2,
-            "code",
             "code",
             1,
             1,
@@ -72,7 +68,6 @@ fn fixture_blocks() -> Vec<BlockDisplayData> {
         block(
             12,
             2,
-            "code",
             "code",
             1,
             1,
@@ -85,7 +80,6 @@ fn fixture_blocks() -> Vec<BlockDisplayData> {
             13,
             3,
             "reviewer",
-            "rfrs",
             1,
             1,
             Some(10),
@@ -93,13 +87,12 @@ fn fixture_blocks() -> Vec<BlockDisplayData> {
             "2026-09-26T10:03:00",
         ),
         // round 2 の別メイン（main 同士は waggle_token でつながる）
-        block(20, 4, "kantoku", "plan", 2, 2, None, None, "2026-09-26T11:00:00"),
+        block(20, 4, "kantoku", 2, 2, None, None, "2026-09-26T11:00:00"),
         // 20 のサブ（batch_id なし = レガシー。フェーズ合成はしない）
         block(
             21,
             5,
             "legacy-sub",
-            "code",
             2,
             2,
             Some(20),

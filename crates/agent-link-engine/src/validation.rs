@@ -32,7 +32,7 @@ impl ValidationResult {
 
 /// 有効な thinking レベルの一覧（新 6 値・旧 `off` / `minimal` は不正）。
 ///
-/// 実行時は runner に応じて解釈が変わる（pi → `--thinking`、cc → `--effort`）。
+/// 実行時は cc の `--effort` として渡される。
 pub const VALID_THINKING_LEVELS: &[&str] = &["none", "low", "medium", "high", "xhigh", "max"];
 
 /// 指定された `BlockConfig` を検証し、全てのエラーと警告を収集して返す。
@@ -203,7 +203,6 @@ mod tests {
             name: "test-block".to_string(),
             description: Some("テスト用ブロック".to_string()),
             model: Some("anthropic/claude-sonnet-4-5".to_string()),
-            provider: None,
             thinking: None,
             tools: None,
             extensions: None,
@@ -213,7 +212,6 @@ mod tests {
             worktree: None,
             enable: None,
             category: None,
-            tag: None,
             round: None,
             templates: None,
             id: None,

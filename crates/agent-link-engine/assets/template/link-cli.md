@@ -20,7 +20,7 @@
 
 作業を次のエージェントに引き継ぐとき、todo にカードを作る。**実行はユーザーが行う。** あなたはカードを作るだけで、実行しない。
 
-1. 使えるブロック・runner・model・thinking の値を確かめる。
+1. 使えるブロック・model・thinking の値を確かめる。
 
 ```bash
 agent-link card options
@@ -31,7 +31,6 @@ agent-link card options
 ```bash
 agent-link card create <<'EOF'
 {
-  "runner": "cc",
   "block": "kantoku",
   "model": "sonnet",
   "thinking": "high",

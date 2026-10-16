@@ -342,7 +342,7 @@ pub fn recent_docs(store: &SaiStore, limit: usize) -> Vec<WaggleChoiceData> {
 /// （`doc list` の `--all` なしと対応）。
 pub fn all_docs(store: &SaiStore, include_running: bool) -> Vec<WaggleChoiceData> {
     let entries = store
-        .list_waggle_tokens(None, None, -1, include_running)
+        .list_waggle_tokens(None, -1, include_running)
         .unwrap_or_default();
     if entries.is_empty() {
         return Vec::new();

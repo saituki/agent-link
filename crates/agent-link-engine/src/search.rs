@@ -1213,7 +1213,6 @@ mod tests {
             block_name.to_string(),
             "テスト用ブロック".to_string(),
             "anthropic/claude-sonnet-4-5".to_string(),
-            None,
             "off".to_string(),
             "true".to_string(),
             "true".to_string(),
@@ -1402,19 +1401,19 @@ mod tests {
         assert_eq!(keys, sorted);
     }
 
-    /// テスト用 DB の実行に runner / agent_session_id を設定する。
+    /// テスト用 DB の実行に agent_session_id を設定する。
     ///
     /// 公開 API がないため別接続で直接 UPDATE する（テスト内のみの利用）。
-    fn set_runner(db_path: &std::path::Path, exec_id: i64, runner: &str, session_id: Option<&str>) {
+    fn set_session_id(db_path: &std::path::Path, exec_id: i64, session_id: Option<&str>) {
         let conn = rusqlite::Connection::open(&db_path).unwrap();
         conn.execute(
-            "UPDATE execution_history SET runner = ?1, agent_session_id = ?2 WHERE id = ?3",
-            rusqlite::params![runner, session_id, exec_id],
+            "UPDATE execution_history SET agent_session_id = ?1 WHERE id = ?2",
+            rusqlite::params![session_id, exec_id],
         )
         .unwrap();
     }
 
-    /// cc（runner = "cc"）の実行が `skipped` にならず、ヒットに入ることの確認。
+    /// cc の実行が `skipped` にならず、ヒットに入ることの確認。
     ///
     /// cc の会話は run フォルダではなく `~/.claude/projects/…/<session_id>.jsonl`
     /// に置く。`HOME` と `AGENT_LINK_PROJECT_ROOT` を一時フォルダに向けて、
@@ -1449,7 +1448,7 @@ mod tests {
             "2026-08-29 01:06:41",
             None, // cc の実行には session_dir が無い
         );
-        set_runner(&db_path, exec_id, "cc", Some(sid));
+        set_session_id(&db_path, exec_id, Some(sid));
 
         let old_home = std::env::var_os("HOME");
         let old_root = std::env::var_os("AGENT_LINK_PROJECT_ROOT");

@@ -86,32 +86,17 @@ impl CacheViewState {
 ///
 /// セッションが無い・解析に失敗した場合は `error` にメッセージをセットする。
 pub fn load(store: &agent_link_engine::db::SaiStore, exec_id: i64) -> CacheViewState {
-    // 実行レコードから runner と session_dir を取得する。
-    // runner=gl: ~/.agent-link-gemini/sessions/
-    // runner=cc: ~/.claude/projects/
-    // その他: DB の resolve_session_dir
-    let Some(exec) = store.get_execution_by_id(exec_id).ok() else {
+    // 実行レコードを取得する。セッションは ~/.claude/projects/ から探す。
+    if store.get_execution_by_id(exec_id).is_err() {
         return CacheViewState {
             error: Some(format!("Stats: 実行レコードが見つかりません (ID{})", exec_id)),
             ..Default::default()
         };
-    };
+    }
 
-    let session_file = if exec.runner == "gl" {
-        agent_link_engine::session::gemini_session_files(30)
-            .into_iter()
-            .next()
-    } else if exec.runner == "cc" {
-        agent_link_engine::session::cc_session_files(30)
-            .into_iter()
-            .next()
-    } else {
-        agent_link_engine::session::resolve_session_dir(
-            exec.session_dir.as_deref(),
-            exec_id,
-        )
-        .and_then(|dir| agent_link_engine::session::find_main_session_file(&dir).ok())
-    };
+    let session_file = agent_link_engine::session::cc_session_files(30)
+        .into_iter()
+        .next();
 
     let Some(session_file) = session_file else {
         return CacheViewState {
@@ -124,32 +109,16 @@ pub fn load(store: &agent_link_engine::db::SaiStore, exec_id: i64) -> CacheViewS
     };
 
     // sai-cache-tui-rs と同じ解析を実行する
-    let (metrics, counts) = if exec.runner == "cc" {
-        // cc（Claude Code）: usage フィールドが snake_case
-        match (
-            collect_metrics_from_file_cc(&session_file),
-            collect_input_counts(&session_file),
-        ) {
-            (Ok(metrics), Ok(counts)) => (metrics, counts),
-            (Err(e), _) | (_, Err(e)) => {
-                return CacheViewState {
-                    error: Some(format!("Stats: cc 解析エラー: {}", e)),
-                    ..Default::default()
-                }
-            }
-        }
-    } else {
-        // pi / gl: 既存の collect_metrics_from_file
-        match (
-            collect_metrics_from_file(&session_file),
-            collect_input_counts(&session_file),
-        ) {
-            (Ok(metrics), Ok(counts)) => (metrics, counts),
-            (Err(e), _) | (_, Err(e)) => {
-                return CacheViewState {
-                    error: Some(format!("Stats: 解析エラー: {}", e)),
-                    ..Default::default()
-                }
+    // cc（Claude Code）: usage フィールドが snake_case
+    let (metrics, counts) = match (
+        collect_metrics_from_file_cc(&session_file),
+        collect_input_counts(&session_file),
+    ) {
+        (Ok(metrics), Ok(counts)) => (metrics, counts),
+        (Err(e), _) | (_, Err(e)) => {
+            return CacheViewState {
+                error: Some(format!("Stats: cc 解析エラー: {}", e)),
+                ..Default::default()
             }
         }
     };

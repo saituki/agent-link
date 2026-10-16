@@ -65,7 +65,7 @@ subblocks:
    - `block`: `kantoku`
    - `global_round`: 自分と同じ値（空なら空）
    - `round`: 自分の round + i
-   - `runner`・`model`・`provider`・`thinking`: 書かない（既定値になる）
+   - `model`・`thinking`: 書かない（既定値になる）
    - `task_text`: 下のひな形
 
    1〜N-1 人目の task_text:

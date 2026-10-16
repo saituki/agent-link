@@ -15,7 +15,7 @@ use std::path::{Path, PathBuf};
 
 use crate::db::models::ExecutionHistory;
 use crate::db::SaiStore;
-use crate::usage_metrics::{collect_metrics_from_file, collect_metrics_from_file_cc, CacheUsageTotals};
+use crate::usage_metrics::{collect_metrics_from_file_cc, CacheUsageTotals};
 
 /// JSON のスキーマ版（00 §3.2。形を変えるときだけ上げる）。
 pub const SCHEMA_VERSION: i64 = 1;
@@ -41,7 +41,7 @@ pub struct PhoneRunDoc {
     pub block_name: String,
     /// task.md frontmatter `description:`（無ければ空）
     pub description: String,
-    /// `cc` / `pi` / `gl`（`user` は書き出さない）
+    /// 常に `cc`（Web が記録の読み分けに使う項目。coding agent は Claude Code だけ）
     pub runner: String,
     /// `running` / `completed` / `failed` / `cancelled`
     pub status: String,
@@ -119,12 +119,8 @@ pub struct PhoneTokens {
 /// 書き出すべき実行か（00 §3.2）。
 ///
 /// - `todo` / `pending`（未実行）は書かない
-/// - runner = `user`（ユーザータスク）は書かない
-pub fn should_export(status: &str, runner: &str) -> bool {
-    if matches!(status, "todo" | "pending") {
-        return false;
-    }
-    !runner.trim().eq_ignore_ascii_case("user")
+pub fn should_export(status: &str) -> bool {
+    !matches!(status, "todo" | "pending")
 }
 
 /// 終了状態か（stats を入れる対象）。
@@ -293,39 +289,32 @@ pub fn project_name_for(project_root: &Path) -> String {
 
 /// 会話記録 jsonl の絶対パスを解決する。
 ///
-/// - **cc**: `session::claude_session_file(cwd, agent_session_id)`。
+/// - `agent_session_id` があれば `session::claude_session_file(cwd, agent_session_id)`。
 ///   cwd はプロジェクトルート（worktree 実行なら `.worktrees/<branch>` も探索）。
 ///   それでも無ければセッション ID だけで探す（`claude_session_file_any_cwd`）。
 ///   **`cc_session_files(...)`（全体で一番新しい cc セッション）は使わない**
 ///   （別の実行のファイルを拾うことがあるため）。
-/// - **pi**: `session::resolve_session_dir` → `session::find_main_session_file`。
-/// - **gl**: `None`（今回の対象外）。
+/// - `agent_session_id` が無い古い記録は `session_dir` の主セッションを使う。
 pub fn resolve_transcript(exec: &ExecutionHistory, project_root: &Path) -> Option<PathBuf> {
-    match exec.runner.as_str() {
-        "cc" => {
-            let sid = exec.agent_session_id.as_deref()?;
-            if let Some(p) = crate::session::claude_session_file(project_root, sid) {
+    let Some(sid) = exec.agent_session_id.as_deref() else {
+        let run_id = exec.id.unwrap_or(0);
+        let dir = crate::session::resolve_session_dir(exec.session_dir.as_deref(), run_id)?;
+        return crate::session::find_main_session_file(&dir).ok();
+    };
+    if let Some(p) = crate::session::claude_session_file(project_root, sid) {
+        return Some(p);
+    }
+    // worktree 実行時は cwd が `.worktrees/<branch>` になるため追加探索
+    let wt = project_root.join(".worktrees");
+    if let Ok(entries) = std::fs::read_dir(&wt) {
+        for dir in entries.flatten().map(|e| e.path()).filter(|p| p.is_dir()) {
+            if let Some(p) = crate::session::claude_session_file(&dir, sid) {
                 return Some(p);
             }
-            // worktree 実行時は cwd が `.worktrees/<branch>` になるため追加探索
-            let wt = project_root.join(".worktrees");
-            if let Ok(entries) = std::fs::read_dir(&wt) {
-                for dir in entries.flatten().map(|e| e.path()).filter(|p| p.is_dir()) {
-                    if let Some(p) = crate::session::claude_session_file(&dir, sid) {
-                        return Some(p);
-                    }
-                }
-            }
-            // worktree を消したあとなど cwd が分からないときは、セッション ID で探す
-            crate::session::claude_session_file_any_cwd(sid)
-        }
-        "gl" => None,
-        _ => {
-            let run_id = exec.id.unwrap_or(0);
-            let dir = crate::session::resolve_session_dir(exec.session_dir.as_deref(), run_id)?;
-            crate::session::find_main_session_file(&dir).ok()
         }
     }
+    // worktree を消したあとなど cwd が分からないときは、セッション ID で探す
+    crate::session::claude_session_file_any_cwd(sid)
 }
 
 // ============================================================================
@@ -438,12 +427,7 @@ fn build_stats(
     let mut totals: Option<CacheUsageTotals> = None;
     let mut top_model: Option<String> = None;
     if let Some(tp) = transcript {
-        let collected = if exec.runner == "cc" {
-            collect_metrics_from_file_cc(tp)
-        } else {
-            collect_metrics_from_file(tp)
-        };
-        if let Ok(metrics) = collected {
+        if let Ok(metrics) = collect_metrics_from_file_cc(tp) {
             top_model = most_frequent_model(metrics.all_messages.iter().map(|m| m.model.clone()));
             totals = Some(metrics.tree_totals);
         }
@@ -474,8 +458,8 @@ fn build_stats(
     };
 
     // ── コストの出どころ（00 §3.4） ──
-    let (cost_source, cost_is_estimate) = match exec.runner.as_str() {
-        "cc" => match exec.agent_session_id.as_deref().and_then(read_cc_cost) {
+    let (cost_source, cost_is_estimate) =
+        match exec.agent_session_id.as_deref().and_then(read_cc_cost) {
             // cc 自身が数えたセッション金額（/usage の額）を最優先
             Some(cc_total) => {
                 cost.total = cc_total;
@@ -483,10 +467,7 @@ fn build_stats(
             }
             // 連携前（§2.5 導入前）の過去実行など → TUI Stats と同じ概算
             None => ("estimate", true),
-        },
-        "pi" => ("pi", false),
-        _ => ("estimate", true),
-    };
+        };
 
     // ── elapsed / turn / tool は session_stats_json（SessionStats）から ──
     let stats_opt = exec
@@ -568,7 +549,7 @@ pub fn build_run_doc(
         parent_run_id: exec.parent_run_id,
         block_name,
         description,
-        runner: exec.runner.clone(),
+        runner: "cc".to_string(),
         status: exec.status.clone(),
         model,
         started_at: exec.started_at.as_deref().and_then(db_time_to_iso),
@@ -745,13 +726,13 @@ impl Exporter {
     /// 1 実行分を書き出す。
     ///
     /// 戻り値: `Ok(Some(書いたか))` = 書き出し対象、
-    /// `Ok(None)` = 対象外（`todo` / `pending` / runner=`user`）。
+    /// `Ok(None)` = 対象外（`todo` / `pending`）。
     pub fn export(
         &self,
         store: &SaiStore,
         exec: &ExecutionHistory,
     ) -> std::io::Result<Option<bool>> {
-        if !should_export(&exec.status, &exec.runner) {
+        if !should_export(&exec.status) {
             return Ok(None);
         }
         let doc = self.build_doc(store, exec);
@@ -791,7 +772,7 @@ pub fn build_docs(
     let project_name = project_name_for(project_root);
     execs
         .iter()
-        .filter(|e| should_export(&e.status, &e.runner))
+        .filter(|e| should_export(&e.status))
         .map(|e| build_run_doc(store, e, project_root, &project_name))
         .collect()
 }
@@ -1070,18 +1051,16 @@ mod tests {
         let _ = std::fs::remove_dir_all(&tmp);
     }
 
-    /// `todo` / `pending` と runner=`user` は書き出されない（00 §3.2）。
+    /// `todo` / `pending` は書き出されない（00 §3.2）。
     #[test]
-    fn todo_and_user_runs_are_not_exported() {
-        assert!(!should_export("todo", "pi"));
-        assert!(!should_export("pending", "cc"));
-        assert!(!should_export("running", "user"));
-        assert!(!should_export("completed", "user"));
+    fn todo_and_pending_runs_are_not_exported() {
+        assert!(!should_export("todo"));
+        assert!(!should_export("pending"));
         // それ以外は書き出す
-        assert!(should_export("running", "pi"));
-        assert!(should_export("completed", "pi"));
-        assert!(should_export("failed", "cc"));
-        assert!(should_export("cancelled", "gl"));
+        assert!(should_export("running"));
+        assert!(should_export("completed"));
+        assert!(should_export("failed"));
+        assert!(should_export("cancelled"));
     }
 
     /// 一時ファイル → rename で最終ファイルができ、`.tmp` が残らないこと。
@@ -1106,7 +1085,7 @@ mod tests {
             parent_run_id: None,
             block_name: "b".to_string(),
             description: "説明".to_string(),
-            runner: "pi".to_string(),
+            runner: "cc".to_string(),
             status: "completed".to_string(),
             model: None,
             started_at: Some("2026-09-23T01:02:03Z".to_string()),
@@ -1164,7 +1143,6 @@ mod tests {
             "b".to_string(),
             "テストブロック".to_string(),
             "m".to_string(),
-            None,
             "off".to_string(),
             "true".to_string(),
             "true".to_string(),
@@ -1179,18 +1157,18 @@ mod tests {
         let run_id = store.create_execution(block_id, None).unwrap();
         // todo → 書き出し対象外
         let exec = store.get_execution_by_id(run_id).unwrap();
-        assert!(!should_export(&exec.status, &exec.runner));
+        assert!(!should_export(&exec.status));
 
         // running へ遷移（started_at が入る）→ 書き出し対象
         store.update_execution_status(run_id, "running").unwrap();
         let exec = store.get_execution_by_id(run_id).unwrap();
-        assert!(should_export(&exec.status, &exec.runner));
+        assert!(should_export(&exec.status));
 
         let doc = build_run_doc(&store, &exec, &tmp, "demo-project");
         assert_eq!(doc.schema_version, 1);
         assert_eq!(doc.run_id, run_id);
         assert_eq!(doc.block_name, "b");
-        assert_eq!(doc.runner, "pi");
+        assert_eq!(doc.runner, "cc");
         assert_eq!(doc.status, "running");
         assert_eq!(doc.herdr_pane_label, format!("sai-b-{}", run_id));
         assert_eq!(doc.project_name, "demo-project");
@@ -1236,10 +1214,10 @@ mod tests {
         assert_eq!(stats.turn_count, 2);
         assert_eq!(stats.tool_call_count, 3);
         assert_eq!(stats.tool_calls_by_name.get("Bash"), Some(&3));
-        // transcript が無い → トークン・コストは 0、pi runner は cost_source=pi
+        // transcript が無い → トークン・コストは 0、cc のセッション金額も無いので cost_source=estimate
         assert_eq!(stats.tokens.total, 0);
-        assert_eq!(stats.cost_source, "pi");
-        assert!(!stats.cost_is_estimate);
+        assert_eq!(stats.cost_source, "estimate");
+        assert!(stats.cost_is_estimate);
 
         let _ = std::fs::remove_dir_all(&tmp);
         match prev_root {

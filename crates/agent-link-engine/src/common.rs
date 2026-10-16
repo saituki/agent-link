@@ -5,7 +5,6 @@
 //! - `extract_frontmatter_name` — ブロック定義の frontmatter から `name` を抽出
 //! - `collect_block_files` — ブロック定義ディレクトリの収集（ローカル優先 → グローバル `~/.agent-link/blocks`）
 //! - `open_db` — agent-link DB をプロジェクトルート基準で開く（P2）
-//! - `load_available_models` — `~/.pi/agent/models.json` から `provider/model` 形式のモデル一覧を取得
 //! - 日付時刻・表示フォーマットのユーティリティ（chrono 使用）
 //!
 //! ## ブロック定義の探索パス（A10）
@@ -157,68 +156,6 @@ pub fn open_db() -> Result<SaiStore, Box<dyn std::error::Error>> {
     }
     let store = SaiStore::open(&db_path)?;
     Ok(store)
-}
-
-// ============================================================================
-// モデル一覧（`~/.pi/agent/models.json` 基準）
-// ============================================================================
-
-/// pi agent が使用するモデル設定（`~/.pi/agent/models.json`）のパスを返す。
-///
-/// 環境変数 `PI_CONFIG_DIR` が設定されている場合は `<dir>/agent/models.json`、
-/// 未設定の場合は `~/.pi/agent/models.json` を使用する。
-pub fn pi_models_json_path() -> PathBuf {
-    if let Some(dir) = std::env::var_os("PI_CONFIG_DIR") {
-        let pb = PathBuf::from(dir).join("agent").join("models.json");
-        if !pb.as_os_str().is_empty() {
-            return pb;
-        }
-    }
-    if let Some(home) = std::env::var_os("HOME") {
-        return PathBuf::from(home)
-            .join(".pi")
-            .join("agent")
-            .join("models.json");
-    }
-    PathBuf::from(".pi/agent/models.json")
-}
-
-/// `~/.pi/agent/models.json` から、pi agent で選択可能なモデル一覧を
-/// **`provider/model` 形式**で読み込む（`pi --list-models` と同じリスト）。
-///
-/// JSON 構造:
-///
-/// ```json
-/// { "providers": { "<provider>": { "models": [ { "id": "<model-id>" } ] } } }
-/// ```
-///
-/// ファイルが存在しない・パースに失敗する場合は空リストを返す。
-pub fn load_available_models() -> Vec<String> {
-    let path = pi_models_json_path();
-    let Ok(content) = std::fs::read_to_string(&path) else {
-        return Vec::new();
-    };
-    let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&content) else {
-        return Vec::new();
-    };
-
-    let mut models = Vec::new();
-    if let Some(providers) = parsed.get("providers").and_then(|v| v.as_object()) {
-        for (provider_name, provider_config) in providers {
-            if let Some(model_list) = provider_config.get("models").and_then(|v| v.as_array()) {
-                for model_entry in model_list {
-                    if let Some(id) = model_entry.get("id").and_then(|v| v.as_str()) {
-                        // `provider/model` 形式（pi の --model と同じ指定形式）
-                        let full = format!("{}/{}", provider_name, id);
-                        if !models.contains(&full) {
-                            models.push(full);
-                        }
-                    }
-                }
-            }
-        }
-    }
-    models
 }
 
 // ============================================================================
@@ -401,77 +338,5 @@ mod tests {
         assert_eq!(sorted[1].0, "alpha");
         assert_eq!(sorted[2].0, "beta");
         assert_eq!(sorted[3].0, "zebra");
-    }
-
-    // -------------------------------------------------------------------
-    // `~/.pi/agent/models.json` からのモデル一覧取得
-    // -------------------------------------------------------------------
-
-    /// PI_CONFIG_DIR 環境変数を操作するテストの直列化ロック（環境干渉防止）。
-    static PI_CONFIG_DIR_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
-    /// テスト用の models.json を書き込み、`load_available_models()` が
-    /// `provider/model` 形式の一覧を返すことを検証する。
-    #[test]
-    fn test_load_available_models_provider_slash_id() {
-        let _guard = PI_CONFIG_DIR_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        let tmp = std::env::temp_dir().join(format!(
-            "sai_models_test_{}_{}",
-            std::process::id(),
-            chrono::Utc::now().timestamp_nanos_opt().unwrap_or_default()
-        ));
-        let agent_dir = tmp.join("agent");
-        std::fs::create_dir_all(&agent_dir).unwrap();
-        std::fs::write(
-            agent_dir.join("models.json"),
-            r#"{
-                "providers": {
-                    "prov-a": { "models": [ { "id": "model-1" }, { "id": "model-2" } ] },
-                    "prov-b": { "models": [ { "id": "model-3" } ] }
-                }
-            }"#,
-        )
-        .unwrap();
-
-        // 既存の環境変数を退避してテスト用パスへ向ける
-        let saved = std::env::var("PI_CONFIG_DIR").ok();
-        std::env::set_var("PI_CONFIG_DIR", &tmp);
-
-        let models = super::load_available_models();
-
-        // 復元（テスト失敗時でも環境を汚さない）
-        match saved {
-            Some(v) => std::env::set_var("PI_CONFIG_DIR", v),
-            None => std::env::remove_var("PI_CONFIG_DIR"),
-        }
-        let _ = std::fs::remove_dir_all(&tmp);
-
-        assert_eq!(models.len(), 3);
-        assert!(models.contains(&"prov-a/model-1".to_string()));
-        assert!(models.contains(&"prov-a/model-2".to_string()));
-        assert!(models.contains(&"prov-b/model-3".to_string()));
-    }
-
-    /// models.json が存在しない場合は空リストを返す（旧実装のデフォルト候補は廃止）。
-    #[test]
-    fn test_load_available_models_missing_file_returns_empty() {
-        let _guard = PI_CONFIG_DIR_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        let tmp = std::env::temp_dir().join(format!(
-            "sai_models_none_{}_{}",
-            std::process::id(),
-            chrono::Utc::now().timestamp_nanos_opt().unwrap_or_default()
-        ));
-        std::fs::create_dir_all(&tmp).unwrap();
-
-        let saved = std::env::var("PI_CONFIG_DIR").ok();
-        std::env::set_var("PI_CONFIG_DIR", &tmp);
-        let models = super::load_available_models();
-        match saved {
-            Some(v) => std::env::set_var("PI_CONFIG_DIR", v),
-            None => std::env::remove_var("PI_CONFIG_DIR"),
-        }
-        let _ = std::fs::remove_dir_all(&tmp);
-
-        assert!(models.is_empty());
     }
 }

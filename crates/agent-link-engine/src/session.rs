@@ -1897,7 +1897,7 @@ fn visit_jsonl_files(dir: &Path, callback: &mut dyn FnMut(&Path)) -> Result<(), 
 }
 
 // ============================================================================
-// Claude Code（runner=cc）セッション
+// Claude Code（cc）セッション
 // ============================================================================
 //
 // Claude Code のセッション JSONL は `~/.claude/projects/<cwd-slug>/<uuid>.jsonl`
@@ -2148,145 +2148,6 @@ pub fn extract_claude_final_output(path: &Path) -> Result<String, SessionError> 
 
 
 // ============================================================================
-// sai-gemini（runner=gl）セッション
-//
-// sai-gemini-tui の会話ログは `~/.agent-link-gemini/sessions/tui-*.jsonl` に保存される
-// （1行1JSON・行種別は `session` / `meta` / `message`）。
-// `message` 行の `message.role`（user/assistant）と
-// `message.content[0].text` を抽出し、pi と同じ `(role, text)` 形式で返す。
-// `meta` 行（geminiUrl 等）は無視する。
-
-/// sai-gemini のセッションディレクトリ（`~/.agent-link-gemini/sessions`）。
-pub fn gemini_sessions_dir() -> Option<PathBuf> {
-    std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".agent-link-gemini").join("sessions"))
-}
-
-/// sai-gemini のセッション JSONL 一覧（新しい順・最大 `limit` 件）。
-///
-/// sai-gemini-tui の `loadAllSessions` と同じ順序（ファイル名の新しい順）。
-pub fn gemini_session_files(limit: usize) -> Vec<PathBuf> {
-    let Some(dir) = gemini_sessions_dir() else {
-        return Vec::new();
-    };
-    let Ok(entries) = std::fs::read_dir(&dir) else {
-        return Vec::new();
-    };
-    let mut files: Vec<PathBuf> = entries
-        .flatten()
-        .map(|e| e.path())
-        .filter(|p| p.extension().and_then(|e| e.to_str()) == Some("jsonl"))
-        .collect();
-    files.sort();
-    files.reverse();
-    files.truncate(limit);
-    files
-}
-
-/// sai-gemini の `message.content`（`[{type: text, text}]`）から本文を取り出す。
-fn gemini_message_text(msg: &serde_json::Value) -> String {
-    message_text(msg)
-}
-
-/// sai-gemini の JSONL 1 ファイルから user / assistant テキストを時系列で抽出する
-/// （message 画面用）。`session` / `meta` 行は無視する。
-///
-/// pi の `extract_user_assistant_messages` と同じ形式の
-/// `(role, text)` リストを返す。
-pub fn extract_gemini_user_assistant_messages(
-    path: &Path,
-) -> Result<Vec<(String, String)>, SessionError> {
-    let content = fs::read_to_string(path)?;
-    let mut out: Vec<(String, String)> = Vec::new();
-    for line in content.lines() {
-        let line = line.trim();
-        if line.is_empty() {
-            continue;
-        }
-        let Ok(value) = serde_json::from_str::<serde_json::Value>(line) else {
-            continue;
-        };
-        if value.get("type").and_then(|v| v.as_str()) != Some("message") {
-            continue;
-        }
-        let Some(msg) = value.get("message") else {
-            continue;
-        };
-        let role = msg.get("role").and_then(|r| r.as_str()).unwrap_or("");
-        let text = gemini_message_text(msg);
-        if text.trim().is_empty() {
-            continue;
-        }
-        match role {
-            "user" => out.push(("user".to_string(), text)),
-            "assistant" => out.push(("assistant".to_string(), text)),
-            _ => {}
-        }
-    }
-    Ok(out)
-}
-
-/// sai-gemini の JSONL 1 ファイルから History 画面用の近似統計を抽出する。
-///
-/// pi の `extract_history_stats` と同形式の `HistoryStats` を返す。
-/// token は文字数換算の近似である。user → `user`、assistant → `agent` に写像する。
-pub fn extract_gemini_history_stats(path: &Path) -> Result<HistoryStats, SessionError> {
-    let content = fs::read_to_string(path)?;
-    let mut stats = HistoryStats::default();
-    let t = &mut stats.type_tokens;
-    for line in content.lines() {
-        let line = line.trim();
-        if line.is_empty() {
-            continue;
-        }
-        let Ok(value) = serde_json::from_str::<serde_json::Value>(line) else {
-            continue;
-        };
-        if value.get("type").and_then(|v| v.as_str()) != Some("message") {
-            continue;
-        }
-        let Some(msg) = value.get("message") else {
-            continue;
-        };
-        let ts = value
-            .get("timestamp")
-            .and_then(|x| x.as_str())
-            .unwrap_or("")
-            .to_string();
-        let role = msg.get("role").and_then(|r| r.as_str()).unwrap_or("");
-        let text = gemini_message_text(msg);
-        let chars = text.chars().count() as u64;
-        if chars == 0 {
-            continue;
-        }
-        match role {
-            "user" => {
-                t.user += chars;
-                stats.events.push(HistoryEvent {
-                    timestamp: ts,
-                    kind: "user".to_string(),
-                    name: head_text(&text, 24),
-                    tokens: chars,
-                    ..Default::default()
-                });
-            }
-            "assistant" => {
-                t.agent += chars;
-                stats.events.push(HistoryEvent {
-                    timestamp: ts,
-                    kind: "agent".to_string(),
-                    name: head_text(&text, 24),
-                    tokens: chars,
-                    ..Default::default()
-                });
-            }
-            _ => {}
-        }
-    }
-    stats.events.sort_by(|a, b| a.timestamp.cmp(&b.timestamp));
-    Ok(stats)
-}
-
-// ============================================================================
 // Claude Code（cc）セッション抽出
 // ============================================================================
 
@@ -2334,7 +2195,7 @@ pub fn cc_session_files(limit: usize) -> Vec<PathBuf> {
 
 /// Claude Code の JSONL 1 ファイルから History 画面用の近似統計を抽出する。
 ///
-/// gemini / pi と同じ HistoryStats 形式を返す。
+/// HistoryStats 形式を返す。
 /// - user → user（文字列の content も数える）
 /// - assistant → agent（block_history.rs の期待値に合わせる）
 /// - tool_use → toolCall、対になる tool_result は同じ行に足す（C11）
@@ -2529,9 +2390,9 @@ pub fn extract_cc_history_stats(path: &Path) -> Result<HistoryStats, SessionErro
 
 /// 1 呼び出しの全文（`agent-link run history <id> --call <CALL_ID>`・C11）。
 ///
-/// `path_or_dir` は cc なら jsonl 1 件、pi ならセッション dir。呼び出しも結果も
+/// `path_or_dir` は cc の jsonl 1 件（またはそれを含む dir）。呼び出しも結果も
 /// 見つからなければ `None`（呼び出し側は終了コード 3）。結果は 20000 字で切る。
-pub fn history_call(path_or_dir: &Path, runner: &str, call_id: &str) -> Option<HistoryCall> {
+pub fn history_call(path_or_dir: &Path, call_id: &str) -> Option<HistoryCall> {
     let mut files: Vec<PathBuf> = Vec::new();
     if path_or_dir.is_dir() {
         visit_jsonl_files(path_or_dir, &mut |p| files.push(p.to_path_buf())).ok()?;
@@ -2553,42 +2414,23 @@ pub fn history_call(path_or_dir: &Path, runner: &str, call_id: &str) -> Option<H
                 continue;
             };
             let items = msg.get("content").and_then(|c| c.as_array());
-            if runner == "cc" {
-                for item in items.into_iter().flatten() {
-                    let id = item.get("id").and_then(|x| x.as_str());
-                    let used = item.get("tool_use_id").and_then(|x| x.as_str());
-                    match item.get("type").and_then(|k| k.as_str()) {
-                        Some("tool_use") if id == Some(call_id) => {
-                            let name = item.get("name").and_then(|n| n.as_str()).unwrap_or("");
-                            let input = item
-                                .get("input")
-                                .cloned()
-                                .unwrap_or(serde_json::Value::Null);
-                            call = Some((name.to_string(), input));
-                        }
-                        Some("tool_result") if used == Some(call_id) => {
-                            let is_error = item.get("is_error").and_then(|v| v.as_bool());
-                            result = Some((cc_message_text(item), is_error));
-                        }
-                        _ => {}
-                    }
-                }
-            } else {
-                if msg.get("toolCallId").and_then(|x| x.as_str()) == Some(call_id) {
-                    let is_error = msg.get("isError").and_then(|v| v.as_bool());
-                    result = Some((cc_message_text(msg), is_error));
-                }
-                for item in items.into_iter().flatten() {
-                    if item.get("type").and_then(|k| k.as_str()) == Some("toolCall")
-                        && item.get("id").and_then(|x| x.as_str()) == Some(call_id)
-                    {
+            for item in items.into_iter().flatten() {
+                let id = item.get("id").and_then(|x| x.as_str());
+                let used = item.get("tool_use_id").and_then(|x| x.as_str());
+                match item.get("type").and_then(|k| k.as_str()) {
+                    Some("tool_use") if id == Some(call_id) => {
                         let name = item.get("name").and_then(|n| n.as_str()).unwrap_or("");
                         let input = item
-                            .get("arguments")
+                            .get("input")
                             .cloned()
                             .unwrap_or(serde_json::Value::Null);
                         call = Some((name.to_string(), input));
                     }
+                    Some("tool_result") if used == Some(call_id) => {
+                        let is_error = item.get("is_error").and_then(|v| v.as_bool());
+                        result = Some((cc_message_text(item), is_error));
+                    }
+                    _ => {}
                 }
             }
         }
@@ -2925,7 +2767,7 @@ fn is_sub_word(word: &str) -> bool {
 }
 
 /// cc の message.content（文字列 or `[{type,text}]` ブロック配列）から text のみを
-/// 取り出す。pi/gemini は常にブロック配列だが、cc の user メッセージは素の文字列で
+/// 取り出す。pi は常にブロック配列だが、cc の user メッセージは素の文字列で
 /// 入っていることが多いため、両形式を吸収する。
 fn cc_message_text(msg: &serde_json::Value) -> String {
     match msg.get("content") {
@@ -3663,39 +3505,6 @@ mod usage_tests {
         assert!(transcript.contains("[tool: Bash]"));
     }
 
-    /// sai-gemini の JSONL から user / assistant を抽出すること。
-    #[test]
-    fn gemini_messages_and_history_stats() {
-        let dir = std::env::temp_dir().join(format!("sai_gemini_{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        let path = dir.join("tui-20260922-000000.jsonl");
-        let body = concat!(
-            r#"{"id":"tui-20260922-000000","timestamp":"2026-09-22T00:00:00.000000+00:00","title":"テスト会話","type":"session"}"#,
-            "\n",
-            r#"{"message":{"content":[{"text":"こんにちは","type":"text"}],"role":"user"},"timestamp":"2026-09-22T00:00:10.000000+00:00","type":"message"}"#,
-            "\n",
-            r#"{"type":"meta","geminiUrl":"https://gemini.google.com/app/abc"}"#,
-            "\n",
-            r#"{"message":{"content":[{"text":"お返事です","type":"text"}],"role":"assistant"},"timestamp":"2026-09-22T00:00:20.000000+00:00","type":"message"}"#,
-            "\n",
-        );
-        std::fs::write(&path, body).unwrap();
-        // message 画面用
-        let msgs = extract_gemini_user_assistant_messages(&path).unwrap();
-        assert_eq!(msgs.len(), 2);
-        assert_eq!(msgs[0], ("user".to_string(), "こんにちは".to_string()));
-        assert_eq!(msgs[1], ("assistant".to_string(), "お返事です".to_string()));
-        // History 画面用
-        let hist = extract_gemini_history_stats(&path).unwrap();
-        assert_eq!(hist.type_tokens.user, 5); // 「こんにちは」5文字
-        assert_eq!(hist.type_tokens.agent, 5); // 「お返事です」5文字
-        assert_eq!(hist.events.len(), 2);
-        assert_eq!(hist.events[0].kind, "user");
-        assert_eq!(hist.events[1].kind, "agent");
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
     /// Claude Code（cc）の JSONL から History 統計を抽出すること。
     #[test]
     fn cc_extract_history_stats() {
@@ -3901,12 +3710,12 @@ mod usage_tests {
         let body: String = lines.iter().map(|l| format!("{}\n", l)).collect();
         std::fs::write(&path, body).unwrap();
 
-        let call = history_call(&path, "cc", "c9").unwrap();
+        let call = history_call(&path, "c9").unwrap();
         assert_eq!(call.command.as_deref(), Some("agent-link run history"));
         assert_eq!(call.result.chars().count(), 20000);
         assert!(call.truncated);
         assert_eq!(call.is_error, Some(false));
-        assert!(history_call(&path, "cc", "nope").is_none());
+        assert!(history_call(&path, "nope").is_none());
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

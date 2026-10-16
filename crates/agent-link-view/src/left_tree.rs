@@ -159,7 +159,6 @@ pub fn build_left_tree(
     });
 
     let mut block_name_cache: HashMap<i64, String> = HashMap::new();
-    let mut block_tag_cache: HashMap<i64, Option<String>> = HashMap::new();
 
     let mut items: Vec<LeftTreeItem> = Vec::with_capacity(executions.len() + 32);
 
@@ -356,7 +355,6 @@ pub fn build_left_tree(
                         .as_ref()
                         .map(|b| b.display_name.clone())
                         .unwrap_or_else(|| format!("(block_id={})", block_id));
-                    block_tag_cache.insert(block_id, b.as_ref().and_then(|b| b.tag.clone()));
                     block_name_cache.insert(block_id, n.clone());
                     n
                 };

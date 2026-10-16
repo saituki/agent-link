@@ -111,7 +111,6 @@ fn make_execution(project: &Path) -> i64 {
         format!("send-test-{}", seq),
         "送信のテスト".to_string(),
         "anthropic/claude-sonnet-4-5".to_string(),
-        None,
         "off".to_string(),
         "true".to_string(),
         "true".to_string(),
@@ -125,7 +124,6 @@ fn make_execution(project: &Path) -> i64 {
     let block_id = store.insert_block(&block).unwrap();
     let run_id = store.create_execution(block_id, None).unwrap();
     store.update_execution_status(run_id, "running").unwrap();
-    store.update_execution_runner(run_id, "cc").unwrap();
     run_id
 }
 

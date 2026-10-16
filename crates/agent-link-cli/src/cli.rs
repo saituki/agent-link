@@ -84,7 +84,7 @@ pub enum Cmd {
         #[arg(long, value_name = "NAME")]
         name: Option<String>,
         /// 配った block・template をこの版の中身に置き換える
-        /// （変わる物は .bak に退避。block の model・provider・thinking は残す）
+        /// （変わる物は .bak に退避。block の model・thinking は残す）
         #[arg(long)]
         update: bool,
     },
@@ -318,7 +318,7 @@ pub enum TaskCmd {
 /// カード（実行予約）のサブコマンド（新しい木）。
 #[derive(Subcommand)]
 pub enum CardCmd {
-    /// ウィザードの選択肢（runner / block / provider / model / thinking）
+    /// ウィザードの選択肢（block / model / thinking）
     Options {
         #[arg(long, default_value_t = false)]
         json: bool,
@@ -352,22 +352,6 @@ pub enum CardCmd {
 
     /// todo の未実行カードを実行する（非対話）
     Run {
-        #[arg(value_name = "RUN_ID")]
-        run_id: i64,
-        #[arg(long, default_value_t = false)]
-        json: bool,
-    },
-
-    /// 利用者の札（runner: user）を始める（running にする）
-    Start {
-        #[arg(value_name = "RUN_ID")]
-        run_id: i64,
-        #[arg(long, default_value_t = false)]
-        json: bool,
-    },
-
-    /// 利用者の札（runner: user）を review へ移す
-    Finish {
         #[arg(value_name = "RUN_ID")]
         run_id: i64,
         #[arg(long, default_value_t = false)]
@@ -645,8 +629,6 @@ pub enum DefCmd {
         round: Option<i64>,
         #[arg(long = "global-round", value_name = "N")]
         global_round: Option<i64>,
-        #[arg(long, value_name = "TAG")]
-        tag: Option<String>,
         #[arg(long, value_name = "BUDGET", value_parser = ["none", "low", "medium", "high", "xhigh", "max"])]
         think: Option<String>,
         #[arg(long, value_name = "MODEL")]
@@ -937,45 +919,12 @@ pub enum PhoneCmd {
         #[command(subcommand)]
         cmd: PhoneDefCmd,
     },
-
-    /// 利用者の札（`runner: user`）を始める・終える（Web の READ_CARD 用・U17）
-    ///
-    /// 成功は stdout に JSON（`run_id` / `status`）・終了コード 0。
-    /// 常駐（デーモン）は要らない。
-    User {
-        #[command(subcommand)]
-        cmd: PhoneUserCmd,
-    },
-}
-
-/// `agent-link phone user` のサブコマンド。
-#[derive(Subcommand)]
-pub enum PhoneUserCmd {
-    /// todo の `runner: user` のカードを running にする
-    ///
-    /// 成功は `{"run_id": N, "status": "running"}`・終了コード 0。
-    /// カードが無ければ終了コード 3、`runner: user` で無ければ終了コード 1。
-    Start {
-        /// 対象の予約 run ID
-        #[arg(value_name = "RUN_ID")]
-        run_id: i64,
-    },
-
-    /// 実行中の `runner: user` の実行を review へ移す
-    ///
-    /// 成功は `{"run_id": N, "status": "review"}`・終了コード 0。
-    /// 実行が無ければ終了コード 3、実行中の利用者の札でなければ終了コード 1。
-    Finish {
-        /// 対象の実行 ID
-        #[arg(value_name = "RUN_ID")]
-        run_id: i64,
-    },
 }
 
 /// `agent-link phone card` のサブコマンド。
 #[derive(Subcommand)]
 pub enum PhoneCardCmd {
-    /// ウィザードの選択肢（done / runner / block / provider / model / thinking）
+    /// ウィザードの選択肢（block / model / thinking）
     Options,
 
     /// 指定ブロックの入力欄（入力は task_text に統一したため常に空。ブロックの存在確認に使う）
@@ -1113,7 +1062,7 @@ pub enum PhoneDefCmd {
 /// 処理:
 /// 1. 入力ファイルを waggle トークン化（Blob 保存込み）
 /// 2. block_metadata（user-block）を取得/作成
-/// 3. execution_history に新規レコード（completed）を作成（入力/出力トークン・round/tag 付き）
+/// 3. execution_history に新規レコード（completed）を作成（入力/出力トークン・round 付き）
 /// 4. 入力トークンがあれば、その出力元実行 → user-block 実行の waggle_token 接続（線図の入力辺）
 ///
 /// 同一内容（既存の user-block 出力と同じ SHA-256）の場合は、その旨を出力し、
@@ -1124,7 +1073,6 @@ pub fn handle_user_block_non_interactive(
     description: Option<&str>,
     round: Option<i64>,
     global_round: Option<i64>,
-    tag: Option<String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // input-file は must（user-block の出力 = トークン化対象）
     let input_file = input_file.ok_or_else(|| {
@@ -1136,7 +1084,6 @@ pub fn handle_user_block_non_interactive(
         description,
         round,
         global_round,
-        tag,
     )
 }
 
@@ -1148,7 +1095,6 @@ pub fn handle_block_user_block(
     description: Option<&str>,
     round: Option<i64>,
     global_round: Option<i64>,
-    tag: Option<String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // user-block ブロック名（block_metadata / トークン化ラベルに使用）
     const BLOCK_NAME: &str = "user-block";
@@ -1228,7 +1174,6 @@ pub fn handle_block_user_block(
                 "ユーザーが作成したドキュメントを waggle トークン化するユーザーブロック"
                     .to_string(),
                 "inherit".to_string(),
-                None,
                 "off".to_string(),
                 "false".to_string(),
                 "false".to_string(),
@@ -1256,8 +1201,7 @@ pub fn handle_block_user_block(
         store.update_execution_input_tokens(exec_id, input_tokens)?;
     }
     store.update_execution_waggle_tokens(exec_id, &output_tokens)?;
-    let tag_ref = tag.as_deref();
-    store.update_execution_overrides(exec_id, tag_ref, round, global_round, None, None, None)?;
+    store.update_execution_overrides(exec_id, round, global_round, None, None, None)?;
 
     // ── 5. 入力辺の接続（線図: 入力トークンの出力元実行 → user-block 実行）──
     // 入力トークンが指定された場合のみ入力辺が存在する。
@@ -1292,7 +1236,6 @@ pub fn handle_block_preview(
     timeout_ms: Option<u64>,
     round: Option<i64>,
     global_round: Option<i64>,
-    tag: Option<String>,
     think: Option<String>,
     model: Option<String>,
     block_timeout: Option<u32>,
@@ -1327,17 +1270,14 @@ pub fn handle_block_preview(
     // 実行時設定の解決（§6）
     let overrides = ExecutionOverrides {
         model,
-        provider: None,
         thinking: think,
         timeout: block_timeout.or_else(|| timeout_ms.map(|ms| (ms / 1000) as u32)),
         round,
         global_round,
-        tag,
         direction: Some(parse_direction(direction)),
         worktree: None,
         cwd: None,
         keep_pane: false,
-        runner: agent_link_engine::runner::RunnerKind::Cc,
     };
     let resolved = orchestrator::resolve_execution_settings(&parsed.config, &overrides);
 
@@ -1355,7 +1295,6 @@ pub fn handle_block_preview(
         base_pane_id: None, // U2・R4 案X: 分割基準ペインなし
         pane_id: None,      // U2・R4 案X: 分割済みペインなし
         is_subtask: false,
-        runner: resolved.runner,
     };
     let prepared = orchestrator::prepare_pipeline(&pipeline_config)?;
 
@@ -1543,12 +1482,10 @@ pub fn handle_block_list(limit: i64, json: bool) -> Result<(), Box<dyn std::erro
             let block_name = block_data
                 .map(|b| b.name.clone())
                 .unwrap_or_else(|| format!("(block_id={})", exec.block_id));
-            let tag = block_data.and_then(|b| b.tag.clone()).unwrap_or_default();
 
             DisplayRunRecord {
                 id: exec.id.unwrap_or(0),
                 block_name,
-                tag,
                 status: exec.status.clone(),
                 started_at: exec.started_at.clone().unwrap_or_default(),
                 elapsed_ms: exec.duration_ms,
@@ -1576,7 +1513,6 @@ pub fn handle_block_list(limit: i64, json: bool) -> Result<(), Box<dyn std::erro
 struct DisplayRunRecord {
     id: i64,
     block_name: String,
-    tag: String,
     status: String,
     started_at: String,
     elapsed_ms: Option<i64>,
@@ -1586,20 +1522,19 @@ struct DisplayRunRecord {
 fn print_list_table(records: &[DisplayRunRecord]) {
     // ヘッダー
     println!(
-        "{:<6} | {:<20} | {:<8} | {:<12} | {:<20} | {:<10}",
-        "ID", "ブロック名", "タグ", "ステータス", "日時", "所要時間"
+        "{:<6} | {:<20} | {:<12} | {:<20} | {:<10}",
+        "ID", "ブロック名", "ステータス", "日時", "所要時間"
     );
     println!(
-        "{:-<6}-+-{:-<20}-+-{:-<8}-+-{:-<12}-+-{:-<20}-+-{:-<10}",
-        "", "", "", "", "", ""
+        "{:-<6}-+-{:-<20}-+-{:-<12}-+-{:-<20}-+-{:-<10}",
+        "", "", "", "", ""
     );
     // 各行
     for record in records {
         println!(
-            "{:<6} | {:<20} | {:<8} | {:<12} | {:<20} | {:<10}",
+            "{:<6} | {:<20} | {:<12} | {:<20} | {:<10}",
             record.id,
             truncate_str(&record.block_name, 20),
-            truncate_str(&record.tag, 8),
             format_status(&record.status),
             format_datetime(&record.started_at),
             format_elapsed(record.elapsed_ms),
@@ -1617,7 +1552,6 @@ struct BlockShowJson {
     run_id: i64,
     block_name: Option<String>,
     block_file: Option<String>,
-    block_tag: Option<String>,
     block_round: Option<i64>,
     status: String,
     started_at: Option<String>,
@@ -1665,7 +1599,6 @@ pub fn handle_block_show(run_id: i64, json: bool) -> Result<(), Box<dyn std::err
             run_id,
             block_name: block.as_ref().map(|b| b.name.clone()),
             block_file: block.as_ref().map(|b| b.file_path.clone()),
-            block_tag: block.as_ref().and_then(|b| b.tag.clone()),
             block_round: block.as_ref().and_then(|b| b.round),
             status: exec.status.clone(),
             started_at: exec.started_at.clone(),
@@ -1739,11 +1672,8 @@ pub fn handle_block_show(run_id: i64, json: bool) -> Result<(), Box<dyn std::err
         exec.git_commit_after.as_deref().unwrap_or("-")
     );
 
-    // ブロックの tag / round 表示
+    // ブロックの round 表示
     if let Some(ref b) = block {
-        if let Some(ref tag) = b.tag {
-            println!("  タグ:          {}", tag);
-        }
         if let Some(round) = b.round {
             println!("  ラウンド:      {}", round);
         }
@@ -2026,10 +1956,10 @@ pub fn handle_phone_export(
         match run {
             Some(run_id) => {
                 let exec = store.get_execution_by_id(run_id)?;
-                if !phone_export::should_export(&exec.status, &exec.runner) {
+                if !phone_export::should_export(&exec.status) {
                     eprintln!(
-                        "run {} は書き出し対象外です（status={} runner={}）",
-                        run_id, exec.status, exec.runner
+                        "run {} は書き出し対象外です（status={}）",
+                        run_id, exec.status
                     );
                     return Ok(());
                 }
@@ -2647,7 +2577,6 @@ mod tests {
             DisplayRunRecord {
                 id: 3,
                 block_name: "sai-brst-grill".to_string(),
-                tag: "brst".to_string(),
                 status: "completed".to_string(),
                 started_at: "2026-07-30T14:23:05".to_string(),
                 elapsed_ms: Some(45200),
@@ -2655,7 +2584,6 @@ mod tests {
             DisplayRunRecord {
                 id: 2,
                 block_name: "sai-plan-synth".to_string(),
-                tag: "plan".to_string(),
                 status: "failed".to_string(),
                 started_at: "2026-07-30T13:10:00".to_string(),
                 elapsed_ms: Some(12100),
@@ -2663,7 +2591,6 @@ mod tests {
             DisplayRunRecord {
                 id: 1,
                 block_name: "simple-task".to_string(),
-                tag: "".to_string(),
                 status: "cancelled".to_string(),
                 started_at: "2026-07-30T12:01:00".to_string(),
                 elapsed_ms: None,

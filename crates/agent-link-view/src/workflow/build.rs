@@ -29,8 +29,6 @@ pub struct BlockDisplayData {
     pub block_id: i64,
     /// ブロック名
     pub name: String,
-    /// タグ
-    pub tag: Option<String>,
     /// グローバルラウンド（GR）。DAG の行グループと区切り線に使用
     pub global_round: Option<i64>,
     /// ラウンド（LR）
@@ -41,8 +39,6 @@ pub struct BlockDisplayData {
     pub batch_id: Option<String>,
     /// フェーズ番号（P3-B2。合成小ブロックのみ設定。実実行は None）
     pub phase: Option<u32>,
-    /// runner（pi / cc など）
-    pub runner: String,
     /// 実行ステータス
     pub last_status: String,
     /// 所要時間
@@ -263,13 +259,11 @@ pub fn build_block_graph(
                 exec_id: phase_id,
                 block_id: m.block_id,
                 name,
-                tag: m.tag.clone(),
                 global_round: m.global_round,
                 round: m.round,
                 parent_exec_id: Some(m.exec_id), // フェーズ親
                 batch_id: batch_id.clone(),      // バッチ k の batch_id（小ブロック表示用）
                 phase: Some(k as u32),
-                runner: m.runner.clone(),
                 last_status: m.last_status.clone(),
                 // 色判定結果は実メイン（元ノード）から引き継ぐ（Notification）
                 reflection_status: m.reflection_status,

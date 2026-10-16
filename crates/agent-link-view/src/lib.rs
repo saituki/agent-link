@@ -13,7 +13,6 @@
 //! - [`card_wizard`] — task.md 作成ウィザードの組み立て・検査（`phone card`）
 //! - [`phone_view`] — run の中身（md / waggle）の解決（`phone md` / `phone waggle`）
 //! - [`workflow`] — 実行グラフ（DAG）の組み立て・配置・材料集め（`phone workflow`）
-//! - [`user_run`] — 利用者の札（`runner: user`）の始める・終える処理（`phone user`）
 //! - [`fmt`] — 数値・費用・トークンの表示書式
 //!
 //! `block_history` / `block_log` / `cache_stats` は、もともと TUI の `ui/` 配下に
@@ -28,7 +27,6 @@ pub mod card_wizard;
 pub mod fmt;
 pub mod left_tree;
 pub mod phone_view;
-pub mod user_run;
 pub mod workflow;
 
 /// テスト用の共有ロック。`AGENT_LINK_PROJECT_ROOT` はプロセス共通なので、

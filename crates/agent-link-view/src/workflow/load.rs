@@ -109,7 +109,7 @@ pub fn load_workflow(store: &SaiStore, prep: &ViewPrep) -> WorkflowSource {
     let reflection = judge_reflection_statuses(executions);
 
     // ブロック名などのキャッシュ（ブロック ID ごと）
-    let mut block_name_cache: HashMap<i64, (String, Option<String>, Option<i64>)> = HashMap::new();
+    let mut block_name_cache: HashMap<i64, (String, Option<i64>)> = HashMap::new();
     let mut blocks: Vec<BlockDisplayData> = Vec::new();
     for e in executions {
         if is_kanban_owned(e) {
@@ -117,7 +117,7 @@ pub fn load_workflow(store: &SaiStore, prep: &ViewPrep) -> WorkflowSource {
         }
         let block_id = e.block_id;
         // ブロック名をキャッシュから取得（基本情報は block_metadata）
-        let (name, block_tag, block_round) = match block_name_cache.get(&block_id) {
+        let (name, block_round) = match block_name_cache.get(&block_id) {
             Some(cached) => cached.clone(),
             None => {
                 let b = store.get_block_by_id(block_id).ok();
@@ -125,14 +125,12 @@ pub fn load_workflow(store: &SaiStore, prep: &ViewPrep) -> WorkflowSource {
                     .as_ref()
                     .map(|b| b.display_name.clone())
                     .unwrap_or_else(|| format!("(block_id={})", block_id));
-                let tag = b.as_ref().and_then(|b| b.tag.clone());
                 let round = b.as_ref().and_then(|b| b.round);
-                block_name_cache.insert(block_id, (name.clone(), tag.clone(), round));
-                (name, tag, round)
+                block_name_cache.insert(block_id, (name.clone(), round));
+                (name, round)
             }
         };
         // execution_history の値を優先（実行時オーバーライド値）
-        let tag = e.tag.clone().or(block_tag);
         let round = e.round.or(block_round);
         // Card 表示用の description：対応カードの frontmatter から取得する。
         // 対応カードが無い実行は空（todo 辞書を使い回し・再走査なし）。
@@ -146,14 +144,12 @@ pub fn load_workflow(store: &SaiStore, prep: &ViewPrep) -> WorkflowSource {
             exec_id: e.id.unwrap_or(0),
             block_id,
             name,
-            tag,
             global_round: e.global_round,
             round,
             parent_exec_id: e.parent_run_id,
             batch_id: e.batch_id.clone(),
             // 実実行はフェーズなし（合成ノードのみ設定）
             phase: None,
-            runner: e.runner.clone(),
             last_status: e.status.clone(),
             last_duration_ms: e.duration_ms,
             created_at: e.created_at.clone(),

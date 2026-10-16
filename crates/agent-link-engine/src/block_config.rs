@@ -102,7 +102,7 @@ impl<'de> Deserialize<'de> for ToolsConfig {
 ///
 /// # フィールドグループ
 ///
-/// - **エージェント設定**: name, description, model, provider, thinking,
+/// - **エージェント設定**: name, description, model, thinking,
 ///   tools, extensions, skills, timeout, worktree, enable
 /// - **テンプレート**: templates（`.agent-link/template/*.md` の挿入リスト）
 ///
@@ -133,10 +133,6 @@ pub struct BlockConfig {
     /// 使用する LLM モデル（完全修飾名または "inherit"）
     #[serde(default)]
     pub model: Option<String>,
-
-    /// LLM プロバイダ（オプション）
-    #[serde(default)]
-    pub provider: Option<String>,
 
     /// thinking budget レベル
     /// 有効値: "none", "low", "medium", "high", "xhigh", "max"
@@ -177,11 +173,6 @@ pub struct BlockConfig {
     /// カテゴリ（herdrs 互換性のため）
     #[serde(default)]
     pub category: Option<String>,
-
-    /// セクションタグ（例: "brst", "plan", "code", "comp", "rfrs"）
-    /// フロントマター + 実行時設定の両方から追記可能
-    #[serde(default)]
-    pub tag: Option<String>,
 
     /// ラウンド番号（1始まり）
     /// フロントマター + 実行時設定の両方から追記可能

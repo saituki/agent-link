@@ -2,7 +2,7 @@
 //!
 //! 処理の本体は `phone` の実装をそのまま呼ぶ（写さない・出力を変えない）。
 
-use crate::cli::{CardCmd, PhoneCardCmd, PhoneCmd, PhoneUserCmd};
+use crate::cli::{CardCmd, PhoneCardCmd, PhoneCmd};
 use crate::cmd_common::{print_phone, CmdError};
 
 /// `agent-link card <sub>` のハンドラ。
@@ -26,12 +26,6 @@ pub(crate) fn run(cmd: CardCmd) -> Result<(), CmdError> {
         }),
         CardCmd::Run { run_id, json: _ } => print_phone(PhoneCmd::Card {
             cmd: PhoneCardCmd::Run { run_id },
-        }),
-        CardCmd::Start { run_id, json: _ } => print_phone(PhoneCmd::User {
-            cmd: PhoneUserCmd::Start { run_id },
-        }),
-        CardCmd::Finish { run_id, json: _ } => print_phone(PhoneCmd::User {
-            cmd: PhoneUserCmd::Finish { run_id },
         }),
     }
 }

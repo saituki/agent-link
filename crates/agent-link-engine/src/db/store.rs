@@ -36,9 +36,9 @@ const EXECUTION_SELECT_COLS: &str = "id, block_id, status, user_inputs_json, res
      git_commit_before, git_commit_after, \
      herdr_pane_id, pid, started_at, finished_at, \
      duration_ms, exit_code, error_message, output_content, session_stats_json, \
-     tag, round, model, provider, thinking, timeout, session_dir, pi_command, \
+     round, model, thinking, timeout, session_dir, pi_command, \
      parent_run_id, created_at, global_round, batch_id, finalized, \
-     origin_run_id, kanban_card_path, execution_mode, workflow_moved, review_done, runner, agent_session_id";
+     origin_run_id, kanban_card_path, execution_mode, workflow_moved, review_done, agent_session_id";
 
 /// `execution_history` の行を `ExecutionHistory` に変換する共通マッパー（P13）。
 fn execution_from_row(row: &Row) -> rusqlite::Result<ExecutionHistory> {
@@ -65,29 +65,25 @@ fn execution_from_row(row: &Row) -> rusqlite::Result<ExecutionHistory> {
         error_message: row.get(17)?,
         output_content: row.get(18)?,
         session_stats_json: row.get(19)?,
-        tag: row.get(20)?,
-        round: row.get(21)?,
-        model: row.get(22)?,
-        provider: row.get(23)?,
-        thinking: row.get(24)?,
-        timeout: row.get(25)?,
-        session_dir: row.get(26)?,
-        pi_command: row.get(27)?,
-        parent_run_id: row.get(28)?,
-        created_at: row.get(29)?,
-        global_round: row.get(30)?,
-        batch_id: row.get(31)?,
-        finalized: row.get::<_, i64>(32).unwrap_or(0) != 0,
-        kanban_card_path: row.get(34).ok(),
-        execution_mode: row.get(35).ok(),
+        round: row.get(20)?,
+        model: row.get(21)?,
+        thinking: row.get(22)?,
+        timeout: row.get(23)?,
+        session_dir: row.get(24)?,
+        pi_command: row.get(25)?,
+        parent_run_id: row.get(26)?,
+        created_at: row.get(27)?,
+        global_round: row.get(28)?,
+        batch_id: row.get(29)?,
+        finalized: row.get::<_, i64>(30).unwrap_or(0) != 0,
+        kanban_card_path: row.get(32).ok(),
+        execution_mode: row.get(33).ok(),
         // 旧 DB（カラムなし）は 0（Kanban 所有）扱い
-        workflow_moved: row.get::<_, i64>(36).unwrap_or(0) != 0,
+        workflow_moved: row.get::<_, i64>(34).unwrap_or(0) != 0,
         // 旧 DB（カラムなし）は 0（review レーン）扱い
-        review_done: row.get::<_, i64>(37).unwrap_or(0) != 0,
-        // 旧 DB（カラムなし）は `pi` 扱い
-        runner: row.get::<_, String>(38).unwrap_or_else(|_| "cc".to_string()),
+        review_done: row.get::<_, i64>(35).unwrap_or(0) != 0,
         // エージェント側セッション ID（cc のみ。旧 DB は NULL）
-        agent_session_id: row.get(39).ok(),
+        agent_session_id: row.get(36).ok(),
     })
 }
 
@@ -103,7 +99,7 @@ const TASK_SELECT_COLS: &str = "id, parent_run_id, subject, description, status,
      block_type, inputs_json, depends_on_json, worktree, \
      execution_id, batch_id, client_id, round, supersedes_batch_id, \
      approval_comment, finalized, deleted_by, deleted_at, run_batch_id, \
-     cwd, created_at, updated_at, timeout, card_run_id, runner, model, thinking";
+     cwd, created_at, updated_at, timeout, card_run_id, model, thinking";
 
 /// `tasks` の行を `Task` に変換する共通マッパー。
 fn task_from_row(row: &Row) -> rusqlite::Result<Task> {
@@ -135,9 +131,8 @@ fn task_from_row(row: &Row) -> rusqlite::Result<Task> {
         timeout: row.get(22)?,
         // card_run_id は既存 DB で NULL の行があるため Option として読む
         card_run_id: row.get(23)?,
-        runner: row.get(24)?,
-        model: row.get(25)?,
-        thinking: row.get(26)?,
+        model: row.get(24)?,
+        thinking: row.get(25)?,
     })
 }
 
@@ -455,15 +450,14 @@ impl SaiStore {
         let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
 
         let result = tx.execute(
-            "INSERT INTO block_metadata (name, display_name, description, model, provider, thinking, \
+            "INSERT INTO block_metadata (name, display_name, description, model, thinking, \
              tools, extensions, skills, timeout, worktree, enable, file_path, \
-             body_hash, tag, round) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
+             body_hash, round) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
             params![
                 block.name,
                 block.display_name,
                 block.description,
                 block.model,
-                block.provider,
                 block.thinking,
                 block.tools,
                 block.extensions,
@@ -473,7 +467,6 @@ impl SaiStore {
                 block.enable,
                 block.file_path,
                 block.body_hash,
-                block.tag,
                 block.round,
             ],
         );
@@ -503,9 +496,9 @@ impl SaiStore {
     pub fn get_block_by_id(&self, id: i64) -> Result<BlockMetadata, DbError> {
         let conn = self.conn.lock().unwrap();
         conn.query_row(
-            "SELECT id, name, display_name, description, model, provider, thinking, tools, extensions, \
+            "SELECT id, name, display_name, description, model, thinking, tools, extensions, \
              skills, timeout, worktree, enable, file_path, body_hash, \
-             tag, round, created_at, updated_at FROM block_metadata WHERE id = ?1",
+             round, created_at, updated_at FROM block_metadata WHERE id = ?1",
             params![id],
             |row| {
                 Ok(BlockMetadata {
@@ -514,20 +507,18 @@ impl SaiStore {
                     display_name: row.get(2)?,
                     description: row.get(3)?,
                     model: row.get(4)?,
-                    provider: row.get(5)?,
-                    thinking: row.get(6)?,
-                    tools: row.get(7)?,
-                    extensions: row.get(8)?,
-                    skills: row.get(9)?,
-                    timeout: row.get(10)?,
-                    worktree: row.get(11)?,
-                    enable: row.get::<_, i32>(12)? != 0,
-                    file_path: row.get(13)?,
-                    body_hash: row.get(14)?,
-                    tag: row.get(15)?,
-                    round: row.get(16)?,
-                    created_at: row.get(17)?,
-                    updated_at: row.get(18)?,
+                    thinking: row.get(5)?,
+                    tools: row.get(6)?,
+                    extensions: row.get(7)?,
+                    skills: row.get(8)?,
+                    timeout: row.get(9)?,
+                    worktree: row.get(10)?,
+                    enable: row.get::<_, i32>(11)? != 0,
+                    file_path: row.get(12)?,
+                    body_hash: row.get(13)?,
+                    round: row.get(14)?,
+                    created_at: row.get(15)?,
+                    updated_at: row.get(16)?,
                 })
             },
         )
@@ -541,9 +532,9 @@ impl SaiStore {
     pub fn get_block_by_name(&self, name: &str) -> Result<BlockMetadata, DbError> {
         let conn = self.conn.lock().unwrap();
         conn.query_row(
-            "SELECT id, name, display_name, description, model, provider, thinking, tools, extensions, \
+            "SELECT id, name, display_name, description, model, thinking, tools, extensions, \
              skills, timeout, worktree, enable, file_path, body_hash, \
-             tag, round, created_at, updated_at FROM block_metadata WHERE name = ?1",
+             round, created_at, updated_at FROM block_metadata WHERE name = ?1",
             params![name],
             |row| {
                 Ok(BlockMetadata {
@@ -552,20 +543,18 @@ impl SaiStore {
                     display_name: row.get(2)?,
                     description: row.get(3)?,
                     model: row.get(4)?,
-                    provider: row.get(5)?,
-                    thinking: row.get(6)?,
-                    tools: row.get(7)?,
-                    extensions: row.get(8)?,
-                    skills: row.get(9)?,
-                    timeout: row.get(10)?,
-                    worktree: row.get(11)?,
-                    enable: row.get::<_, i32>(12)? != 0,
-                    file_path: row.get(13)?,
-                    body_hash: row.get(14)?,
-                    tag: row.get(15)?,
-                    round: row.get(16)?,
-                    created_at: row.get(17)?,
-                    updated_at: row.get(18)?,
+                    thinking: row.get(5)?,
+                    tools: row.get(6)?,
+                    extensions: row.get(7)?,
+                    skills: row.get(8)?,
+                    timeout: row.get(9)?,
+                    worktree: row.get(10)?,
+                    enable: row.get::<_, i32>(11)? != 0,
+                    file_path: row.get(12)?,
+                    body_hash: row.get(13)?,
+                    round: row.get(14)?,
+                    created_at: row.get(15)?,
+                    updated_at: row.get(16)?,
                 })
             },
         )
@@ -581,9 +570,9 @@ impl SaiStore {
     pub fn list_blocks(&self) -> Result<Vec<BlockMetadata>, DbError> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT id, name, display_name, description, model, provider, thinking, tools, extensions, \
+            "SELECT id, name, display_name, description, model, thinking, tools, extensions, \
              skills, timeout, worktree, enable, file_path, body_hash, \
-             tag, round, created_at, updated_at FROM block_metadata WHERE enable = 1 ORDER BY name",
+             round, created_at, updated_at FROM block_metadata WHERE enable = 1 ORDER BY name",
         )?;
 
         let rows = stmt.query_map([], |row| {
@@ -593,20 +582,18 @@ impl SaiStore {
                 display_name: row.get(2)?,
                 description: row.get(3)?,
                 model: row.get(4)?,
-                provider: row.get(5)?,
-                thinking: row.get(6)?,
-                tools: row.get(7)?,
-                extensions: row.get(8)?,
-                skills: row.get(9)?,
-                timeout: row.get(10)?,
-                worktree: row.get(11)?,
-                enable: row.get::<_, i32>(12)? != 0,
-                file_path: row.get(13)?,
-                body_hash: row.get(14)?,
-                tag: row.get(15)?,
-                round: row.get(16)?,
-                created_at: row.get(17)?,
-                updated_at: row.get(18)?,
+                thinking: row.get(5)?,
+                tools: row.get(6)?,
+                extensions: row.get(7)?,
+                skills: row.get(8)?,
+                timeout: row.get(9)?,
+                worktree: row.get(10)?,
+                enable: row.get::<_, i32>(11)? != 0,
+                file_path: row.get(12)?,
+                body_hash: row.get(13)?,
+                round: row.get(14)?,
+                created_at: row.get(15)?,
+                updated_at: row.get(16)?,
             })
         })?;
 
@@ -630,16 +617,15 @@ impl SaiStore {
 
         let result = tx.execute(
             "UPDATE block_metadata SET name = ?1, display_name = ?2, description = ?3, model = ?4, \
-             provider = ?5, thinking = ?6, tools = ?7, extensions = ?8, skills = ?9, \
-             timeout = ?10, worktree = ?11, enable = ?12, \
-             file_path = ?13, body_hash = ?14, tag = ?15, round = ?16, \
-             updated_at = datetime('now') WHERE id = ?17",
+             thinking = ?5, tools = ?6, extensions = ?7, skills = ?8, \
+             timeout = ?9, worktree = ?10, enable = ?11, \
+             file_path = ?12, body_hash = ?13, round = ?14, \
+             updated_at = datetime('now') WHERE id = ?15",
             params![
                 block.name,
                 block.display_name,
                 block.description,
                 block.model,
-                block.provider,
                 block.thinking,
                 block.tools,
                 block.extensions,
@@ -649,7 +635,6 @@ impl SaiStore {
                 block.enable,
                 block.file_path,
                 block.body_hash,
-                block.tag,
                 block.round,
                 id,
             ],
@@ -1041,7 +1026,6 @@ impl SaiStore {
             display_name: "未割当".to_string(),
             description: "カード予約用プレースホルダー".to_string(),
             model: "inherit".to_string(),
-            provider: None,
             thinking: "off".to_string(),
             tools: "false".to_string(),
             extensions: "false".to_string(),
@@ -1051,7 +1035,6 @@ impl SaiStore {
             enable: false,
             file_path: "".to_string(),
             body_hash: None,
-            tag: None,
             round: None,
             created_at: String::new(),
             updated_at: String::new(),
@@ -1062,49 +1045,6 @@ impl SaiStore {
                 .get_block_by_name("__todo__")
                 .and_then(|b| {
                     b.id.ok_or_else(|| DbError::NotFound("__todo__ id".to_string()))
-                }),
-            Err(e) => Err(e),
-        }
-    }
-
-    /// `__user__` プレースホルダーブロックを確保する（runner=user タスク用）。
-    ///
-    /// user タスク（`runner: user`）は pi を実行せずユーザーが行うため、
-    /// ブロック定義を参照しない。DB の `block_id` NOT NULL を満たすための
-    /// プレースホルダー。実在すれば再利用、無ければ最小レコードを作成する。
-    pub fn get_or_create_user_block(&self) -> Result<i64, DbError> {
-        if let Ok(b) = self.get_block_by_name("__user__") {
-            if let Some(id) = b.id {
-                return Ok(id);
-            }
-        }
-        let block = BlockMetadata {
-            id: None,
-            name: "__user__".to_string(),
-            display_name: "user".to_string(),
-            description: "ユーザータスク（runner: user）用プレースホルダー".to_string(),
-            model: "inherit".to_string(),
-            provider: None,
-            thinking: "off".to_string(),
-            tools: "false".to_string(),
-            extensions: "false".to_string(),
-            skills: None,
-            timeout: 300,
-            worktree: "none".to_string(),
-            enable: false,
-            file_path: "".to_string(),
-            body_hash: None,
-            tag: None,
-            round: None,
-            created_at: String::new(),
-            updated_at: String::new(),
-        };
-        match self.insert_block(&block) {
-            Ok(id) => Ok(id),
-            Err(DbError::DuplicateName(_)) => self
-                .get_block_by_name("__user__")
-                .and_then(|b| {
-                    b.id.ok_or_else(|| DbError::NotFound("__user__ id".to_string()))
                 }),
             Err(e) => Err(e),
         }
@@ -1309,7 +1249,7 @@ impl SaiStore {
         Ok(())
     }
 
-    /// `output_waggle_tokens` 配列の末尾に 1 件追記する（runner=user の sai-write 用）。
+    /// `output_waggle_tokens` 配列の末尾に 1 件追記する（sai-write 用）。
     ///
     /// 既存トークンは保持したまま新しいトークンを追加する。既存が NULL/空なら
     /// `[token]` になる。単数カラム `output_waggle_token` は変更しない。
@@ -1908,12 +1848,11 @@ impl SaiStore {
         Ok(rows)
     }
 
-    /// 実行時のオーバーライド値（Tag, Round, Model, Thinking, Timeout）を一括保存する。
+    /// 実行時のオーバーライド値（Round, Model, Thinking, Timeout）を一括保存する。
     /// 右SB表示用に実行インスタンス単位で記録する。
     pub fn update_execution_overrides(
         &self,
         id: i64,
-        tag: Option<&str>,
         round: Option<i64>,
         global_round: Option<i64>,
         model: Option<&str>,
@@ -1922,19 +1861,9 @@ impl SaiStore {
     ) -> Result<(), DbError> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
-            "UPDATE execution_history SET tag = ?1, round = ?2, global_round = ?3, \
-             model = ?4, thinking = ?5, timeout = ?6 WHERE id = ?7",
-            params![tag, round, global_round, model, thinking, timeout, id],
-        )?;
-        Ok(())
-    }
-
-    /// 実行時の provider（`p` 再開用）を保存する。
-    pub fn update_execution_provider(&self, id: i64, provider: Option<&str>) -> Result<(), DbError> {
-        let conn = self.conn.lock().unwrap();
-        conn.execute(
-            "UPDATE execution_history SET provider = ?1 WHERE id = ?2",
-            params![provider, id],
+            "UPDATE execution_history SET round = ?1, global_round = ?2, \
+             model = ?3, thinking = ?4, timeout = ?5 WHERE id = ?6",
+            params![round, global_round, model, thinking, timeout, id],
         )?;
         Ok(())
     }
@@ -1998,8 +1927,7 @@ impl SaiStore {
 
     /// 実行時のラウンド（`round` / `global_round`）だけを更新する。
     ///
-    /// `runner: user` の run-tui `e` のように、その他のオーバーライド値を
-    /// 保持したままラウンドだけを反映したい場合に使う。
+    /// その他のオーバーライド値を保持したままラウンドだけを反映したい場合に使う。
     pub fn update_execution_rounds(
         &self,
         id: i64,
@@ -2010,16 +1938,6 @@ impl SaiStore {
         conn.execute(
             "UPDATE execution_history SET round = ?1, global_round = ?2 WHERE id = ?3",
             params![round, global_round, id],
-        )?;
-        Ok(())
-    }
-
-    /// 実行主体（`runner`）を設定する（`pi` / `user` / `cc`）。
-    pub fn update_execution_runner(&self, id: i64, runner: &str) -> Result<(), DbError> {
-        let conn = self.conn.lock().unwrap();
-        conn.execute(
-            "UPDATE execution_history SET runner = ?1 WHERE id = ?2",
-            params![runner, id],
         )?;
         Ok(())
     }
@@ -2050,43 +1968,14 @@ impl SaiStore {
              eh.input_waggle_tokens, eh.output_waggle_token, eh.output_waggle_tokens, eh.output_type, \
              eh.git_commit_before, eh.git_commit_after, eh.herdr_pane_id, eh.pid, eh.started_at, eh.finished_at, \
              eh.duration_ms, eh.exit_code, eh.error_message, eh.output_content, eh.session_stats_json, \
-             eh.tag, eh.round, eh.model, eh.provider, eh.thinking, eh.timeout, eh.session_dir, eh.pi_command, \
+             eh.round, eh.model, eh.thinking, eh.timeout, eh.session_dir, eh.pi_command, \
              eh.parent_run_id, eh.created_at, eh.global_round, eh.batch_id, eh.finalized, \
-             eh.origin_run_id, eh.kanban_card_path, eh.execution_mode, eh.workflow_moved, eh.review_done, eh.runner, eh.agent_session_id \
+             eh.origin_run_id, eh.kanban_card_path, eh.execution_mode, eh.workflow_moved, eh.review_done, eh.agent_session_id \
              FROM execution_history eh, json_each(eh.output_waggle_tokens) \
              WHERE json_each.value = ?1 \
              ORDER BY eh.created_at DESC LIMIT 1",
             params![token],
-            |row| {
-                Ok(ExecutionHistory {
-                    id: Some(row.get(0)?), block_id: row.get(1)?, status: row.get(2)?,
-                    user_inputs_json: row.get(3)?, resolved_prompt: row.get(4)?,
-                    input_waggle_tokens: row.get(5)?, output_waggle_token: row.get(6)?,
-                    output_waggle_tokens: row.get(7)?,
-                    output_type: row.get::<_, String>(8).unwrap_or_else(|_| "document".to_string()),
-                    git_commit_before: row.get(9)?, git_commit_after: row.get(10)?,
-                    herdr_pane_id: row.get(11)?, pid: row.get(12)?,
-                    started_at: row.get(13)?, finished_at: row.get(14)?,
-                    duration_ms: row.get(15)?, exit_code: row.get(16)?,
-                    error_message: row.get(17)?, output_content: row.get(18)?,
-                    parent_run_id: row.get(28)?,
-                    session_stats_json: row.get(19)?,
-                    tag: row.get(20)?, round: row.get(21)?, model: row.get(22)?,
-                    provider: row.get(23)?,
-                    thinking: row.get(24)?, timeout: row.get(25)?,
-                    session_dir: row.get(26)?, pi_command: row.get(27)?,
-                    created_at: row.get(29)?,
-                    global_round: row.get(30)?,
-                    batch_id: row.get(31)?,
-                    finalized: row.get::<_, i64>(32).unwrap_or(0) != 0,
-                                kanban_card_path: row.get(34).ok(),
-                    execution_mode: row.get(35).ok(),
-                    workflow_moved: row.get::<_, i64>(36).unwrap_or(0) != 0,
-                    review_done: row.get::<_, i64>(37).unwrap_or(0) != 0,
-                    runner: row.get::<_, String>(38).unwrap_or_else(|_| "cc".to_string()),
-                    agent_session_id: row.get(39).ok(),
-                })
-            },
+            execution_from_row,
         );
         match result {
             Ok(exec) => Ok(Some(exec)),
@@ -2157,28 +2046,6 @@ impl SaiStore {
 
     /// 利用可能な waggle トークン一覧を取得する。
     ///
-    /// `output_waggle_tokens` が空でない完了済み実行から、
-    /// 各トークンを `json_each` で個別行に展開して返す。
-    /// `source_blocks` / `source_tags` でフィルタ可能。
-    ///
-    /// U03: `include_running=true` の場合、実行中（running / pending）・
-    /// 仮完了（completed 未確定）のトークンも含める。w キーで作りたて文書を選ぶ用。
-    /// 既定（false）は完了済みのみ（従来通り）。
-    ///
-    /// # 引数
-    ///
-    /// * `source_blocks` — 出力元ブロック名でフィルタ（`None` または空の場合は全ブロック）
-    /// * `source_tags` — 出力元ブロックの tag でフィルタ
-    /// * `limit` — 取得上限件数
-    pub fn list_available_waggle_tokens(
-        &self,
-        source_blocks: Option<&[String]>,
-        source_tags: Option<&[String]>,
-        limit: i64,
-    ) -> Result<Vec<WaggleTokenEntry>, DbError> {
-        self.list_waggle_tokens(source_blocks, source_tags, limit, false)
-    }
-
     /// U03: 実行中を含む waggle トークン一覧。
     ///
     /// `include_running=true` の場合、`status` を問わず `output_waggle_tokens`
@@ -2187,7 +2054,6 @@ impl SaiStore {
     pub fn list_waggle_tokens(
         &self,
         source_blocks: Option<&[String]>,
-        source_tags: Option<&[String]>,
         limit: i64,
         include_running: bool,
     ) -> Result<Vec<WaggleTokenEntry>, DbError> {
@@ -2222,20 +2088,6 @@ impl SaiStore {
                     .collect();
                 sql.push_str(&format!(" AND bm.name IN ({})", placeholders.join(",")));
                 param_values.extend(blocks.iter().cloned());
-            }
-        }
-
-        // source_tags フィルタ
-        if let Some(tags) = source_tags {
-            if !tags.is_empty() {
-                let base = param_values.len();
-                let placeholders: Vec<String> = tags
-                    .iter()
-                    .enumerate()
-                    .map(|(i, _)| format!("?{}", base + i + 1))
-                    .collect();
-                sql.push_str(&format!(" AND bm.tag IN ({})", placeholders.join(",")));
-                param_values.extend(tags.iter().cloned());
             }
         }
 
@@ -2292,8 +2144,8 @@ impl SaiStore {
             "INSERT INTO tasks (parent_run_id, subject, description, status, \
              block_type, inputs_json, depends_on_json, worktree, batch_id, \
              client_id, round, supersedes_batch_id, approval_comment, finalized, \
-             deleted_by, deleted_at, cwd, timeout, card_run_id, runner, model, thinking) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22)",
+             deleted_by, deleted_at, cwd, timeout, card_run_id, model, thinking) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21)",
             params![
                 task.parent_run_id,
                 task.subject,
@@ -2314,7 +2166,6 @@ impl SaiStore {
                 task.cwd,
                 task.timeout,
                 task.card_run_id,
-                task.runner,
                 task.model,
                 task.thinking,
             ],
@@ -2335,8 +2186,8 @@ impl SaiStore {
                 "INSERT INTO tasks (parent_run_id, subject, description, status, \
                  block_type, inputs_json, depends_on_json, worktree, batch_id, \
                  client_id, round, supersedes_batch_id, approval_comment, finalized, \
-                 deleted_by, deleted_at, cwd, timeout, card_run_id, runner, model, thinking) \
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22)",
+                 deleted_by, deleted_at, cwd, timeout, card_run_id, model, thinking) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21)",
                 params![
                     task.parent_run_id,
                     task.subject,
@@ -2357,8 +2208,7 @@ impl SaiStore {
                     task.cwd,
                     task.timeout,
                     task.card_run_id,
-                    task.runner,
-                    task.model,
+                        task.model,
                     task.thinking,
                 ],
             )?;
@@ -3274,14 +3124,14 @@ mod tests {
         store.update_execution_waggle_tokens(running, &["RUN00001".to_string()]).unwrap();
 
         let completed: Vec<String> = store
-            .list_waggle_tokens(None, None, -1, false)
+            .list_waggle_tokens(None, -1, false)
             .unwrap()
             .into_iter()
             .map(|e| e.token)
             .collect();
         assert_eq!(completed, vec!["DONE0001".to_string()]);
 
-        let all = store.list_waggle_tokens(None, None, -1, true).unwrap();
+        let all = store.list_waggle_tokens(None, -1, true).unwrap();
         assert_eq!(all.len(), 2);
     }
 
@@ -4529,7 +4379,6 @@ mod tests {
             "usage-agg".to_string(),
             String::new(),
             "model-x".to_string(),
-            None,
             "off".to_string(),
             "true".to_string(),
             "true".to_string(),
@@ -4656,9 +4505,9 @@ mod tests {
     }
 
     /// U2: タスクの `card_run_id` が保存・読み出しでき、未完了のタスクを引ける。
-    /// `runner` が insert_task → get_task_by_id で往復すること（未指定は None）。
+    /// `model` / `thinking` が insert_task → get_task_by_id で往復すること（未指定は None）。
     #[test]
-    fn test_task_runner_round_trip() {
+    fn test_task_model_thinking_round_trip() {
         let store = SaiStore::open_in_memory().unwrap();
         let block_id = store.insert_block(&create_test_block("runner-task")).unwrap();
         let parent_run_id = store.create_execution(block_id, None).unwrap();
@@ -4675,19 +4524,16 @@ mod tests {
                 Some(cid.to_string()),
             )
         };
-        let mut with_runner = make("A");
-        with_runner.runner = Some("cc".to_string());
-        with_runner.model = Some("haiku".to_string());
-        with_runner.thinking = Some("low".to_string());
+        let mut with_model = make("A");
+        with_model.model = Some("haiku".to_string());
+        with_model.thinking = Some("low".to_string());
         let ids = store
-            .insert_tasks_batch(&[with_runner, make("B")])
+            .insert_tasks_batch(&[with_model, make("B")])
             .unwrap();
         let a = store.get_task_by_id(ids[0]).unwrap();
-        assert_eq!(a.runner.as_deref(), Some("cc"));
         assert_eq!(a.model.as_deref(), Some("haiku"));
         assert_eq!(a.thinking.as_deref(), Some("low"));
         let b = store.get_task_by_id(ids[1]).unwrap();
-        assert_eq!(b.runner, None);
         assert_eq!(b.model, None);
         assert_eq!(b.thinking, None);
     }

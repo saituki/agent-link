@@ -481,7 +481,7 @@ mod tests {
     }
 
     /// 空のフォルダに基盤の block 10 本と template 12 本が配られ、
-    /// block の frontmatter が `model:` を持ち（既定値は block ごと）、`provider:` を持たないこと。
+    /// block の frontmatter が `model:` を持つこと（既定値は block ごと）。
     #[test]
     fn test_init_project_installs_base_assets() {
         let dir = tempfile::tempdir().unwrap();
@@ -497,10 +497,6 @@ mod tests {
             let text = std::fs::read_to_string(&p).unwrap();
             let fm = text.split("---\n").nth(1).unwrap();
             assert!(fm.lines().any(|l| l.starts_with("model:")), "{name}: {text}");
-            assert!(
-                !fm.lines().any(|l| l.starts_with("provider:")),
-                "{name} に provider: がある: {fm}"
-            );
         }
         for (name, _) in crate::assets::BASE_TEMPLATES {
             let p = root.join(".agent-link/template").join(name);
@@ -537,7 +533,7 @@ mod tests {
         );
     }
 
-    /// block の更新では `model`・`provider`・`thinking` を元の値で残し、
+    /// block の更新では `model`・`thinking` を元の値で残し、
     /// 本文は新しい版に置き換えること。
     #[test]
     fn test_init_project_update_block_keeps_user_settings() {
@@ -546,14 +542,13 @@ mod tests {
         init_project(root, false).unwrap();
 
         let path = root.join(".agent-link/blocks/kantoku.md");
-        let old = "---\nname: 🎬 kantoku\nid: kantoku\ndescription: 手で直した\nmodel: sonnet\nprovider: x\nthinking: max\ntemplates: link-base\nworktree: none\nenable: true\n---\n\n利用者が書いた古い本文\n";
+        let old = "---\nname: 🎬 kantoku\nid: kantoku\ndescription: 手で直した\nmodel: sonnet\nthinking: max\ntemplates: link-base\nworktree: none\nenable: true\n---\n\n利用者が書いた古い本文\n";
         std::fs::write(&path, old).unwrap();
 
         init_project(root, true).unwrap();
 
         let text = std::fs::read_to_string(&path).unwrap();
         assert!(text.contains("model: sonnet\n"), "{text}");
-        assert!(text.contains("provider: x\n"), "{text}");
         assert!(text.contains("thinking: max\n"), "{text}");
         assert!(!text.contains("model: inherit"), "{text}");
         assert!(!text.contains("利用者が書いた古い本文"), "{text}");

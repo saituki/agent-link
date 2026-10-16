@@ -189,7 +189,6 @@ fn setup_execution(dir: &std::path::Path, block_name: &str) -> i64 {
         block_name.to_string(),
         "テスト用ブロック".to_string(),
         "anthropic/claude-sonnet-4-5".to_string(),
-        None,
         "off".to_string(),
         "true".to_string(),
         "true".to_string(),

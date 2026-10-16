@@ -1,4 +1,4 @@
-//! # 設定（`.agent-link/settings.json`）と全 runner 共通の上限・環境変数
+//! # 設定（`.agent-link/settings.json`）と共通の上限・環境変数
 //!
 //! `.agent-link/settings.json`（プロジェクトと `~/.agent-link/`）を読む関数と、WIP・同時実行の上限、
 //! 起動コマンドに付ける環境変数（`env`）を提供します。pi の起動コマンドは U04 で消した。
@@ -10,13 +10,10 @@
 
 /// `.agent-link/settings.json` の構造。
 ///
-/// ブロック定義の frontmatter に `model`/`provider`/`thinking` が無い場合の
+/// ブロック定義の frontmatter に `model`/`thinking` が無い場合の
 /// デフォルト値を提供します。
 #[derive(Debug, Clone, Default, serde::Deserialize)]
 pub struct SettingsJson {
-    /// デフォルトプロバイダ名（例: "opencode-go"）
-    #[serde(default)]
-    pub default_provider: Option<String>,
     /// デフォルトモデル ID（例: "muse-spark-1.2-contributor"）
     #[serde(default)]
     pub default_model: Option<String>,
@@ -133,9 +130,6 @@ fn merge_settings_file(path: &std::path::Path, merged: &mut SettingsJson, warnin
         return;
     };
     // 各キーは「値が存在する場合のみ」上書きする（None は既存値を保持）
-    if parsed.default_provider.is_some() {
-        merged.default_provider = parsed.default_provider;
-    }
     if parsed.default_model.is_some() {
         merged.default_model = parsed.default_model;
     }
@@ -247,136 +241,6 @@ pub fn max_concurrent_limit() -> usize {
         .unwrap_or(16)
 }
 
-// ============================================================================
-// 内部ヘルパー関数（モデル ID からプロバイダを引く）
-// ============================================================================
-
-/// 指定されたモデル ID が属するプロバイダ名を検索する。
-///
-/// pi 本体（`core/model-resolver.js` の `resolveCliModel`）と同じ推論順序で行う。
-/// OpenRouter 系のモデル ID は `z-ai/glm-5.3-flash` のように**ID 自体に `/` を含む**
-/// ため、接頭辞を無条件に provider と断定してはならない（過去のバグ: `--provider z-ai`
-/// を出力して pi が `Unknown provider` で起動失敗していた）。
-///
-/// 検索方法:
-/// 1. `~/.pi/agent/models.json` の全 provider 配下でモデル ID **完全一致**照合
-///    （ID に `/` を含む OpenRouter 系 ID もここで正しく解決する）
-/// 2. 接頭辞（最初の `/` より前）が models.json の既知 provider 名なら接頭辞を返す
-///    （pi の `--model "provider/id"` 指定形式と同じ）
-/// 3. どちらにも該当しない場合は `settings.json` の `defaultProvider` を
-///    フォールバックとして返す。それでも無い場合は `None` を返す
-///    （`--provider` を付けず、pi 側のモデル解決に委ねる）。
-pub fn resolve_provider_for_model(model_id: &str) -> Option<String> {
-    let parsed = load_models_json();
-
-    // 1. モデル ID 完全一致: 全 provider 配下から ID が一致するモデルを探す
-    if let Some(ref value) = parsed {
-        if let Some(provider) = find_provider_by_model_id(value, model_id) {
-            return Some(provider);
-        }
-    }
-
-    // 2. `provider/model` 形式: 接頭辞が既知 provider 名の場合のみ採用する
-    if let Some((prefix, _)) = model_id.split_once('/') {
-        if !prefix.is_empty() && is_known_provider(parsed.as_ref(), prefix) {
-            return Some(prefix.to_string());
-        }
-    }
-
-    // 3. settings.json の defaultProvider をフォールバックとして返す
-    let settings = load_settings();
-    if let Some(ref provider) = settings.default_provider {
-        if !provider.is_empty() {
-            return Some(provider.clone());
-        }
-    }
-
-    None
-}
-
-/// `~/.pi/agent/models.json` を読み込む（末尾カンマを許容する寛容パース）。
-///
-/// pi 本体は JSON5 相当の寛容なパーサで models.json を読むため、手編集による
-/// 末尾カンマ（`]` / `}` 直前の `,`）が残っていても読める。Rust 側は serde_json
-/// （厳密）なので、末尾カンマのみ除去してからパースする（pi の挙動に合わせる）。
-fn load_models_json() -> Option<serde_json::Value> {
-    let content = std::fs::read_to_string(crate::common::pi_models_json_path()).ok()?;
-    // まず厳密にパースできればそれを使う
-    if let Ok(v) = serde_json::from_str::<serde_json::Value>(&content) {
-        return Some(v);
-    }
-    let cleaned = strip_trailing_commas(&content);
-    serde_json::from_str::<serde_json::Value>(&cleaned).ok()
-}
-
-/// JSON テキストから文字列リテラル外の末尾カンマ（`]` / `}` 直前の `,`）を除去する。
-fn strip_trailing_commas(content: &str) -> String {
-    let mut out = String::with_capacity(content.len());
-    let mut in_string = false;
-    let mut escaped = false;
-    let mut chars = content.chars().peekable();
-    while let Some(c) = chars.next() {
-        if in_string {
-            out.push(c);
-            if escaped {
-                escaped = false;
-            } else if c == '\\' {
-                escaped = true;
-            } else if c == '"' {
-                in_string = false;
-            }
-            continue;
-        }
-        match c {
-            '"' => {
-                in_string = true;
-                out.push(c);
-            }
-            ',' => {
-                // 次の非空白文字が `]` / `}` なら末尾カンマなので出力しない
-                let skip = chars.clone().skip_while(|n| n.is_whitespace()).next()
-                    == Some(']')
-                    || chars.clone().skip_while(|n| n.is_whitespace()).next()
-                        == Some('}');
-                if !skip {
-                    out.push(c);
-                }
-            }
-            _ => out.push(c),
-        }
-    }
-    out
-}
-
-/// models.json の `providers` オブジェクト配下で、モデル ID が `model_id` と
-/// 完全一致するエントリを探し、その provider 名を返す。
-fn find_provider_by_model_id(parsed: &serde_json::Value, model_id: &str) -> Option<String> {
-    let providers = parsed.get("providers")?.as_object()?;
-    for (provider_name, provider_config) in providers {
-        if let Some(models) = provider_config.get("models").and_then(|v| v.as_array()) {
-            for model_entry in models {
-                if model_entry.get("id").and_then(|v| v.as_str()) == Some(model_id) {
-                    return Some(provider_name.clone());
-                }
-            }
-        }
-    }
-    None
-}
-
-/// `name` が models.json に登録済みの provider 名（大文字小文字を区別しない）か。
-fn is_known_provider(parsed: Option<&serde_json::Value>, name: &str) -> bool {
-    let Some(value) = parsed else {
-        return false;
-    };
-    let Some(providers) = value.get("providers").and_then(|v| v.as_object()) else {
-        return false;
-    };
-    providers
-        .keys()
-        .any(|k| k.eq_ignore_ascii_case(name))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -421,15 +285,14 @@ mod tests {
         std::fs::create_dir_all(&proj_sai).unwrap();
         std::fs::create_dir_all(&home_sai).unwrap();
 
-        // プロジェクト側: wip / max_concurrent / default_provider を設定
+        // プロジェクト側: wip / max_concurrent を設定
         // （廃止した extensions が残っていても読み込みが失敗しないことも見る）
         std::fs::write(
             proj_sai.join("settings.json"),
             r#"{
                 "wip": 4,
                 "max_concurrent": 8,
-                "extensions": ["local.ts"],
-                "default_provider": "local-provider"
+                "extensions": ["local.ts"]
             }"#,
         )
         .unwrap();
@@ -459,11 +322,6 @@ mod tests {
         assert_eq!(
             settings.max_concurrent,
             Some(8),
-            "グローバルに無いキーはローカル値"
-        );
-        assert_eq!(
-            settings.default_provider,
-            Some("local-provider".to_string()),
             "グローバルに無いキーはローカル値"
         );
     }
@@ -621,42 +479,5 @@ mod tests {
             "グローバルが持たないキーはローカルの値が残る"
         );
         let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    // ------------------------------------------------------------------
-    // resolve_provider_for_model
-    // ------------------------------------------------------------------
-
-    #[test]
-    fn test_strip_trailing_commas() {
-        // 末尾カンマを含む JSON が寛容パースで読めること（pi の挙動に合わせる）
-        let raw = r#"{
-            "providers": {
-                "open-router": {
-                    "models": [
-                        {"id": "z-ai/glm-5.3-flash"},
-                    ]
-                },
-            }
-        }"#;
-        assert!(serde_json::from_str::<serde_json::Value>(raw).is_err());
-        let cleaned = strip_trailing_commas(raw);
-        let parsed = serde_json::from_str::<serde_json::Value>(&cleaned).unwrap();
-        assert_eq!(
-            find_provider_by_model_id(&parsed, "z-ai/glm-5.3-flash"),
-            Some("open-router".to_string())
-        );
-    }
-
-    #[test]
-    fn test_resolve_provider_model_id_with_slash() {
-        // モデル ID 自体に `/` を含む OpenRouter 系 ID は models.json の
-        // 完全一致照合で解決する（接頭辞を provider と断定しない）。
-        // テスト環境に models.json が無い場合は接頭辞解決もスキップされ None。
-        let resolved = resolve_provider_for_model("z-ai/glm-5.3-flash");
-        if load_models_json().is_some() {
-            // models.json が読める環境では z-ai を provider と断定しない
-            assert_ne!(resolved.as_deref(), Some("z-ai"));
-        }
     }
 }

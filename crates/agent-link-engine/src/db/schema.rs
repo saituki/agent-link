@@ -48,7 +48,6 @@ pub fn init_sai_tables(conn: &Connection) -> Result<(), DbError> {
             display_name TEXT   NOT NULL DEFAULT '',
             description TEXT    NOT NULL,
             model       TEXT    NOT NULL DEFAULT 'inherit',
-            provider    TEXT,
             thinking    TEXT    NOT NULL DEFAULT 'none',
             tools       TEXT    NOT NULL DEFAULT 'true',
             extensions  TEXT    NOT NULL DEFAULT 'true',
@@ -164,7 +163,6 @@ pub fn init_sai_tables(conn: &Connection) -> Result<(), DbError> {
             cwd             TEXT,              -- サブタスクの作業フォルダ（絶対パス。NULL = プロジェクトルート）
             timeout         INTEGER,          -- 子の時間上限（秒）。超えると親へ stalled(timeout) を繰り返し通知する。NULL = ブロック定義に従う
             card_run_id     INTEGER,          -- 起こす todo カードの run_id（task_create の card 引数。NULL = カード無し）
-            runner          TEXT,             -- 子の実行主体（task_create の runner 引数。cc のみ。NULL = cc）
             execution_id    INTEGER REFERENCES execution_history(id),
             batch_id        TEXT,
             client_id       TEXT,              -- クライアント側一時ID（carried_over 照合・依存解決用）
@@ -251,7 +249,6 @@ pub fn init_sai_tables(conn: &Connection) -> Result<(), DbError> {
     migrate_add_column(conn, "execution_history", "git_commit_before", "TEXT")?;
     migrate_add_column(conn, "execution_history", "git_commit_after", "TEXT")?;
     migrate_add_column(conn, "execution_history", "session_stats_json", "TEXT")?;
-    migrate_add_column(conn, "block_metadata", "tag", "TEXT")?;
     migrate_add_column(conn, "block_metadata", "round", "INTEGER")?;
     // id/name 分離（表示名）: sai-tui 等の表示用に display_name を追加
     migrate_add_column(
@@ -262,12 +259,10 @@ pub fn init_sai_tables(conn: &Connection) -> Result<(), DbError> {
     )?;
 
     // 右SB表示用: 実行インスタンス単位のオーバーライド値とセッション情報
-    migrate_add_column(conn, "execution_history", "tag", "TEXT")?;
     migrate_add_column(conn, "execution_history", "round", "INTEGER")?;
     // グローバルラウンド（GR）: ブロック配置（DAG の行）と区切り線に使用
     migrate_add_column(conn, "execution_history", "global_round", "INTEGER")?;
     migrate_add_column(conn, "execution_history", "model", "TEXT")?;
-    migrate_add_column(conn, "execution_history", "provider", "TEXT")?;
     migrate_add_column(conn, "execution_history", "thinking", "TEXT")?;
     migrate_add_column(conn, "execution_history", "timeout", "INTEGER")?;
     migrate_add_column(conn, "execution_history", "max_turns", "INTEGER")?;
@@ -300,9 +295,6 @@ pub fn init_sai_tables(conn: &Connection) -> Result<(), DbError> {
         "workflow_moved",
         "INTEGER NOT NULL DEFAULT 0",
     )?;
-    // 実行主体（`cc` / `user`）。`user` は DB 項目が空欄のユーザータスク。
-    // 列の DEFAULT 'pi' は既存 DB を作り直さないため残す（insert は必ず値を渡す）。
-    migrate_add_column(conn, "execution_history", "runner", "TEXT NOT NULL DEFAULT 'pi'")?;
     // エージェント側セッション ID（Claude Code の `--session-id` の UUID）。
     // pi 実行では NULL（pi は JSONL パスで再開するため）。
     migrate_add_column(conn, "execution_history", "agent_session_id", "TEXT")?;
@@ -335,8 +327,6 @@ pub fn init_sai_tables(conn: &Connection) -> Result<(), DbError> {
     migrate_add_column(conn, "tasks", "timeout", "INTEGER")?;
     // 起こす todo カードの run_id（task_create の card 引数）
     migrate_add_column(conn, "tasks", "card_run_id", "INTEGER")?;
-    // 子の実行主体（task_create の runner 引数。cc のみ。NULL は cc 扱い）
-    migrate_add_column(conn, "tasks", "runner", "TEXT")?;
     // 子の model / thinking（task_create の引数。NULL はブロック定義・settings.json に従う）
     migrate_add_column(conn, "tasks", "model", "TEXT")?;
     migrate_add_column(conn, "tasks", "thinking", "TEXT")?;

@@ -168,11 +168,6 @@ fn run_list_json(limit: i64) -> Result<(), CmdError> {
         runs.push(serde_json::json!({
             "run_id": run_id,
             "block": block.map(|b| b.name.clone()).unwrap_or_default(),
-            "tag": exec
-                .tag
-                .clone()
-                .or_else(|| block.and_then(|b| b.tag.clone()))
-                .unwrap_or_default(),
             "status": exec.status,
             "lane": lane,
             "parent_run_id": exec.parent_run_id,

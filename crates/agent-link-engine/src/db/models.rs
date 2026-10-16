@@ -59,8 +59,6 @@ pub struct BlockMetadata {
     pub description: String,
     /// 使用する LLM モデル（完全修飾名または "inherit"）
     pub model: String,
-    /// LLM プロバイダ（オプション）
-    pub provider: Option<String>,
     /// thinking budget レベル
     pub thinking: String,
     /// 使用可能ツール設定（JSON 文字列または "true"/"false"/カンマ区切り）
@@ -79,8 +77,6 @@ pub struct BlockMetadata {
     pub file_path: String,
     /// ファイル内容の SHA-256 ハッシュ（変更検出用）
     pub body_hash: Option<String>,
-    /// セクションタグ（例: "brst", "plan", "code", "comp", "rfrs"）
-    pub tag: Option<String>,
     /// ラウンド番号（1始まり）
     pub round: Option<i64>,
     /// 作成日時（ISO 8601）
@@ -98,7 +94,6 @@ impl BlockMetadata {
         name: String,
         description: String,
         model: String,
-        provider: Option<String>,
         thinking: String,
         tools: String,
         extensions: String,
@@ -115,7 +110,6 @@ impl BlockMetadata {
             name,
             description,
             model,
-            provider,
             thinking,
             tools,
             extensions,
@@ -125,7 +119,6 @@ impl BlockMetadata {
             enable,
             file_path,
             body_hash,
-            tag: None,
             round: None,
             created_at: String::new(), // DB デフォルト値で設定
             updated_at: String::new(), // DB デフォルト値で設定
@@ -240,11 +233,6 @@ impl BlockOutput {
 // ExecutionHistory — 実行履歴
 // ---------------------------------------------------------------------------
 
-/// `runner` カラムのデフォルト（旧 DB 互換・`cc` 扱い）。
-fn default_runner() -> String {
-    "cc".to_string()
-}
-
 /// `execution_history` テーブルの 1 行に対応する構造体。
 ///
 /// ブロックの実行記録を格納します。
@@ -297,16 +285,12 @@ pub struct ExecutionHistory {
     pub finalized: bool,
     /// セッション統計情報の JSON（トークン数・ツール呼び出し回数・ターン数など）
     pub session_stats_json: Option<String>,
-    /// 実行時のタグ（入力フォームのオーバーライド値）
-    pub tag: Option<String>,
     /// 実行時のラウンド番号（入力フォームのオーバーライド値）
     pub round: Option<i64>,
     /// 実行時のグローバルラウンド番号（GR）。DAG の行グループと区切り線に使用
     pub global_round: Option<i64>,
     /// 実行時のモデル（入力フォームのオーバーライド値）
     pub model: Option<String>,
-    /// 実行時の provider（入力フォームのオーバーライド値・`p` 再開用）
-    pub provider: Option<String>,
     /// 実行時の thinking budget（入力フォームのオーバーライド値）
     pub thinking: Option<String>,
     /// 実行時のタイムアウト秒数（入力フォームのオーバーライド値）
@@ -330,11 +314,6 @@ pub struct ExecutionHistory {
     /// 旧 DB（カラムなし）は `false` 扱い。
     #[serde(default)]
     pub review_done: bool,
-    /// 実行主体（`cc` / `user`）。`user` はユーザータスク（エージェント実行なし）。
-    ///
-    /// 旧 DB（カラムなし）・`pi` の記録は `cc` 扱い。
-    #[serde(default = "default_runner")]
-    pub runner: String,
     /// エージェント側セッション ID（Claude Code の `--session-id` の UUID）。
     ///
     /// pi 実行では `None`（pi は `session_dir` の JSONL パスで再開する）。
@@ -372,11 +351,9 @@ impl ExecutionHistory {
             batch_id: None,
             finalized: false,
             session_stats_json: None,
-            tag: None,
             round: None,
             global_round: None,
             model: None,
-            provider: None,
             thinking: None,
             timeout: None,
             session_dir: None,
@@ -385,7 +362,6 @@ impl ExecutionHistory {
             execution_mode: None,
             workflow_moved: false,
             review_done: false,
-            runner: "cc".to_string(),
             agent_session_id: None,
             created_at: String::new(),
         }
@@ -585,9 +561,6 @@ pub struct Task {
     /// （todo のカードの run_id を保つため）。`None` はカード無し。
     #[serde(default)]
     pub card_run_id: Option<i64>,
-    /// 子の実行主体（`cc`。`task_create` の runner 引数。`None` は `cc`）
-    #[serde(default)]
-    pub runner: Option<String>,
     /// 子の model（`task_create` の model 引数。`None` はブロック定義・settings.json に従う）
     #[serde(default)]
     pub model: Option<String>,
@@ -654,7 +627,6 @@ impl Task {
             timeout: None,
             execution_id: None,
             card_run_id: None,
-            runner: None,
             model: None,
             thinking: None,
             batch_id,
@@ -734,7 +706,6 @@ pub mod test_helpers {
             name.to_string(),
             "テスト用ブロック".to_string(),
             "anthropic/claude-sonnet-4-5".to_string(),
-            None,
             "off".to_string(),
             "true".to_string(),
             "true".to_string(),

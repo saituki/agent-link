@@ -104,9 +104,6 @@ pub struct TaskItem {
     /// 通知の項目名は `card`（呼び出し側の指定にそろえる）。
     #[serde(rename = "card", default)]
     pub card_run_id: Option<i64>,
-    /// 子の実行主体（`cc` のみ。省略時は card の runner、無ければ `cc`）
-    #[serde(default)]
-    pub runner: Option<String>,
     /// 子の model（`task_create` の model。省略時はカード → ブロック定義に従う）
     #[serde(default)]
     pub model: Option<String>,
@@ -582,8 +579,7 @@ impl TaskManager {
             task.timeout = item.timeout;
             // 起こす todo カード（task_create の card。予約 run_id をそのまま子として使う）
             task.card_run_id = item.card_run_id;
-            // 子の実行主体・model・thinking（task_create の引数）
-            task.runner = item.runner.clone();
+            // 子の model・thinking（task_create の引数）
             task.model = item.model.clone();
             task.thinking = item.thinking.clone();
             // 承認情報付き（新形式）なら approved で直接保存（CLI approve 不要）
@@ -1350,7 +1346,6 @@ impl TaskManager {
             task_cwd,              // 親が指定した作業フォルダ（絶対パス）
             task.timeout,          // 親が指定した子の時間上限（秒）
             crate::orchestrator::SubtaskSettings {
-                runner: task.runner.clone(),     // 親が指定した子の実行主体（cc。None はカード → cc）
                 model: task.model.clone(),       // 親が指定した子の model（None はカード → ブロック定義）
                 thinking: task.thinking.clone(), // 親が指定した子の thinking（None はカード → ブロック定義）
             },
@@ -1515,7 +1510,7 @@ impl TaskManager {
 
         // 6. 同一 pane へテキスト送信 + 完了待機
         let herdr = HerdrClient::new();
-        let submit_key = crate::runner::RunnerKind::parse(&exec.runner).submit_key();
+        let submit_key = crate::cc_command::CC_SUBMIT_KEY;
         let turn_result = crate::orchestrator::send_turn_to_pane(
             &herdr,
             &pane_id,
@@ -2448,7 +2443,6 @@ mod tests {
                     "test-block-for-tasks".to_string(),
                     "タスクテスト用ブロック".to_string(),
                     "inherit".to_string(),
-                    None,
                     "off".to_string(),
                     "true".to_string(),
                     "true".to_string(),
@@ -2497,7 +2491,6 @@ mod tests {
                 worktree: "none".to_string(),
                 cwd: None,
                 timeout: None,
-                runner: None,
                 model: None,
                 thinking: None,
                 carried_over: false,
@@ -2540,7 +2533,6 @@ mod tests {
                 worktree: "none".to_string(),
                 cwd: None,
                 timeout: Some(600),
-                runner: None,
                 model: None,
                 thinking: None,
                 carried_over: false,
@@ -2579,7 +2571,6 @@ mod tests {
                     worktree: "none".to_string(),
                     cwd: None,
                     timeout: None,
-                    runner: None,
                     model: None,
                     thinking: None,
                     carried_over: false,
@@ -2596,7 +2587,6 @@ mod tests {
                     worktree: "none".to_string(),
                     cwd: None,
                     timeout: None,
-                    runner: None,
                     model: None,
                     thinking: None,
                     carried_over: false,
@@ -2635,7 +2625,6 @@ mod tests {
                 worktree: "none".to_string(),
                 cwd: None,
                 timeout: None,
-                runner: None,
                 model: None,
                 thinking: None,
                 carried_over: false,
@@ -2674,7 +2663,6 @@ mod tests {
                 worktree: "isolation".to_string(),
                 cwd: None,
                 timeout: None,
-                runner: None,
                 model: None,
                 thinking: None,
                 carried_over: false,
@@ -2731,7 +2719,6 @@ mod tests {
                 worktree: "none".to_string(),
                 cwd: None,
                 timeout: None,
-                runner: None,
                 model: None,
                 thinking: None,
                 carried_over: false,
@@ -2771,7 +2758,6 @@ mod tests {
                     worktree: "none".to_string(),
                     cwd: None,
                     timeout: None,
-                    runner: None,
                     model: None,
                     thinking: None,
                     carried_over: false,
@@ -2788,7 +2774,6 @@ mod tests {
                     worktree: "none".to_string(),
                     cwd: None,
                     timeout: None,
-                    runner: None,
                     model: None,
                     thinking: None,
                     carried_over: false,
@@ -2826,7 +2811,6 @@ mod tests {
                 worktree: "none".to_string(),
                 cwd: None,
                 timeout: None,
-                runner: None,
                 model: None,
                 thinking: None,
                 carried_over: false,
@@ -2867,7 +2851,6 @@ mod tests {
                 worktree: "none".to_string(),
                 cwd: None,
                 timeout: None,
-                runner: None,
                 model: None,
                 thinking: None,
                 carried_over: false,
@@ -2940,7 +2923,6 @@ mod tests {
                 worktree: "none".to_string(),
                 cwd: None,
                 timeout: None,
-                runner: None,
                 model: None,
                 thinking: None,
                 carried_over: false,
@@ -2993,7 +2975,6 @@ mod tests {
                     worktree: "none".to_string(),
                     cwd: None,
                     timeout: None,
-                    runner: None,
                     model: None,
                     thinking: None,
                     carried_over: false,
@@ -3013,7 +2994,6 @@ mod tests {
                     worktree: "none".to_string(),
                     cwd: None,
                     timeout: None,
-                    runner: None,
                     model: None,
                     thinking: None,
                     carried_over: false,
@@ -3058,7 +3038,6 @@ mod tests {
                 worktree: "none".to_string(),
                 cwd: None,
                 timeout: None,
-                runner: None,
                 model: None,
                 thinking: None,
                 carried_over: false,
@@ -3085,7 +3064,6 @@ mod tests {
                 worktree: "none".to_string(),
                 cwd: None,
                 timeout: None,
-                runner: None,
                 model: None,
                 thinking: None,
                 carried_over: true,
@@ -3134,7 +3112,6 @@ mod tests {
                     worktree: "none".to_string(),
                     cwd: None,
                     timeout: None,
-                    runner: None,
                     model: None,
                     thinking: None,
                     carried_over: false,
@@ -3154,7 +3131,6 @@ mod tests {
                     worktree: "none".to_string(),
                     cwd: None,
                     timeout: None,
-                    runner: None,
                     model: None,
                     thinking: None,
                     carried_over: false,
@@ -3230,7 +3206,6 @@ mod tests {
                 worktree: "none".to_string(),
                 cwd: None,
                 timeout: None,
-                runner: None,
                 model: None,
                 thinking: None,
                 carried_over: false,
@@ -3298,7 +3273,6 @@ mod tests {
                     worktree: "none".to_string(),
                     cwd: None,
                     timeout: None,
-                    runner: None,
                     model: None,
                     thinking: None,
                     carried_over: false,
@@ -3318,7 +3292,6 @@ mod tests {
                     worktree: "none".to_string(),
                     cwd: None,
                     timeout: None,
-                    runner: None,
                     model: None,
                     thinking: None,
                     carried_over: false,
@@ -3370,7 +3343,6 @@ mod tests {
                 worktree: "none".to_string(),
                 cwd: None,
                 timeout: None,
-                runner: None,
                 model: None,
                 thinking: None,
                 carried_over: false,
@@ -3802,7 +3774,6 @@ main "$@"
                 worktree: "none".to_string(),
                 cwd: None,
                 timeout: None,
-                runner: None,
                 model: None,
                 thinking: None,
                 carried_over: false,
@@ -3846,7 +3817,6 @@ main "$@"
                 worktree: "none".to_string(),
                 cwd: None,
                 timeout: None,
-                runner: None,
                 model: None,
                 thinking: None,
                 carried_over: false,
