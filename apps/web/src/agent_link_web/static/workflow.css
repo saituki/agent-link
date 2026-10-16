@@ -85,7 +85,6 @@
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
   overflow: hidden; font-size: 12px; line-height: 1.5; color: var(--text-soft);
 }
-.wf-lane-card-runner { display: block; font-size: 11px; color: var(--text-soft); }
 
 /* --- 盤面 ---
    盤面と札の地色を分ける（盤面 --bg-soft・札 --bg）。枠は --line-strong（3:1 以上）。 */
@@ -143,7 +142,7 @@
 .wf-card {
   position: absolute;
   border: 1px solid var(--line-strong);
-  border-left: 4px solid var(--wf-tag, var(--tag-other));
+  border-left: 4px solid var(--text-soft);
   border-radius: var(--radius-sm);
   background: var(--bg);
   color: var(--text);
@@ -159,7 +158,7 @@
 .wf-card.wf-dim {
   background: var(--bg-soft);
   border-color: var(--line);
-  border-left-color: color-mix(in srgb, var(--wf-tag, var(--tag-other)) 40%, var(--bg-soft));
+  border-left-color: color-mix(in srgb, var(--text-soft) 40%, var(--bg-soft));
 }
 /* 題は拡大率に逆比例させて、どれだけ縮んでも画面上 WF_TITLE_PX で読めるようにする。
    拡大したときは max(逆数, 1) なので、題は一緒に大きくなる。 */
@@ -169,7 +168,7 @@
   font-weight: 600;
 }
 .wf-card-id { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.wf-card-runner { font-size: 10px; color: var(--text-soft); }
+.wf-card-model { font-size: 10px; color: var(--text-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .wf-card-chips { display: inline-flex; gap: 3px; }
 .wf-card-chips .sai-chip { padding: 0 5px; font-size: 10px; }
 .wf-card-meta { display: flex; gap: 6px; font-size: 10px; color: var(--text-soft); }
@@ -192,7 +191,7 @@
 }
 .wf-far .wf-card-title { height: 100%; align-items: center; }
 .wf-far .wf-card-id { white-space: nowrap; }
-.wf-far .wf-card-runner,
+.wf-far .wf-card-model,
 .wf-far .wf-card-chips,
 .wf-far .wf-card-meta,
 .wf-far .wf-card-desc { display: none; }

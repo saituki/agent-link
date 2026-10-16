@@ -3,11 +3,11 @@
 // 確かめること:
 //   - 住所の往復（#/project/<name>/workflow）
 //   - 文字マスを px にする矩形と、覚えたずらし量の足し方
-//   - 札の題・時刻・説明の行（高さに収まるだけ）・印（runner / running / review）
+//   - 札の題・時刻・説明の行（高さに収まるだけ）・印（running / failed / 要確認）・`<model> <effort>` の行
 //   - 線のパス（左右 / 上下の向きと制御点）・色・破線・濃さ
 //   - 全体表示（札と round の区切り線が入る拡大率）と題の大きさ
 //   - 札の操作ボタン（レーンと状態による出し分け）
-//   - Kanban の 4 レーンと round の区切り線
+//   - Kanban の 3 レーンと round の区切り線
 //   - ドラッグでずらした量をこの端末に覚える（localStorage）
 // 実行:
 //     node tests/test_workflow.js
@@ -42,24 +42,21 @@ const wf = require(path.join(__dirname, "..", "src", "agent_link_web", "static",
 const NODE = {
   id: 10,
   run_id: 10,
-  phase: null,
   name: "📋 plan",
-  tag: "plan",
-  runner: "cc",
+  model: "opus",
+  thinking: "high",
   status: "completed",
   created_at: "2026-09-26 10:00:00",
   description: "実装の計画を書く",
   cost: "$0.42",
   orphaned: false,
-  review: "complete",
   parent_run_id: null,
   x: 0,
   y: 3,
   w: 27,
   h: 6,
 };
-const NODE2 = { ...NODE, id: 11, run_id: 11, x: 31, y: 3, runner: "cc", review: "empty" };
-const PHASE = { ...NODE, id: 100001, run_id: 10, phase: 1, name: "id10/batch_…" };
+const NODE2 = { ...NODE, id: 11, run_id: 11, x: 31, y: 3, model: "sonnet", thinking: null };
 
 function testHash() {
   assert.strictEqual(wf.wfHash("agent-link-web"), "#/project/agent-link-web/workflow");
@@ -144,8 +141,6 @@ function testZoomInv() {
 
 function testCardTitle() {
   assert.strictEqual(wf.wfCardTitle(NODE), "ID10/📋 plan");
-  // フェーズの合成ノードは名前だけ
-  assert.strictEqual(wf.wfCardTitle(PHASE), "id10/batch_…");
   // 壊れた札でも止めない
   assert.strictEqual(wf.wfCardTitle(null), "");
 }
@@ -160,18 +155,11 @@ function testStampText() {
 }
 
 function testCardMarks() {
-  // runner が cc（既定）なら印は付けない
-  const cc = wf.wfCardMarks(NODE);
-  assert.strictEqual(cc.runner, "");
-  assert.strictEqual(cc.chips.length, 0);
-  // runner が cc 以外（user・gl）なら印を付ける。古い記録の pi も印を付ける（pi は廃止）
-  assert.strictEqual(wf.wfCardMarks(NODE2).runner, "");
-  assert.strictEqual(wf.wfCardMarks({ runner: "user" }).runner, "user");
-  assert.strictEqual(wf.wfCardMarks({ runner: "pi" }).runner, "pi");
-  // review の状態
-  assert.deepStrictEqual(wf.wfCardMarks({ review: "empty" }).chips, [{ text: "review 未記入", cls: "danger" }]);
-  assert.deepStrictEqual(wf.wfCardMarks({ review: "review_only" }).chips, [{ text: "review 途中", cls: "muted" }]);
-  assert.deepStrictEqual(wf.wfCardMarks({ review: "content_only" }).chips, [{ text: "review 途中", cls: "muted" }]);
+  // runner・review の印は無い（チップは要確認だけ）
+  const m = wf.wfCardMarks(NODE);
+  assert.strictEqual("runner" in m, false);
+  assert.strictEqual(m.chips.length, 0);
+  assert.deepStrictEqual(wf.wfCardMarks({ review: "empty" }).chips, []);
   // 実行中・失敗の点
   assert.strictEqual(wf.wfCardMarks({ status: "running" }).running, true);
   assert.strictEqual(wf.wfCardMarks({ status: "failed" }).failed, true);
@@ -179,13 +167,30 @@ function testCardMarks() {
   assert.deepStrictEqual(wf.wfCardMarks({ orphaned: true }).chips, [{ text: "要確認", cls: "warn" }]);
 }
 
+function testCardModel() {
+  assert.strictEqual(wf.wfCardModel({ model: "opus", thinking: "high" }), "opus high");
+  assert.strictEqual(wf.wfCardModel({ model: "sonnet", thinking: null }), "sonnet");
+  assert.strictEqual(wf.wfCardModel({ model: null, thinking: "low" }), "low");
+  assert.strictEqual(wf.wfCardModel({ model: "", thinking: "" }), "");
+  assert.strictEqual(wf.wfCardModel({}), "");
+  assert.strictEqual(wf.wfCardModel(null), "");
+}
+
+function testDataPath() {
+  assert.strictEqual(wf.wfDataPath("p", false), "/api/projects/p/workflow");
+  assert.strictEqual(wf.wfDataPath("p", true), "/api/projects/p/workflow?subtasks=1");
+  assert.strictEqual(wf.wfDataPath("a b/本", true), "/api/projects/a%20b%2F%E6%9C%AC/workflow?subtasks=1");
+}
+
 function testCardLines() {
   const lines = wf.wfCardLines(NODE);
   assert.strictEqual(lines.title, "ID10/📋 plan");
+  assert.strictEqual(lines.model, "opus high");
   assert.strictEqual(lines.cost, "$0.42");
   assert.ok(lines.time.length > 0);
-  // 高さ（h=6 → 120px）に収まる行数だけ説明を出す
-  assert.ok(lines.desc.length <= Math.floor((120 - 34) / 14));
+  // 高さ（h=6 → 120px）に収まる行数だけ説明を出す（model の行がある分 1 行減る）
+  assert.ok(lines.desc.length <= Math.floor((120 - 34 - 14) / 14));
+  assert.strictEqual(wf.wfCardLines({ ...NODE, model: null, thinking: null }).model, "");
   // 説明は横（w=27 → 270px）に収まるように折り返す
   const long = wf.wfCardLines({ ...NODE, description: "あ".repeat(200) });
   assert.ok(long.desc.length > 1);
@@ -206,38 +211,21 @@ function testWrapText() {
 
 function testEdgeColor() {
   // 色は CSS 変数。表の値と一致することだけ確かめる（値は style.css の :root にある）。
+  assert.deepStrictEqual(wf.WF_EDGE_KINDS.map((r) => r[0]), ["delegation", "waggle_token"]);
   const table = Object.fromEntries(wf.WF_EDGE_KINDS.map((r) => [r[0], r[2]]));
   assert.strictEqual(wf.wfEdgeColor("delegation"), table.delegation);
-  assert.strictEqual(wf.wfEdgeColor("task_output"), table.task_output);
   assert.strictEqual(wf.wfEdgeColor("waggle_token"), table.waggle_token);
-  assert.strictEqual(wf.wfEdgeColor("git_commit"), table.git_commit);
-  assert.strictEqual(wf.wfEdgeColor("phase_chain"), table.phase_chain);
-  // 表に無い種類・null・未知の値は灰色（描画が止まらない）
-  assert.strictEqual(wf.wfEdgeColor("other"), table.other);
-  assert.strictEqual(wf.wfEdgeColor("oreason"), table.other);
-  assert.strictEqual(wf.wfEdgeColor(null), table.other);
+  // 表に無い種類・消えた種類・null・未知の値は灰色（描画が止まらない）
+  assert.strictEqual(wf.wfEdgeColor("task_output"), wf.WF_EDGE_UNKNOWN);
+  assert.strictEqual(wf.wfEdgeColor("oreason"), wf.WF_EDGE_UNKNOWN);
+  assert.strictEqual(wf.wfEdgeColor(null), wf.WF_EDGE_UNKNOWN);
   // 色は CSS 変数（16 進の直書きは無い）
-  for (const [kind, color] of Object.entries(table)) {
+  for (const [kind, color] of Object.entries({ ...table, unknown: wf.WF_EDGE_UNKNOWN })) {
     assert.ok(/^var\(--[A-Za-z0-9-]+\)$/.test(color), `線が CSS 変数でない: ${kind} ${color}`);
   }
-  // フェーズだけ破線
-  assert.strictEqual(wf.wfEdgeDashed("phase_chain"), true);
+  // 破線の種類は無い
   assert.strictEqual(wf.wfEdgeDashed("delegation"), false);
   assert.strictEqual(wf.wfEdgeDashed(null), false);
-}
-
-function testTagColor() {
-  // 色は CSS 変数（var(--tag-brst) など）。表の値と一致することだけ確かめる。
-  const t = wf.WF_TAGS;
-  assert.strictEqual(wf.wfTagColor("brst"), t.brst);
-  assert.strictEqual(wf.wfTagColor("plan"), t.plan);
-  assert.strictEqual(wf.wfTagColor("code"), t.code);
-  assert.strictEqual(wf.wfTagColor("comp"), t.comp);
-  assert.strictEqual(wf.wfTagColor("rfrs"), t.rfrs);
-  // 知らないタグ・null は灰色
-  assert.strictEqual(wf.wfTagColor("oreason"), "var(--tag-other)");
-  assert.strictEqual(wf.wfTagColor(null), "var(--tag-other)");
-  assert.strictEqual(wf.wfTagColor("toString"), "var(--tag-other)"); // Object.prototype を通さない
 }
 
 function testEdgePathSide() {
@@ -305,15 +293,15 @@ function testSeparator() {
 function testLanes() {
   const data = {
     lanes: {
-      todo: [{ run_id: 56, title: "ID56/kantoku", date: "09/26 11:00", description: "x", runner: "" }],
-      running: [{ run_id: 55, title: "ID55/📋 plan", runner: "cc" }],
+      todo: [{ run_id: 56, title: "ID56/kantoku", date: "09/26 11:00", description: "x", executer: "" }],
+      running: [{ run_id: 55, title: "ID55/📋 plan", executer: "cc" }],
     },
   };
   const lanes = wf.wfLanes(data);
-  // 必ず 4 つ・並びは todo / running / review / done
-  assert.deepStrictEqual(lanes.map((l) => l.key), ["todo", "running", "review", "done"]);
+  // 必ず 3 つ・並びは todo / running / review
+  assert.deepStrictEqual(lanes.map((l) => l.key), ["todo", "running", "review"]);
   assert.strictEqual(lanes[0].cards.length, 1);
-  assert.strictEqual(lanes[1].cards[0].runner, "cc");
+  assert.strictEqual(lanes[1].cards[0].executer, "cc");
   assert.strictEqual(lanes[2].cards.length, 0);
   assert.strictEqual(wf.wfLanesEmpty(data), false);
   // 全部空なら案内を出す
@@ -327,7 +315,7 @@ function testStateLabel() {
   assert.strictEqual(wf.wfStateOf({ lane: "review" }), "review");
   assert.strictEqual(wf.wfStateOf({ status: "running" }), "running");
   assert.strictEqual(wf.wfStateOf(null), "");
-  assert.strictEqual(wf.wfStateLabel("done"), "done");
+  assert.strictEqual(wf.wfStateLabel("review"), "review");
   assert.strictEqual(wf.wfStateLabel("completed"), "完了");
   assert.strictEqual(wf.wfStateLabel("failed"), "失敗");
 }
@@ -338,14 +326,15 @@ function testActions() {
   assert.deepStrictEqual(todo.map((a) => a.key), ["start"]);
   assert.strictEqual(todo[0].method, "POST");
   assert.strictEqual(todo[0].path, "/api/projects/sai%20phone/runs/56/start");
-  // review は done にする
+  // review は Workflow へ移す
   const review = wf.wfActions({ run_id: 59, status: "completed" }, "review", "p");
   assert.deepStrictEqual(review.map((a) => a.key), ["advance"]);
   assert.strictEqual(review[0].path, "/api/projects/p/runs/59/advance");
-  assert.strictEqual(review[0].to, "done");
-  // done は Workflow へ移す
-  const done = wf.wfActions({ run_id: 60, status: "completed" }, "done", "p");
-  assert.strictEqual(done[0].to, "workflow");
+  assert.strictEqual(review[0].to, "workflow");
+  assert.strictEqual(review[0].label, "→ Workflow");
+  assert.strictEqual(review[0].method, "POST");
+  // done のレーンは無い（操作なし）
+  assert.deepStrictEqual(wf.wfActions({ run_id: 60, status: "completed" }, "done", "p"), []);
   // 実行中で親が無いものだけ ■ 終了
   const run = wf.wfActions({ run_id: 61, status: "running", parent_run_id: null }, "running", "p");
   assert.deepStrictEqual(run.map((a) => a.key), ["finalize"]);
@@ -355,7 +344,7 @@ function testActions() {
   const sub = wf.wfActions({ run_id: 62, status: "running", parent_run_id: 61 }, "running", "p");
   assert.deepStrictEqual(sub, []);
   // Kanban の札には status が無いのでレーンで判断する
-  const lane = wf.wfActions({ run_id: 63, title: "ID63/👷 worker", runner: "cc" }, "running", "p");
+  const lane = wf.wfActions({ run_id: 63, title: "ID63/👷 worker", executer: "cc" }, "running", "p");
   assert.deepStrictEqual(lane.map((a) => a.key), ["finalize"]);
   // run_id が無い札は操作なし
   assert.deepStrictEqual(wf.wfActions({}, "todo", "p"), []);
@@ -363,10 +352,11 @@ function testActions() {
 
 function testLegend() {
   const legend = wf.wfLegend();
-  assert.strictEqual(legend.tags.length, 5);
-  assert.strictEqual(legend.edges.length, 6);
-  assert.ok(legend.edges.some((e) => e.key === "phase_chain" && e.dashed));
+  assert.strictEqual("tags" in legend, false);
+  assert.deepStrictEqual(legend.edges.map((e) => e.key), ["delegation", "waggle_token"]);
+  assert.ok(legend.edges.every((e) => !e.dashed));
   assert.ok(legend.marks.some((m) => m.cls === "warn"));
+  assert.ok(legend.marks.every((m) => !/review/.test(m.text)));
 }
 
 function testOffsetsMemory() {
@@ -384,6 +374,7 @@ function testOffsetsMemory() {
   assert.strictEqual(wf.WF_VIEW_KEY, "agent_link_web_wf_view");
   assert.strictEqual(wf.WF_KANBAN_KEY, "agent_link_web_wf_kanban");
   assert.strictEqual(wf.WF_KINDS_KEY, "agent_link_web_wf_kinds");
+  assert.strictEqual(wf.WF_SUBTASKS_KEY, "agent_link_web_wf_subtasks");
 }
 
 function testViewMemory() {
@@ -409,13 +400,17 @@ function testKanbanMemory() {
 }
 
 function testKindMemory() {
-  // 最初は全部出す
+  // 消えた種類の覚えは無視する（最初の読み込みの前に古い値を入れておく）
+  local.set("agent_link_web_wf_kinds", JSON.stringify({ phase_chain: false, task_output: false, git_commit: false }));
   const on = wf.wfVisibleKinds();
+  assert.deepStrictEqual(Object.keys(on), ["delegation", "waggle_token"]);
+  local.delete("agent_link_web_wf_kinds");
+  // 最初は全部出す
   for (const [key] of wf.WF_EDGE_KINDS) assert.strictEqual(on[key], true);
   // 出し入れはこの端末に覚える（画面側はキャッシュするので、保存したあとの中身を読む）
-  wf.wfSaveKinds({ ...on, phase_chain: false });
+  wf.wfSaveKinds({ ...on, waggle_token: false });
   const saved = JSON.parse(local.get("agent_link_web_wf_kinds"));
-  assert.strictEqual(saved.phase_chain, false);
+  assert.strictEqual(saved.waggle_token, false);
   assert.strictEqual(saved.delegation, true);
 }
 
@@ -444,10 +439,11 @@ function main() {
   testCardTitle();
   testStampText();
   testCardMarks();
+  testCardModel();
+  testDataPath();
   testCardLines();
   testWrapText();
   testEdgeColor();
-  testTagColor();
   testEdgePathSide();
   testEdgePathVertical();
   testEdgeOpacity();

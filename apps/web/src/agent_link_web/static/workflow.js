@@ -1,8 +1,8 @@
 "use strict";
 // agent-link-web の Workflow 盤面（実装計画 U5・住所 #/project/<name>/workflow）。
 //
-// agent-link-tui の Workflow（実行の DAG）と Kanban（todo / running / review / done の
-// 4 レーン）を、図の盤面と同じ操作で見て、その場で操作できるようにしたもの。
+// agent-link-tui の Workflow（実行の DAG）と Kanban（todo / running / review の
+// 3 レーン）を、図の盤面と同じ操作で見て、その場で操作できるようにしたもの。
 //   - 見える範囲（tx, ty, z）だけを動かし、札は agent-link が決めた場所に固定する
 //   - 盤面は overflow: hidden。札も線も帯や見出しにはみ出さない
 //   - 札のドラッグでずらした量だけこの端末（localStorage）に覚える
@@ -53,40 +53,21 @@ const WF_VIEW_KEY = "agent_link_web_wf_view";        // 見える範囲（sessio
 const WF_OFFSETS_KEY = "agent_link_web_wf_offsets";  // ドラッグでずらした量（localStorage）
 const WF_KANBAN_KEY = "agent_link_web_wf_kanban";    // Kanban の帯の開閉（localStorage）
 const WF_KINDS_KEY = "agent_link_web_wf_kinds";      // 線の種類の出し入れ（localStorage）
+const WF_SUBTASKS_KEY = "agent_link_web_wf_subtasks"; // 子の表示（localStorage・"1" で表示）
 
-// 札の左の帯の色（タグ。TUI の block_node.rs と同じ）。
-// 色は CSS 変数。暗い画面では :root の変数が別になるので、こちらでも自動的に変わる。
-const WF_TAGS = {
-  brst: "var(--tag-brst)",
-  plan: "var(--tag-plan)",
-  code: "var(--tag-code)",
-  comp: "var(--tag-comp)",
-  rfrs: "var(--tag-rfrs)",
-};
-// タグが無い・知らないタグのときの灰色
-const WF_TAG_OTHER = "var(--tag-other)";
 // 選んだ札の枠の色（TUI と同じ黄色）
 const WF_SEL_COLOR = "var(--sel)";
 
-// 線の種類（[kind, 表示名, 色, 破線か]）。最後の other は表に無い種類用の灰色。
+// 線の種類（[kind, 表示名, 色, 破線か]）。
 const WF_EDGE_KINDS = [
-  ["delegation", "委譲", "var(--edge-delegation)", false],
-  ["task_output", "返却", "var(--edge-task-output)", false],
-  ["waggle_token", "文書", "var(--edge-waggle)", false],
-  ["git_commit", "commit", "var(--edge-commit)", false],
-  ["phase_chain", "フェーズ", "var(--edge-phase)", true],
-  ["other", "その他", "var(--edge-other)", false],
+  ["delegation", "Delegation", "var(--edge-delegation)", false],
+  ["waggle_token", "Document", "var(--edge-waggle)", false],
 ];
+// 表に無い種類の灰色
+const WF_EDGE_UNKNOWN = "var(--text-soft)";
 
-// Kanban の 4 レーン（TUI と同じ並び）
-const WF_LANES = ["todo", "running", "review", "done"];
-
-// review の状態 → 札に出す印（null / complete は出さない）
-const WF_REVIEW_MARKS = {
-  empty: { text: "review 未記入", cls: "danger" },
-  review_only: { text: "review 途中", cls: "muted" },
-  content_only: { text: "review 途中", cls: "muted" },
-};
+// Kanban の 3 レーン（TUI と同じ並び）
+const WF_LANES = ["todo", "running", "review"];
 
 // --- 状態 ---
 
@@ -99,6 +80,7 @@ let wfView = { tx: 0, ty: 0, z: 1 };   // 見える範囲（画面の点 = ワ�
 let wfSelected = null;  // 選んでいるノード id
 let wfOffsets = {};     // ドラッグでずらした量（{ノード id: [dx, dy]}）
 let wfKinds = null;     // 線の種類の出し入れ
+let wfSubtasks = false; // 子（task create で作った run）を出すか
 let wfKanban = null;    // Kanban の帯の開閉
 let wfPtrs = new Map(); // 押しているポインタ（1 本 = 移動、2 本 = ピンチ）
 let wfDown = null;      // 1 本指で押したままの情報
@@ -189,11 +171,10 @@ function wfZoomAt(view, px, py, factor) {
   return cvZoomAt(view, px, py, factor);
 }
 
-/** 札の題。フェーズの合成ノード（phase != null）は名前だけを出す。 */
+/** 札の題（ID<run_id>/<name>）。 */
 function wfCardTitle(node) {
   const n = node || {};
   const name = String(n.name == null ? "" : n.name);
-  if (n.phase != null) return name;
   if (n.run_id == null) return name;
   return `ID${n.run_id}/${name}`;
 }
@@ -246,24 +227,33 @@ function wfCardMarks(node) {
   const n = node || {};
   const chips = [];
   if (n.orphaned === true) chips.push({ text: "要確認", cls: "warn" });
-  const mark = WF_REVIEW_MARKS[n.review];
-  if (mark) chips.push({ text: mark.text, cls: mark.cls });
   return {
-    runner: n.runner && String(n.runner) !== "cc" ? String(n.runner) : "",
     running: n.status === "running",
     failed: n.status === "failed",
     chips,
   };
 }
 
-/** 札の中に出す行（題・時刻・費用・説明の行）。高さに収まる分だけ説明を出す。 */
+/** 札の `<model> <effort>` の行。どちらも無ければ空文字（その行を出さない）。 */
+function wfCardModel(node) {
+  const n = node || {};
+  return [n.model, n.thinking]
+    .filter((v) => v != null && String(v).trim() !== "")
+    .map((v) => String(v).trim())
+    .join(" ");
+}
+
+/** 札の中に出す行（題・model・時刻・費用・説明の行）。高さに収まる分だけ説明を出す。 */
 function wfCardLines(node) {
   const n = node || {};
   const rect = wfNodeRect(n, null);
-  const room = Math.max(0, Math.floor((rect.height - WF_CARD_HEAD_PX) / WF_CARD_LINE_PX));
+  const model = wfCardModel(n);
+  const used = WF_CARD_HEAD_PX + (model ? WF_CARD_LINE_PX : 0);
+  const room = Math.max(0, Math.floor((rect.height - used) / WF_CARD_LINE_PX));
   const maxUnits = Math.floor((rect.width - 12) / WF_CARD_CHAR_W);
   return {
     title: wfCardTitle(n),
+    model,
     time: wfStampText(n.created_at),
     cost: n.cost == null || n.cost === "" ? "" : String(n.cost),
     desc: wfWrapText(n.description, maxUnits).slice(0, room),
@@ -275,23 +265,12 @@ function wfCardLines(node) {
 function wfEdgeColor(kind) {
   const key = kind == null ? "" : String(kind);
   const row = WF_EDGE_KINDS.find((k) => k[0] === key);
-  if (row) return row[2];
-  const other = WF_EDGE_KINDS[WF_EDGE_KINDS.length - 1];
-  return other[2];
+  return row ? row[2] : WF_EDGE_UNKNOWN;
 }
 
-/** 線が破線かどうか。表に無い種類は実線（灰色のまま）。 */
-function wfEdgeDashed(kind) {
-  const key = kind == null ? "" : String(kind);
-  const row = WF_EDGE_KINDS.find((k) => k[0] === key);
-  return row ? row[3] : false;
-}
-
-/** 札のタグの色。知らないタグ・無しは灰色。 */
-function wfTagColor(tag) {
-  const key = tag == null ? "" : String(tag).trim();
-  if (key && Object.prototype.hasOwnProperty.call(WF_TAGS, key)) return WF_TAGS[key];
-  return WF_TAG_OTHER;
+/** 線が破線かどうか。破線の種類は無いので常に偽。 */
+function wfEdgeDashed() {
+  return false;
 }
 
 // 小数 1 位に丸める（path の文字列を短くする）
@@ -387,7 +366,7 @@ function wfSeparatorLine(sep) {
   return { y: (Number(s.y) || 0) * WF_CELL_H, label: String(s.label == null ? "" : s.label) };
 }
 
-/** Kanban の 4 レーンを（必ず 4 つ・空は空配列で）並べる。 */
+/** Kanban の 3 レーンを（必ず 3 つ・空は空配列で）並べる。 */
 function wfLanes(data) {
   const lanes = (data && data.lanes) || {};
   return WF_LANES.map((key) => ({
@@ -423,7 +402,7 @@ function wfStateLabel(state) {
 /**
  * 札（中身）の板に出す操作ボタン。
  * card は Workflow のノードでも Kanban の札でもよい（run_id / status / parent_run_id だけ使う）。
- * lane は "todo" / "running" / "review" / "done" / null。
+ * lane は "todo" / "running" / "review" / null。
  * project が分かるときの操作の住所まで作る。
  */
 function wfActions(card, lane, project) {
@@ -436,9 +415,7 @@ function wfActions(card, lane, project) {
   if (lane === "todo") {
     out.push({ key: "start", label: "▶ Run", method: "POST", path: `${base}/start` });
   } else if (lane === "review") {
-    out.push({ key: "advance", label: "done にする", method: "POST", path: `${base}/advance`, to: "done" });
-  } else if (lane === "done") {
-    out.push({ key: "workflow", label: "Workflow へ移す", method: "POST", path: `${base}/advance`, to: "workflow" });
+    out.push({ key: "advance", label: "→ Workflow", method: "POST", path: `${base}/advance`, to: "workflow" });
   }
   // running で親が無いもの（メインの実行）だけ ■ 終了を出す
   // （Kanban の札には status が無いのでレーンで判断する）
@@ -456,17 +433,14 @@ function wfActions(card, lane, project) {
   return out;
 }
 
-/** 凡例（札の色・線の色・印の意味）。? の小窓に出す。 */
+/** 凡例（線の色・印の意味）。? の小窓に出す。 */
 function wfLegend() {
   return {
-    tags: Object.keys(WF_TAGS).map((key) => ({ key, color: WF_TAGS[key], text: `${key}（タグ）` })),
-    edges: WF_EDGE_KINDS.map(([key, label, color, dashed]) => ({ key, label, color, dashed })),
+    edges: WF_EDGE_KINDS.map(([key, label, color]) => ({ key, label, color })),
     marks: [
       { text: "実行中（青い点・点滅）", cls: "dot-running" },
       { text: "失敗（赤い点）", cls: "dot-failed" },
       { text: "要確認（running の取り残し）", cls: "warn" },
-      { text: "review 未記入", cls: "danger" },
-      { text: "review 途中（review_only / content_only）", cls: "muted" },
     ],
   };
 }
@@ -597,6 +571,26 @@ function wfSaveKinds(on) {
   wfSaveJson(store, WF_KINDS_KEY, { ...on });
 }
 
+/** Workflow の JSON の住所。子を出すときだけ ?subtasks=1 を付ける。 */
+function wfDataPath(name, subtasks) {
+  const base = `/api/projects/${encodeURIComponent(name == null ? "" : name)}/workflow`;
+  return subtasks ? `${base}?subtasks=1` : base;
+}
+
+/** 子を出すか（localStorage から。最初は出さない）。 */
+function wfSubtasksOn() {
+  const store = wfStore("local");
+  if (!store) return false;
+  try { return store.getItem(WF_SUBTASKS_KEY) === "1"; } catch { return false; }
+}
+
+/** 子の出し入れを覚える。 */
+function wfSaveSubtasks(on) {
+  const store = wfStore("local");
+  if (!store) return;
+  try { store.setItem(WF_SUBTASKS_KEY, on ? "1" : "0"); } catch { /* 動けばよい */ }
+}
+
 // ============================================================================
 // index.html への読み込みの保険（C-F2）
 // ============================================================================
@@ -704,7 +698,7 @@ function wfRenderTools() {
     wfSaveKanban(wfName, wfKanban);
     wfRenderTools();
     wfRenderKanban();
-  }, "上の 4 段の札の帯を出したり消したりします");
+  }, "上の 3 段の札の帯を出したり消したりします");
   kb.classList.toggle("active", !!wfKanban);
   tools.appendChild(kb);
   // 線の種類（研究方針の図と同じ見た目。色つきで出す）
@@ -727,6 +721,11 @@ function wfRenderTools() {
     kinds.appendChild(b);
   }
   tools.appendChild(kinds);
+  const sub = wfToolBtn(`Subtasks: ${wfSubtasks ? "on" : "off"}`, () => wfToggleSubtasks(),
+    "Show or hide child runs made by task create");
+  sub.setAttribute("aria-pressed", wfSubtasks ? "true" : "false");
+  sub.classList.toggle("active", wfSubtasks);
+  tools.appendChild(sub);
   tools.appendChild(wfToolBtn("？", () => wfOpenLegend(), "凡例（色と印の意味）"));
 }
 
@@ -796,9 +795,6 @@ function wfLaneCard(card, lane) {
   b.appendChild(wfEl("span", "wf-lane-card-title", String(card.title || `ID${card.run_id}`)));
   if (card.date) b.appendChild(wfEl("span", "wf-lane-card-date", String(card.date)));
   if (card.description) b.appendChild(wfEl("span", "wf-lane-card-desc", String(card.description)));
-  if (card.runner && String(card.runner) !== "cc") {
-    b.appendChild(wfEl("span", "wf-lane-card-runner", `[${card.runner}]`));
-  }
   b.addEventListener("click", () => wfOpenSheet(card, lane));
   return b;
 }
@@ -900,7 +896,6 @@ function wfCardEl(n) {
   box.style.top = `${r.y}px`;
   box.style.width = `${r.width}px`;
   box.style.height = `${r.height}px`;
-  box.style.setProperty("--wf-tag", wfTagColor(n.tag));
   if (wfSelectedRunId() === n.run_id) box.classList.add("wf-sel");
 
   const lines = wfCardLines(n);
@@ -908,7 +903,6 @@ function wfCardEl(n) {
   if (lines.marks.running) head.appendChild(wfEl("span", "wf-dot wf-dot-run"));
   if (lines.marks.failed) head.appendChild(wfEl("span", "wf-dot wf-dot-fail"));
   head.appendChild(wfEl("span", "wf-card-id", lines.title));
-  if (lines.marks.runner) head.appendChild(wfEl("span", "wf-card-runner", `[${lines.marks.runner}]`));
   if (lines.marks.chips.length > 0) {
     const chips = wfEl("span", "wf-card-chips");
     for (const chip of lines.marks.chips) chips.appendChild(wfEl("span", `sai-chip ${chip.cls}`, chip.text));
@@ -916,6 +910,7 @@ function wfCardEl(n) {
   }
   box.appendChild(head);
 
+  if (lines.model) box.appendChild(wfEl("div", "wf-card-model", lines.model));
   if (lines.time || lines.cost) {
     const meta = wfEl("div", "wf-card-meta");
     meta.appendChild(wfEl("span", "wf-card-time", lines.time));
@@ -1089,19 +1084,13 @@ function wfSheetBody(card, lane) {
     const chip = wfEl("span", "sai-chip", wfStateLabel(state));
     meta.appendChild(chip);
   }
-  if (c.runner) {
-    const chip = wfEl("span", "sai-chip muted", `動かすエージェント: ${c.runner}`);
-    meta.appendChild(chip);
-  }
+  const model = wfCardModel(c);
+  if (model) meta.appendChild(wfEl("span", "wf-sheet-line", `Model ${model}`));
   if (c.created_at) {
     meta.appendChild(wfEl("span", "wf-sheet-line", `作成 ${wfStampText(c.created_at)}`));
   }
   if (c.cost) meta.appendChild(wfEl("span", "wf-sheet-line", `費用 ${c.cost}`));
   if (c.description) meta.appendChild(wfEl("p", "wf-sheet-desc", String(c.description)));
-  if (c.review) {
-    const mark = WF_REVIEW_MARKS[c.review];
-    meta.appendChild(wfEl("p", "wf-sheet-line", `review: ${mark ? mark.text : "記入済み"}`));
-  }
   head.appendChild(meta);
   box.appendChild(head);
 
@@ -1183,21 +1172,11 @@ async function wfDoAction(act, card) {
 function wfOpenLegend() {
   const legend = wfLegend();
   const box = wfEl("div", "wf-legend");
-  const t1 = wfEl("p", "wf-legend-title", "札の左の帯（タグ）");
-  box.appendChild(t1);
-  const tags = wfEl("div", "wf-legend-items");
-  for (const t of legend.tags) {
-    const chip = wfEl("span", "sai-chip", t.text);
-    chip.style.borderColor = t.color;
-    chip.style.color = t.color;
-    tags.appendChild(chip);
-  }
-  box.appendChild(tags);
   const t2 = wfEl("p", "wf-legend-title", "線（下の始点から終点へ）");
   box.appendChild(t2);
   const edges = wfEl("div", "wf-legend-items");
   for (const e of legend.edges) {
-    const chip = wfEl("span", "sai-chip", `${e.label}${e.dashed ? "（破線）" : ""}`);
+    const chip = wfEl("span", "sai-chip", e.label);
     chip.style.borderColor = e.color;
     chip.style.color = e.color;
     edges.appendChild(chip);
@@ -1444,6 +1423,7 @@ async function wfOpen(params) {
   wfDown = null;
   wfPinch = null;
   wfKinds = null;
+  wfSubtasks = wfSubtasksOn();
   wfOffsets = wfLoadOffsets(wfName);
   wfKanban = wfLoadKanban(wfName);
 
@@ -1452,6 +1432,15 @@ async function wfOpen(params) {
   const saved = wfLoadView(wfName);
   await wfLoad();
   if (!saved) wfFit();
+}
+
+/** 子の表示を切り替える（覚えて、JSON を取り直して描き直す。配置は Rust が子の有無で決める）。 */
+async function wfToggleSubtasks() {
+  wfSubtasks = !wfSubtasks;
+  wfSaveSubtasks(wfSubtasks);
+  wfRenderTools();
+  wfRaw = ""; // 同じ JSON でも描き直す
+  await wfLoad();
 }
 
 /** 10 秒ごとの読み直し（同じ JSON なら描き直さない）。 */
@@ -1464,7 +1453,7 @@ async function wfLoad() {
   if (!wfName) return;
   const name = wfName;
   try {
-    const data = await saiApi(`/api/projects/${encodeURIComponent(name)}/workflow`);
+    const data = await saiApi(wfDataPath(name, wfSubtasks));
     if (wfName !== name) return; // 別の画面に動いていた
     const raw = JSON.stringify(data);
     const same = raw === wfRaw;
@@ -1482,7 +1471,14 @@ async function wfLoad() {
   }
   wfRenderError();
   // 選んでいた札が無くなっていたら選択を外す
-  if (wfSelected != null && !wfNodes().some((n) => n.id === wfSelected)) wfSelected = null;
+  if (wfSelected != null && !wfNodes().some((n) => n.id === wfSelected)) {
+    wfSelected = null;
+    if (wfSheetHandle) {
+      const handle = wfSheetHandle;
+      wfSheetHandle = null;
+      handle.close();
+    }
+  }
   wfRender();
   wfRenderKanban();
 }
@@ -1526,7 +1522,6 @@ if (typeof module !== "undefined" && module.exports) {
     WF_EDGE_DIM,
     WF_SEP_PAD_PX,
     WF_DRAG_SLOP,
-    WF_TAGS,
     WF_EDGE_KINDS,
     WF_LANES,
     WF_SEL_COLOR,
@@ -1534,6 +1529,8 @@ if (typeof module !== "undefined" && module.exports) {
     WF_OFFSETS_KEY,
     WF_KANBAN_KEY,
     WF_KINDS_KEY,
+    WF_SUBTASKS_KEY,
+    WF_EDGE_UNKNOWN,
     wfHash,
     wfParseHash,
     wfNodeRect,
@@ -1548,10 +1545,11 @@ if (typeof module !== "undefined" && module.exports) {
     wfStampText,
     wfWrapText,
     wfCardMarks,
+    wfCardModel,
+    wfDataPath,
     wfCardLines,
     wfEdgeColor,
     wfEdgeDashed,
-    wfTagColor,
     wfEdgePath,
     wfEdgeEndX,
     wfEdgeEndY,
