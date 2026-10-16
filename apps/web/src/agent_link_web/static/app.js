@@ -9,41 +9,9 @@
 // 通知から直接開いた場合も同じ動きになるため）。
 "use strict";
 
-/* 合言葉の保存場所．初回に ?token=… で開いてもらい，以降は自動で付ける．
-   プライベートブラウズでは例外が出るので，読み書きは必ず失敗に備える． */
-const TOKEN_KEY = "agent_link_web_token";
-
-function loadToken() {
-  try {
-    const fromUrl = new URLSearchParams(location.search).get("token");
-    if (fromUrl) {
-      try { localStorage.setItem(TOKEN_KEY, fromUrl); } catch { /* 保存できなくても動く */ }
-      // 住所から合言葉を消す（共有時に漏らさないため）
-      history.replaceState(null, "", location.pathname + location.hash);
-      return fromUrl;
-    }
-    return localStorage.getItem(TOKEN_KEY) || "";
-  } catch {
-    return "";
-  }
-}
-
-let apiToken = loadToken();
-
+// fetch の薄い包み（saiApi が使う）。合言葉は要らない。
 async function apiFetch(path, options = {}) {
-  const headers = { ...(options.headers || {}) };
-  if (apiToken) headers["Authorization"] = `Bearer ${apiToken}`;
-  let res = await fetch(path, { ...options, headers });
-  if (res.status === 401) {
-    const input = prompt("合言葉を入力してください");
-    if (input) {
-      apiToken = input;
-      try { localStorage.setItem(TOKEN_KEY, input); } catch { /* 動けばよい */ }
-      headers["Authorization"] = `Bearer ${input}`;
-      res = await fetch(path, { ...options, headers });
-    }
-  }
-  return res;
+  return fetch(path, options);
 }
 
 // --- 通信の状態と再試行の間隔 ---
@@ -209,7 +177,6 @@ const TAB_FIRST_URL = {
   home: "#/home",
   project: "#/projects",
   agent: "#/",
-  account: "#/account",
 };
 // ホームの住所（app.js 自身が見る。home.js も使うので外に出す）
 const HOME_URL = "#/home";
@@ -391,10 +358,7 @@ function dayStats(d) {
   const done = d.done || {};
   const doneTotal = Object.values(done).reduce((a, b) => a + b, 0);
   if (doneTotal > 0) {
-    // 0 の runner は出さない（02 §1 の1番）
-    let s = "確認済み";
-    for (const [runner, n] of Object.entries(done)) s += ` ${runner} ${n}`;
-    parts.push(s);
+    parts.push(`確認済み ${doneTotal}`);
   }
   if (d.running > 0) parts.push(`実行中 ${d.running}`);
   if (d.failed > 0) parts.push(`失敗 ${d.failed}`);
@@ -568,14 +532,11 @@ function runRow(run, showDate) {
   descSpan.className = "rdesc";
   // 長い説明は1行で省略（02 §1 の2番）
   descSpan.textContent = run.description || "";
-  const runnerSpan = document.createElement("span");
-  runnerSpan.className = "rrunner";
-  runnerSpan.textContent = `[${run.runner}]`;
   const st = runStatusText(run);
   const statusSpan = document.createElement("span");
   statusSpan.className = `rstatus ${st.cls}`;
   statusSpan.textContent = st.text;
-  btn.append(timeSpan, idSpan, blockSpan, descSpan, runnerSpan, statusSpan);
+  btn.append(timeSpan, idSpan, blockSpan, descSpan, statusSpan);
 
   if (run.show_parent && run.parent_run_id != null) {
     // 親の実行がこの日の一覧に無いサブタスク（02 §1 の2番）
@@ -1448,9 +1409,7 @@ function renderEvent(item) {
 }
 
 function agentName() {
-  if (currentRun && currentRun.runner === "pi") return "π";
-  if (currentRun && currentRun.runner === "cc") return "Claude";
-  return "エージェント";
+  return "Claude";
 }
 
 // md の整形表示は static/markdown.js の renderMarkdown にまとめた（計画 13 §1.4）．

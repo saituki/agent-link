@@ -124,8 +124,9 @@
 // U03（サポートの右下のアイコン・Customer の一覧・停止の入力欄への移動・質問を止める。customer.js を追加）で v131 に（index.html の ?v= も 131。ASSETS に /customer.js を足した）
 // agent-link: 論文・Research・多人数の画面を消した（v132。index.html の ?v= も 132。ASSETS から消したファイルを外した）
 // agent-link: Web の名前を agent-link に変えた（v133。index.html の ?v= も 133。ASSETS は変えない）
-const CACHE = "agent-link-web-v133";
-const ASSETS = ["/", "/index.html", "/style.css", "/markdown.css", "/home.css", "/workflow.css", "/defs.css", "/markdown.js", "/ui.js", "/app.js", "/chatorder.js", "/newchat.js", "/stats.js", "/project.js", "/linkview.js", "/cardform.js", "/commands.js", "/sessionsearch.js", "/usage.js", "/voiceask.js", "/canvaslayout.js", "/home.js", "/workflow.js", "/defs.js", "/account.js", "/manifest.json"];
+// agent-link: Account・Usage の詳細・コマンドの画面と合言葉を消し、Home に Claude の使用量を出した（v134。index.html の ?v= も 134。ASSETS から account.js・usage.js・commands.js を外した）
+const CACHE = "agent-link-web-v134";
+const ASSETS = ["/", "/index.html", "/style.css", "/markdown.css", "/home.css", "/workflow.css", "/defs.css", "/markdown.js", "/ui.js", "/app.js", "/chatorder.js", "/newchat.js", "/stats.js", "/project.js", "/linkview.js", "/cardform.js", "/sessionsearch.js", "/voiceask.js", "/canvaslayout.js", "/home.js", "/workflow.js", "/defs.js", "/manifest.json"];
 
 self.addEventListener("install", (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(ASSETS)).then(() => self.skipWaiting()));
