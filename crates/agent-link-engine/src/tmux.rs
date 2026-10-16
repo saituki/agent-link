@@ -91,8 +91,8 @@ pub fn send_text(id: &str, text: &str) -> Result<(), HerdrError> {
 /// キーを送る。
 ///
 /// - `esc` / `escape` / `ctrl+c` は `Escape` を送り、Stop フックが呼ばれない中断を補うため `idle` にする。
-/// - それ以外は、`draft.txt` があれば bracketed paste で貼ってから Enter を送る。
-///   無ければ Enter だけを送る（`submit_prompt_verified` の再送で同じ文が 2 回入らないため）。
+/// - それ以外は、`draft.txt` があれば bracketed paste で貼ってから確定キー（`Alt+Enter` は `M-Enter`、他は Enter）を送る。
+///   無ければ確定キーだけを送る（`submit_prompt_verified` の再送で同じ文が 2 回入らないため）。
 pub fn send_keys(id: &str, keys: &str) -> Result<(), HerdrError> {
     let dir = headless::pane_dir(id);
     if !dir.is_dir() {
@@ -116,7 +116,9 @@ pub fn send_keys(id: &str, keys: &str) -> Result<(), HerdrError> {
         // 貼った文を入力欄が受け取るまで待つ（改行の前に確定させない）
         std::thread::sleep(Duration::from_millis(300));
     }
-    check(&tmux(&["send-keys", "-t", id, "Enter"])?, id, "confirm")
+    // cc 2.1.301 は貼った複数行の文を素の Enter では確定しない。`Alt+Enter` は `M-Enter` で送る。
+    let enter = if key.eq_ignore_ascii_case("alt+enter") { "M-Enter" } else { "Enter" };
+    check(&tmux(&["send-keys", "-t", id, enter])?, id, "confirm")
 }
 
 /// 状態を読み、`PaneInfo` を返す。
