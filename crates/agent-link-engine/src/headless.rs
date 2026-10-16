@@ -13,6 +13,7 @@
 //! - `state.json` — 共有契約 C1 の状態（書くのは tmux の経路）
 
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use crate::herdr::{HerdrError, PaneInfo};
@@ -183,6 +184,41 @@ pub(crate) fn pane_gone(id: &str) -> HerdrError {
     }
 }
 
+/// `base`（headless の置き場）の中で、終わった tmux の pane の置き場を消し、消した数を返す。
+///
+/// 消すのは、名前が `hl-` で始まり、印 `tmux` があり、次のどちらかのもの:
+/// - `state.json` の `state` が `stopped`
+/// - `live` に名前が無い（tmux の session が無い）
+/// 印の無い置き場・読めない物には触らない。消せなかった物は数えない。
+pub fn sweep_dead_panes_in(base: &Path, live: &HashSet<String>) -> usize {
+    let Ok(entries) = std::fs::read_dir(base) else {
+        return 0;
+    };
+    let mut n = 0;
+    for entry in entries.flatten() {
+        let dir = entry.path();
+        let Some(id) = entry.file_name().to_str().map(String::from) else {
+            continue;
+        };
+        if !is_headless_pane(&id) || !dir.join("tmux").is_file() {
+            continue;
+        }
+        let stopped = read_state(&dir).is_some_and(|s| s.state == "stopped");
+        if (stopped || !live.contains(&id)) && std::fs::remove_dir_all(&dir).is_ok() {
+            n += 1;
+        }
+    }
+    n
+}
+
+/// 今のプロジェクトの置き場を掃除する。`tmux::live_sessions()` が `None` なら何もしないで 0。
+pub fn sweep_dead_panes() -> usize {
+    match crate::tmux::live_sessions() {
+        Some(live) => sweep_dead_panes_in(&crate::project::sai_path(".agent-link/engine/headless"), &live),
+        None => 0,
+    }
+}
+
 // ============================================================================
 // テスト
 // ============================================================================
@@ -195,5 +231,46 @@ mod tests {
     fn is_headless_pane_prefix() {
         assert!(is_headless_pane("hl-0123456789ab"));
         assert!(!is_headless_pane("pane_test_001"));
+    }
+
+    fn mk(base: &Path, id: &str, mark: bool, state: Option<&str>) {
+        let d = base.join(id);
+        std::fs::create_dir_all(&d).unwrap();
+        if mark {
+            std::fs::write(d.join("tmux"), b"").unwrap();
+        }
+        if let Some(st) = state {
+            let s = HeadlessState {
+                pane_id: id.into(),
+                runner: "cc".into(),
+                state: st.into(),
+                turn: 0,
+                partial: String::new(),
+                error: String::new(),
+                updated_at: String::new(),
+            };
+            write_state(&d, &s).unwrap();
+        }
+    }
+
+    #[test]
+    fn sweep_removes_only_dead_marked_panes() {
+        let t = tempfile::tempdir().unwrap();
+        let b = t.path();
+        mk(b, "hl-aaaaaaaaaaaa", true, Some("idle"));
+        mk(b, "hl-bbbbbbbbbbbb", true, Some("stopped"));
+        mk(b, "hl-cccccccccccc", true, Some("working"));
+        mk(b, "hl-dddddddddddd", false, Some("stopped"));
+        mk(b, "other", true, Some("idle"));
+        let live: HashSet<String> = ["hl-bbbbbbbbbbbb", "hl-cccccccccccc"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        assert_eq!(sweep_dead_panes_in(b, &live), 2);
+        assert!(!b.join("hl-aaaaaaaaaaaa").exists());
+        assert!(!b.join("hl-bbbbbbbbbbbb").exists());
+        assert!(b.join("hl-cccccccccccc").exists());
+        assert!(b.join("hl-dddddddddddd").exists());
+        assert!(b.join("other").exists());
     }
 }

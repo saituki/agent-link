@@ -290,6 +290,41 @@ fn check(out: &Output, id: &str, what: &str) -> Result<(), HerdrError> {
     Err(api_error(format!("tmux {} failed (pane={}): {}", what, id, last)))
 }
 
+/// tmux の生きている session 名の一覧。
+///
+/// tmux サーバが無い（`no server running` / `error connecting`）ときは空の集合。
+/// tmux が無い・時間切れ・そのほかの失敗は `None`（分からないので、呼び出し側は何も消さない）。
+pub fn live_sessions() -> Option<std::collections::HashSet<String>> {
+    let out = tmux(&["list-sessions", "-F", "#{session_name}"]).ok()?;
+    parse_list_sessions(
+        out.status.success(),
+        &String::from_utf8_lossy(&out.stdout),
+        &String::from_utf8_lossy(&out.stderr),
+    )
+}
+
+/// `tmux list-sessions` の結果を読み分ける。
+fn parse_list_sessions(
+    success: bool,
+    stdout: &str,
+    stderr: &str,
+) -> Option<std::collections::HashSet<String>> {
+    if success {
+        return Some(
+            stdout
+                .lines()
+                .map(str::trim)
+                .filter(|l| !l.is_empty())
+                .map(String::from)
+                .collect(),
+        );
+    }
+    if stderr.contains("no server running") || stderr.contains("error connecting") {
+        return Some(Default::default());
+    }
+    None
+}
+
 /// session が生きているか。
 fn has_session(id: &str) -> bool {
     tmux(&["has-session", "-t", id])
@@ -347,6 +382,22 @@ fn api_error(message: String) -> HerdrError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parse_list_sessions_cases() {
+        let ok = parse_list_sessions(true, "hl-a\n\nhl-b\n", "").unwrap();
+        assert_eq!(ok.len(), 2);
+        assert!(ok.contains("hl-a") && ok.contains("hl-b"));
+        assert_eq!(
+            parse_list_sessions(false, "", "no server running on /tmp/x"),
+            Some(Default::default())
+        );
+        assert_eq!(
+            parse_list_sessions(false, "", "error connecting to /tmp/x (No such file)"),
+            Some(Default::default())
+        );
+        assert_eq!(parse_list_sessions(false, "", "unknown option"), None);
+    }
 
     #[test]
     fn seed_claude_json_sets_items_and_keeps_others() {
