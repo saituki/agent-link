@@ -25,7 +25,7 @@
 //! └── .agent-link/
 //!     ├── blocks/                              # ブロック定義 (*.md)
 //!     ├── template/                            # templates: で参照される md
-//!     ├── outputs/                             # run フォルダ集約（todo/running/review/done/R*）
+//!     ├── outputs/                             # run フォルダ集約（todo/running/review と日付 yymmdd）
 //!     ├── engine/
 //!     │   └── notifications/{pending,processed,results}/   # 通知ディレクトリ
 //!     └── settings.json                        # {}

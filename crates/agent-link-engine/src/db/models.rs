@@ -77,8 +77,6 @@ pub struct BlockMetadata {
     pub file_path: String,
     /// ファイル内容の SHA-256 ハッシュ（変更検出用）
     pub body_hash: Option<String>,
-    /// ラウンド番号（1始まり）
-    pub round: Option<i64>,
     /// 作成日時（ISO 8601）
     pub created_at: String,
     /// 更新日時（ISO 8601）
@@ -119,7 +117,6 @@ impl BlockMetadata {
             enable,
             file_path,
             body_hash,
-            round: None,
             created_at: String::new(), // DB デフォルト値で設定
             updated_at: String::new(), // DB デフォルト値で設定
         }
@@ -285,10 +282,6 @@ pub struct ExecutionHistory {
     pub finalized: bool,
     /// セッション統計情報の JSON（トークン数・ツール呼び出し回数・ターン数など）
     pub session_stats_json: Option<String>,
-    /// 実行時のラウンド番号（入力フォームのオーバーライド値）
-    pub round: Option<i64>,
-    /// 実行時のグローバルラウンド番号（GR）。DAG の行グループと区切り線に使用
-    pub global_round: Option<i64>,
     /// 実行時のモデル（入力フォームのオーバーライド値）
     pub model: Option<String>,
     /// 実行時の thinking budget（入力フォームのオーバーライド値）
@@ -309,11 +302,6 @@ pub struct ExecutionHistory {
     /// 旧 DB（カラムなし）は `false` 扱い。
     #[serde(default)]
     pub workflow_moved: bool,
-    /// Kanban のレビュー済みフラグ。`completed` のうち true なら done レーン、
-    /// false なら review レーン。run-tui の `e` で明示的に更新する。
-    /// 旧 DB（カラムなし）は `false` 扱い。
-    #[serde(default)]
-    pub review_done: bool,
     /// エージェント側セッション ID（Claude Code の `--session-id` の UUID）。
     ///
     /// pi 実行では `None`（pi は `session_dir` の JSONL パスで再開する）。
@@ -351,8 +339,6 @@ impl ExecutionHistory {
             batch_id: None,
             finalized: false,
             session_stats_json: None,
-            round: None,
-            global_round: None,
             model: None,
             thinking: None,
             timeout: None,
@@ -361,7 +347,6 @@ impl ExecutionHistory {
             kanban_card_path: None,
             execution_mode: None,
             workflow_moved: false,
-            review_done: false,
             agent_session_id: None,
             created_at: String::new(),
         }
@@ -681,8 +666,6 @@ pub struct WaggleTokenEntry {
     pub block_name: String,
     /// 実行履歴 ID
     pub execution_id: i64,
-    /// ラウンド番号
-    pub round: Option<i64>,
     /// 実行作成日時（ISO 8601）
     pub created_at: String,
     /// 出力タイプ（"document" | "code" | "both"）

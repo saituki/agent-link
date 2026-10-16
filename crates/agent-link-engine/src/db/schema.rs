@@ -249,7 +249,6 @@ pub fn init_sai_tables(conn: &Connection) -> Result<(), DbError> {
     migrate_add_column(conn, "execution_history", "git_commit_before", "TEXT")?;
     migrate_add_column(conn, "execution_history", "git_commit_after", "TEXT")?;
     migrate_add_column(conn, "execution_history", "session_stats_json", "TEXT")?;
-    migrate_add_column(conn, "block_metadata", "round", "INTEGER")?;
     // id/name 分離（表示名）: sai-tui 等の表示用に display_name を追加
     migrate_add_column(
         conn,
@@ -259,9 +258,6 @@ pub fn init_sai_tables(conn: &Connection) -> Result<(), DbError> {
     )?;
 
     // 右SB表示用: 実行インスタンス単位のオーバーライド値とセッション情報
-    migrate_add_column(conn, "execution_history", "round", "INTEGER")?;
-    // グローバルラウンド（GR）: ブロック配置（DAG の行）と区切り線に使用
-    migrate_add_column(conn, "execution_history", "global_round", "INTEGER")?;
     migrate_add_column(conn, "execution_history", "model", "TEXT")?;
     migrate_add_column(conn, "execution_history", "thinking", "TEXT")?;
     migrate_add_column(conn, "execution_history", "timeout", "INTEGER")?;
@@ -298,15 +294,6 @@ pub fn init_sai_tables(conn: &Connection) -> Result<(), DbError> {
     // エージェント側セッション ID（Claude Code の `--session-id` の UUID）。
     // pi 実行では NULL（pi は JSONL パスで再開するため）。
     migrate_add_column(conn, "execution_history", "agent_session_id", "TEXT")?;
-    // Kanban: レビュー済みフラグ。`completed` のうち 1 なら done レーン、
-    // 0 なら review レーン。従来の review.md 本文判定を廃止し、
-    // run-tui の `e` で明示的に遷移させるための状態カラム。
-    migrate_add_column(
-        conn,
-        "execution_history",
-        "review_done",
-        "INTEGER NOT NULL DEFAULT 0",
-    )?;
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_execution_history_batch_id ON execution_history(batch_id)",
         [],

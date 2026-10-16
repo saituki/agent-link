@@ -159,7 +159,7 @@ fn run_list_json(limit: i64) -> Result<(), CmdError> {
     let mut runs = Vec::with_capacity(execs.len());
     for exec in &execs {
         let run_id = exec.id.unwrap_or(0);
-        // lane は run フォルダの親の名前（todo / running / review / done など）
+        // lane は run フォルダの親の名前（todo / running / review / 日付 yymmdd）
         let (lane, dir) = match agent_link_engine::run_dir::find_run_dir(run_id) {
             Some((owner, path)) => (Some(owner), Some(path.display().to_string())),
             None => (None, None),
@@ -171,8 +171,6 @@ fn run_list_json(limit: i64) -> Result<(), CmdError> {
             "status": exec.status,
             "lane": lane,
             "parent_run_id": exec.parent_run_id,
-            "global_round": exec.global_round,
-            "round": exec.round,
             "created_at": exec.created_at,
             "started_at": exec.started_at,
             "finished_at": exec.finished_at,

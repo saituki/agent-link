@@ -21,10 +21,6 @@ pub struct BlockDetail {
     pub user_block_description: Option<String>,
     /// user-block の入力ファイルパス（[Output] セクションで表示）
     pub user_block_file: Option<String>,
-    /// 実行時のラウンド（execution_history 優先、なければ block_metadata）
-    pub round: Option<i64>,
-    /// 実行時のグローバルラウンド（GR）
-    pub global_round: Option<i64>,
     /// 実行時のモデル（execution_history 優先、なければ block_metadata）
     pub model: Option<String>,
     /// 実行時の thinking（execution_history 優先、なければ block_metadata）
@@ -69,8 +65,6 @@ pub struct ConnectionEntry {
     pub kind: String,
     /// 相手の実行 ID
     pub run_id: i64,
-    pub global_round: Option<i64>,
-    pub round: Option<i64>,
     /// 相手のブロック名
     pub block_name: String,
     /// 相手の task.md の description（`task_create` のときだけ入る）
@@ -158,15 +152,13 @@ struct InputRef<'a> {
 impl serde::Serialize for BlockDetail {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         use serde::ser::SerializeStruct;
-        let len = 24;
+        let len = 22;
         let mut st = serializer.serialize_struct("BlockDetail", len)?;
         st.serialize_field("exec_id", &self.exec_id)?;
         st.serialize_field("block_name", &self.block_name)?;
         st.serialize_field("is_user_block", &self.is_user_block)?;
         st.serialize_field("user_block_description", &self.user_block_description)?;
         st.serialize_field("user_block_file", &self.user_block_file)?;
-        st.serialize_field("round", &self.round)?;
-        st.serialize_field("global_round", &self.global_round)?;
         st.serialize_field("model", &self.model)?;
         st.serialize_field("thinking", &self.thinking)?;
         st.serialize_field("timeout", &self.timeout)?;
@@ -225,17 +217,10 @@ pub fn build(store: &agent_link_engine::db::SaiStore, exec_id: i64) -> Option<Bl
 
     // 接続情報
     let format_block_ref = |bid: i64, eid: i64| -> String {
-        if let Ok(b) = store.get_block_by_id(bid) {
-            // 接続先の実行レコードから GR/LR を取得（なければブロック定義の LR）
-            let (gr, lr) = match store.get_execution_by_id(eid) {
-                Ok(e) => (e.global_round, e.round.or(b.round)),
-                Err(_) => (None, b.round),
-            };
-            let gr_str = gr.map(|v| v.to_string()).unwrap_or_else(|| "?".to_string());
-            let lr_str = lr.map(|v| v.to_string()).unwrap_or_else(|| "?".to_string());
-            format!("R{}.{}/ID{}", gr_str, lr_str, eid)
+        if store.get_block_by_id(bid).is_ok() {
+            format!("ID{}", eid)
         } else {
-            format!("R?.?/ID{}/id:{}", eid, bid)
+            format!("ID{}/id:{}", eid, bid)
         }
     };
 
@@ -285,8 +270,6 @@ pub fn build(store: &agent_link_engine::db::SaiStore, exec_id: i64) -> Option<Bl
     // 構造化版（作られた順。`list_connections_by_block` が created_at 順で返す）
     let connections = structured_connections(store, &all_connections, exec_id);
 
-    let round = exec.as_ref().and_then(|e| e.round).or(block.round);
-    let global_round = exec.as_ref().and_then(|e| e.global_round);
     let model = exec
         .as_ref()
         .and_then(|e| e.model.clone())
@@ -375,8 +358,6 @@ pub fn build(store: &agent_link_engine::db::SaiStore, exec_id: i64) -> Option<Bl
         is_user_block,
         user_block_description,
         user_block_file,
-        round,
-        global_round,
         model,
         thinking,
         timeout: timeout_override,
@@ -418,20 +399,14 @@ fn structured_connections(
         } else {
             continue;
         };
-        let other = store.get_execution_by_id(other_eid).ok();
         let block_name = store
             .get_block_by_id(other_bid)
             .map(|b| b.display_name)
             .unwrap_or_default();
-        let round = other.as_ref().and_then(|e| e.round).or_else(|| {
-            store.get_block_by_id(other_bid).ok().and_then(|b| b.round)
-        });
         let mut entry = ConnectionEntry {
             direction: direction.to_string(),
             kind: kind.to_string(),
             run_id: other_eid,
-            global_round: other.as_ref().and_then(|e| e.global_round),
-            round,
             block_name,
             ..Default::default()
         };
@@ -658,7 +633,7 @@ mod conn_line_tests {
         store.insert_block(&b).unwrap()
     }
 
-    /// waggle 接続は `waggle: <token> R<gr>.<lr>/ID<id>` 形式になること。
+    /// waggle 接続は `waggle: <token> ID<id>` 形式になること。
     #[test]
     fn waggle_conn_line_format() {
         let store = agent_link_engine::db::SaiStore::open_in_memory().unwrap();
@@ -666,9 +641,6 @@ mod conn_line_tests {
         let b2 = test_block(&store, "b");
         let e1 = store.create_execution(b1, None).unwrap();
         let e2 = store.create_execution(b2, None).unwrap();
-        store
-            .update_execution_overrides(e1, Some(3), Some(2), None, None, None)
-            .unwrap();
         store
             .insert_connection(&agent_link_engine::db::BlockConnection::new_waggle(
                 e1,
@@ -680,12 +652,12 @@ mod conn_line_tests {
             .unwrap();
         let d = build(&store, e2).unwrap();
         assert_eq!(d.connections_from.len(), 1);
-        assert!(d.connections_from[0].starts_with("waggle:abc R2.3/ID"));
-        // phone 用の構造化版: waggle は task_text、相手は e1（block a・GR2 / LR3）
+        assert!(d.connections_from[0].starts_with("waggle:abc ID"));
+        // phone 用の構造化版: waggle は task_text、相手は e1（block a）
         assert_eq!(d.connections.len(), 1);
         let c = &d.connections[0];
         assert_eq!((c.direction.as_str(), c.kind.as_str()), ("from", "task_text"));
-        assert_eq!((c.run_id, c.global_round, c.round), (e1, Some(2), Some(3)));
+        assert_eq!(c.run_id, e1);
         assert_eq!(c.block_name, "a");
         assert_eq!(c.waggle_token.as_deref(), Some("waggle:abc"));
         // 相手側から見ると同じ線が to になる

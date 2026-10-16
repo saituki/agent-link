@@ -174,11 +174,6 @@ pub struct BlockConfig {
     #[serde(default)]
     pub category: Option<String>,
 
-    /// ラウンド番号（1始まり）
-    /// フロントマター + 実行時設定の両方から追記可能
-    #[serde(default)]
-    pub round: Option<u32>,
-
     /// テンプレートファイル名のリスト。
     ///
     /// `PROJECTROOT/.agent-link/template/<名前>.md` から読み込まれた内容が

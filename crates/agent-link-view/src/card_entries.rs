@@ -355,8 +355,8 @@ pub fn card_path_for_execution(card_rel: Option<&str>, run_id: i64) -> Option<Pa
 ///
 /// Kanban が所有するものだけを返す（Workflow との排他）：
 /// * todo: 未実行カードファイル（事前走査済み・作成日時順）
-/// * running / review / done: 未移動（`workflow_moved=false`）の実行。
-///   実行中は running、終端後は DB `review_done` の有無で review / done
+/// * running / review: 未移動（`workflow_moved=false`）の実行。
+///   実行中は running、終端後は review
 ///
 /// `d` で移動済み（`workflow_moved=true`）の実行は含めない（Workflow へ）。
 pub fn collect_card_entries_from(
@@ -393,15 +393,8 @@ pub fn collect_card_entries_from(
         let lane = match e.status.as_str() {
             // 実行開始を契機に実行中へ
             "running" | "pending" => KanbanLane::Running,
-            // 確定後は DB の `review_done`（run-tui `e` で更新）で振り分ける。
-            // review.md 本文の記入では自動移動しない。
-            _ => {
-                if e.review_done {
-                    KanbanLane::Done
-                } else {
-                    KanbanLane::Review
-                }
-            }
+            // 終わった run は、Workflow へ移す（`run advance`）まで review
+            _ => KanbanLane::Review,
         };
         let name = block_name_of(store, &mut block_name_cache, e.block_id);
         // description：対応カードの frontmatter から取得（無ければ空）。

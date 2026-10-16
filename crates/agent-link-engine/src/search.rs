@@ -19,8 +19,6 @@
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! let store = SaiStore::open(std::path::Path::new(".agent-link/engine/agent-link.db"))?;
 //! let raw = RawSearchForm {
-//!     round_gr: "1".to_string(),
-//!     round: String::new(),
 //!     id: String::new(),
 //!     block: String::new(),
 //!     date: "2026/08/10-2026/08/20".to_string(),
@@ -140,10 +138,6 @@ impl DateRange {
 /// 各項目はまだ検証されていない文字列。空文字列は「条件なし」を表す。
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct RawSearchForm {
-    /// Round（グローバルラウンド / GR）。例: `1`、`1-5`
-    pub round_gr: String,
-    /// round（実行ラウンド）。例: `2`、`1-2`
-    pub round: String,
     /// ブロック ID 範囲。例: `10`、`10-20`
     pub id: String,
     /// ブロック名（部分一致・大小無視）
@@ -161,10 +155,6 @@ pub struct RawSearchForm {
 /// 解析済みの検索クエリ。
 #[derive(Debug, Clone, Default)]
 pub struct SearchQuery {
-    /// Round（global_round）の範囲
-    pub round_gr: Option<NumRange>,
-    /// round の範囲（実行値 NULL 時はブロック定義 round で補完）
-    pub round: Option<NumRange>,
     /// ブロック ID の範囲
     pub id: Option<NumRange>,
     /// ブロック名部分一致（小文字化済み）
@@ -341,12 +331,6 @@ pub fn parse_query(raw: &RawSearchForm) -> Result<SearchQuery, SearchError> {
     let mut q = SearchQuery::default();
 
     // 数値範囲系
-    if !raw.round_gr.trim().is_empty() {
-        q.round_gr = Some(parse_num_range(&raw.round_gr)?);
-    }
-    if !raw.round.trim().is_empty() {
-        q.round = Some(parse_num_range(&raw.round)?);
-    }
     if !raw.id.trim().is_empty() {
         q.id = Some(parse_num_range(&raw.id)?);
     }
@@ -409,8 +393,7 @@ struct FilteredExecution {
 
 /// DB 上の実行履歴を [`SearchQuery`] の DB 条件で絞り込む。
 ///
-/// 対象条件: `round_gr`（global_round）/ `round`（NULL 時はブロック定義 round で
-/// 補完・左 SB と同一規則）/ `id`（block_id）/ `block`（名前部分一致）/ `date`
+/// 対象条件: `id`（block_id）/ `block`（名前部分一致）/ `date`
 /// （started_at の日付）/ `statuses`（R304。空 = `todo` 除外、`todo` 指定時のみ予約行を含む）。
 fn filter_executions(
     store: &SaiStore,
@@ -418,8 +401,8 @@ fn filter_executions(
 ) -> Result<Vec<FilteredExecution>, SearchError> {
     let executions = store.list_all_executions()?;
     let mut result = Vec::new();
-    // ブロック定義の round / name キャッシュ（get_block_by_id の問い合わせ削減）
-    let mut block_cache: std::collections::HashMap<i64, (String, Option<i64>)> =
+    // ブロック名キャッシュ（get_block_by_id の問い合わせ削減）
+    let mut block_cache: std::collections::HashMap<i64, String> =
         std::collections::HashMap::new();
     for e in executions {
         // status 絞り込み（R304）：空 = `todo` を除外。`todo` 指定時のみ予約行を含む。
@@ -430,32 +413,18 @@ fn filter_executions(
         } else if !q.statuses.iter().any(|s| s == &e.status) {
             continue;
         }
-        let (name, block_round) = match block_cache.get(&e.block_id) {
+        let name = match block_cache.get(&e.block_id) {
             Some(v) => v.clone(),
             None => {
                 let v = match store.get_block_by_id(e.block_id) {
-                    Ok(b) => (b.name.clone(), b.round),
-                    Err(_) => (String::new(), None),
+                    Ok(b) => b.name.clone(),
+                    Err(_) => String::new(),
                 };
                 block_cache.insert(e.block_id, v.clone());
                 v
             }
         };
 
-        // Round（global_round）
-        if let Some(r) = &q.round_gr {
-            match e.global_round {
-                Some(v) if r.contains(v) => {}
-                _ => continue,
-            }
-        }
-        // round（実行値 NULL 時はブロック定義 round で補完）
-        if let Some(r) = &q.round {
-            match e.round.or(block_round) {
-                Some(v) if r.contains(v) => {}
-                _ => continue,
-            }
-        }
         // ID（block_id）
         if let Some(r) = &q.id {
             if !r.contains(e.block_id) {
@@ -943,13 +912,11 @@ mod tests {
     fn test_parse_query() {
         // 空欄は全条件なし
         let q = parse_query(&RawSearchForm::default()).unwrap();
-        assert!(q.round_gr.is_none() && q.round.is_none() && q.id.is_none());
+        assert!(q.id.is_none());
         assert!(q.block.is_none() && q.date.is_none());
         assert!(q.types.is_empty() && q.words.is_empty());
 
         let raw = RawSearchForm {
-            round_gr: "1".into(),
-            round: "1-2".into(),
             id: "10-20".into(),
             block: "Main-Block".into(),
             date: "2026/08/10-2026/08/20".into(),
@@ -958,20 +925,6 @@ mod tests {
             word: "LLM, agent-link-tui , 移植".into(),
         };
         let q = parse_query(&raw).unwrap();
-        assert_eq!(
-            q.round_gr.unwrap(),
-            NumRange {
-                min: Some(1),
-                max: Some(1)
-            }
-        );
-        assert_eq!(
-            q.round.unwrap(),
-            NumRange {
-                min: Some(1),
-                max: Some(2)
-            }
-        );
         assert_eq!(
             q.id.unwrap(),
             NumRange {
@@ -1197,14 +1150,11 @@ mod tests {
     /// テスト用 DB にブロックと実行を投入し、実行 ID を返す。
     ///
     /// `db_path` が存在しない場合は新規作成する（複数回呼び出しで 1 つの DB に
-    /// 複数実行を投入できる）。round / global_round / started_at / session_dir は
+    /// 複数実行を投入できる）。started_at / session_dir は
     /// 専用の公開 API がないため別接続で直接 UPDATE する（テスト内のみの利用）。
     fn setup_test_db(
         db_path: &std::path::Path,
         block_name: &str,
-        block_round: Option<i64>,
-        exec_round: Option<i64>,
-        global_round: Option<i64>,
         started_at: &str,
         session_dir: Option<&Path>,
     ) -> (i64, i64) {
@@ -1230,20 +1180,12 @@ mod tests {
         // 直接 UPDATE（テスト用）
         let conn = rusqlite::Connection::open(&db_path).unwrap();
         conn.execute(
-            "UPDATE execution_history SET round = ?1, global_round = ?2, \
-             started_at = ?3, session_dir = ?4 WHERE id = ?5",
+            "UPDATE execution_history SET started_at = ?1, session_dir = ?2 WHERE id = ?3",
             rusqlite::params![
-                exec_round,
-                global_round,
                 started_at,
                 session_dir.map(|p| p.to_string_lossy().to_string()),
                 exec_id,
             ],
-        )
-        .unwrap();
-        conn.execute(
-            "UPDATE block_metadata SET round = ?1 WHERE id = ?2",
-            rusqlite::params![block_round, block_id],
         )
         .unwrap();
         (block_id, exec_id)
@@ -1260,19 +1202,13 @@ mod tests {
         let (block_id, exec_id) = setup_test_db(
             &db_path,
             "test-pi-sai-main",
-            None,
-            Some(2),
-            Some(1),
             "2026-08-29 01:06:41",
             Some(&sess_dir),
         );
-        // 条件外の実行を 1 件追加（global_round = 9・session_dir 無し）
+        // 条件外の実行を 1 件追加（session_dir 無し）
         let (other_block_id, _) = setup_test_db(
             &db_path,
             "other-block",
-            None,
-            Some(1),
-            Some(9),
             "2026-01-01 00:00:00",
             None,
         );
@@ -1285,59 +1221,6 @@ mod tests {
         assert!(!hits.is_empty());
         assert_eq!(skipped, 1); // session_dir 無しの other-block はスキップ
         assert!(hits.iter().all(|h| h.exec_id == exec_id));
-
-        // Round（global_round）フィルタ
-        let raw = RawSearchForm {
-            round_gr: "1".into(),
-            ..Default::default()
-        };
-        let q = parse_query(&raw).unwrap();
-        let hits = run_search(&store, &q).unwrap();
-        assert!(!hits.is_empty());
-
-        let raw = RawSearchForm {
-            round_gr: "9".into(),
-            ..Default::default()
-        };
-        let q = parse_query(&raw).unwrap();
-        assert!(run_search(&store, &q).unwrap().is_empty());
-
-        // round フィルタ（実行値 2）
-        let raw = RawSearchForm {
-            round: "2".into(),
-            ..Default::default()
-        };
-        let q = parse_query(&raw).unwrap();
-        let hits = run_search(&store, &q).unwrap();
-        assert!(!hits.is_empty());
-
-        // round: 実行値 NULL → ブロック定義 round で補完
-        let (nr_block_id, _) = setup_test_db(
-            &db_path,
-            "no-round-block",
-            Some(3),
-            None,
-            Some(1),
-            "2026-08-29 01:06:41",
-            None,
-        );
-        let raw = RawSearchForm {
-            round: "3".into(),
-            ..Default::default()
-        };
-        let q = parse_query(&raw).unwrap();
-        // session_dir 無しでもフィルタ自体は通る（ヒット 0・スキップ 1）
-        let (hits, skipped) = run_search_verbose(&store, &q).unwrap();
-        assert!(hits.is_empty() && skipped == 1);
-        // round 2 指定では no-round-block（定義 round = 3）は弾かれる
-        let raw = RawSearchForm {
-            round: "2".into(),
-            ..Default::default()
-        };
-        let q = parse_query(&raw).unwrap();
-        let (hits, _) = run_search_verbose(&store, &q).unwrap();
-        assert!(hits.iter().all(|h| h.exec_id == exec_id));
-        let _ = nr_block_id;
 
         // ID（block_id）フィルタ
         let raw = RawSearchForm {
@@ -1442,9 +1325,6 @@ mod tests {
         let (_block_id, exec_id) = setup_test_db(
             &db_path,
             "test-cc-block",
-            None,
-            Some(1),
-            Some(1),
             "2026-08-29 01:06:41",
             None, // cc の実行には session_dir が無い
         );
@@ -1501,9 +1381,6 @@ mod tests {
         setup_test_db(
             &db_path,
             "main-test",
-            None,
-            Some(1),
-            Some(1),
             "2026-08-29 01:06:41",
             Some(&sess_dir),
         );
@@ -1540,9 +1417,6 @@ mod tests {
         setup_test_db(
             &db_a,
             "block-a",
-            None,
-            Some(1),
-            Some(1),
             "2026-08-29 01:06:41",
             Some(&sess_a),
         );
@@ -1558,9 +1432,6 @@ mod tests {
         setup_test_db(
             &db_b,
             "block-b",
-            None,
-            Some(1),
-            Some(1),
             "2026-08-01 10:00:00",
             Some(&sess_b),
         );

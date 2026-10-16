@@ -15,28 +15,19 @@ use agent_link_engine::db::models::ExecutionHistory;
 use agent_link_engine::db::SaiStore;
 
 /// フォルダ表示用のアイコン（Nerd Font のフォルダ）。
-/// 全フォルダ（todo/running/review/done/R/r）名の先頭に付与する。
+/// 全フォルダ（todo/running/review/日付）名の先頭に付与する。
 /// リーフ（`ID<run_id>/<block名>`）・カードには付けない。
 pub const FOLDER_ICON: &str = "󰉋 ";
 
-/// `todo` フォルダの固定 ID（実行・GR/LR と衝突しない負値）。
+/// `todo` フォルダの固定 ID（実行と衝突しない負値）。
 pub const TODO_FOLDER_ID: i64 = -1_000;
 /// `running` フォルダの固定 ID。
 pub const RUNNING_FOLDER_ID: i64 = -1_001;
 /// `review` フォルダの固定 ID。
 pub const REVIEW_FOLDER_ID: i64 = -1_002;
-/// `done` フォルダの固定 ID。
-pub const DONE_FOLDER_ID: i64 = -1_003;
-/// GR フォルダの一意 ID（LR フォルダと衝突しない負値）。
-pub fn gr_folder_id(gr: Option<i64>) -> i64 {
-    -1_000_000i64 - gr.unwrap_or(0)
-}
-
-/// LR フォルダの一意 ID（GR フォルダと衝突しない負値）。
-pub fn lr_folder_id(gr: Option<i64>, lr: Option<i64>) -> i64 {
-    -2_000_000i64
-        .saturating_sub(gr.unwrap_or(0).saturating_mul(10_000))
-        .saturating_sub(lr.unwrap_or(0))
+/// 日付フォルダ（`yymmdd`）の一意 ID（他のフォルダ・カードと衝突しない負値）。
+pub fn date_folder_id(date: &str) -> i64 {
+    -1_000_000i64 - date.parse::<i64>().unwrap_or(0)
 }
 
 /// カードリーフの ID（連番ベース・他 ID と衝突しない負値）。
@@ -47,7 +38,7 @@ pub fn todo_card_id(index: usize) -> i64 {
 /// ツリーアイテムの種別（`TreeItemKind` と対応）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LeftTreeKind {
-    /// フォルダ（todo / running / review / done / R / r）
+    /// フォルダ（todo / running / review / 日付）
     Folder,
     /// 実行リーフ（`ID<run_id>/<block名>`）
     Leaf,
@@ -79,25 +70,29 @@ pub struct LeftTreeItem {
     pub card_path: Option<PathBuf>,
     /// 実行 ID（カード・実行リーフ。無ければ `None`）
     pub run_id: Option<i64>,
-    /// 所属レーン（`phone tree` JSON 用: todo / running / review / done）
+    /// 所属レーン（`phone tree` JSON 用: todo / running / review / workflow）
     pub lane: Option<String>,
+    /// 親 run の ID（`phone tree` の入れ子用。親が無い・リーフでなければ `None`）
+    pub parent_run_id: Option<i64>,
     /// DB status（`phone tree` JSON 用。無ければ `None`）
     pub status: Option<String>,
 }
 
 /// 左サイドバーのツリーを取得済みの実行履歴から構築する（平らな一覧）。
 ///
-/// 構成（TUI と同一）:
-/// - 最上位: `todo` / `running` / `review` / `done` フォルダ（同列）
-/// - その下: ラウンド別 `R<global_round>` › `r<round>` › `ID<run_id>/<ブロック名>`
+/// 構成:
+/// - 最上位（depth 0）: `todo` / `running` / `review` フォルダ、続けて日付フォルダ（`yymmdd`・古い順）
+/// - 各フォルダの下（depth 1）: `ID<run_id>/<ブロック名>`（親子は `parent_run_id` で表す）
 ///
-/// sidebar の重複禁止: 未移動（Kanban 所有）の実行は running/review/done
-/// フォルダのみに載せ、R/r ツリーには載せない。`d` 移動済みのみ R/r に載せる。
-/// mb 複製（U13・R25）は R/r ツリーから除外する。
+/// 日付フォルダは Workflow へ移した run（`workflow_moved`）の置き場で、日付は
+/// 一番上の親 run の日付（`run_dir::root_run_date`）。中の並びは `run_id` の昇順。
+/// sidebar の重複禁止: 未移動（Kanban 所有）の実行は running/review フォルダのみに載せ、
+/// Workflow へ移した実行は日付フォルダのみに載せる。
+/// mb 複製（U13・R25）は日付フォルダから除外する。
 ///
 /// - `store` — 対象プロジェクトの `SaiStore`
-/// - `executions` — 直近 100 件の実行履歴（`prepare_view` 済みを想定）
-/// - `lane_entries` — Kanban ボード用カード一覧（running / review / done の中身）
+/// - `executions` — 直近 100 件と Workflow へ移した実行（`prepare_view` 済みを想定）
+/// - `lane_entries` — Kanban ボード用カード一覧（running / review の中身）
 /// - `mb_replica_execs` — 除外する mb 複製の実行 ID
 /// - `prev_expanded` — 前回のフォルダ展開状態（`フォルダID → expanded`）
 pub fn build_left_tree(
@@ -107,62 +102,36 @@ pub fn build_left_tree(
     mb_replica_execs: &HashSet<i64>,
     prev_expanded: &HashMap<i64, bool>,
 ) -> Vec<LeftTreeItem> {
-    if executions.is_empty() {
-        return Vec::new();
-    }
-
-    // 実行 ID → (status, review_done)（phone 用 lane / status 解決）
-    let status_of: HashMap<i64, (String, bool)> = executions
+    // 実行 ID → (status, parent_run_id)（phone 用 lane / status / 入れ子の解決）
+    let status_of: HashMap<i64, (String, Option<i64>)> = executions
         .iter()
-        .filter_map(|e| e.id.map(|id| (id, (e.status.clone(), e.review_done))))
+        .filter_map(|e| e.id.map(|id| (id, (e.status.clone(), e.parent_run_id))))
         .collect();
 
-    // ブロック定義のラウンド（実行時に上書きされていない場合のフォールバック）
-    let mut block_round_cache: HashMap<i64, Option<i64>> = HashMap::new();
-
-    // (GR, 解決済みLR, &exec) の一覧を構築する
-    // ソート順: GR 昇順（None は最後）→ LR 昇順（None は最後）→ created_at 昇順
-    let mut entries: Vec<_> = Vec::with_capacity(executions.len());
+    // (日付, &exec) の一覧を構築する（Workflow へ移した実行だけ）。
+    // ソート順: 日付昇順 → run_id 昇順
+    let mut entries: Vec<(String, &ExecutionHistory)> = Vec::with_capacity(executions.len());
     for e in executions.iter() {
         // U13・R25: メインブロック複製（mb1.x）は左SB の実行一覧に表示しない
         if mb_replica_execs.contains(&e.id.unwrap_or(0)) {
             continue;
         }
-        // 未移動はレーン側のみ（R/r との重複を避ける）
+        // 未移動はレーン側のみ（日付フォルダとの重複を避ける）
         if !e.workflow_moved {
             continue;
         }
-        let lr = if let Some(r) = e.round {
-            Some(r)
-        } else if let Some(r) = block_round_cache.get(&e.block_id) {
-            *r
-        } else {
-            let r = store.get_block_by_id(e.block_id).ok().and_then(|b| b.round);
-            block_round_cache.insert(e.block_id, r);
-            r
-        };
-        entries.push((e.global_round, lr, e));
+        entries.push((agent_link_engine::run_dir::root_run_date(store, e), e));
     }
     entries.sort_by(|a, b| {
-        let key = |e: &(Option<i64>, Option<i64>, &ExecutionHistory)| {
-            (
-                e.0.is_none(),
-                e.0.unwrap_or(i64::MAX),
-                e.1.is_none(),
-                e.1.unwrap_or(i64::MAX),
-            )
-        };
-        key(a)
-            .cmp(&key(b))
-            .then_with(|| a.2.created_at.cmp(&b.2.created_at))
-            .then_with(|| a.2.id.unwrap_or(0).cmp(&b.2.id.unwrap_or(0)))
+        a.0.cmp(&b.0)
+            .then_with(|| a.1.id.unwrap_or(0).cmp(&b.1.id.unwrap_or(0)))
     });
 
     let mut block_name_cache: HashMap<i64, String> = HashMap::new();
 
     let mut items: Vec<LeftTreeItem> = Vec::with_capacity(executions.len() + 32);
 
-    // sidebar 最上位: `todo` / `running` / `review` / `done` フォルダ（同列）。
+    // sidebar 最上位: `todo` / `running` / `review` フォルダ（同列）。
     {
         // todo 載せ条件は `todo_card_paths` に共通化（`phone card run` も同じものを使う）。
         let todo_cards: Vec<PathBuf> = todo_card_paths(executions);
@@ -178,6 +147,7 @@ pub fn build_left_tree(
             card_path: None,
             run_id: None,
             lane: Some("todo".to_string()),
+            parent_run_id: None,
             status: None,
         });
         for (ci, card_path) in todo_cards.iter().enumerate() {
@@ -198,6 +168,7 @@ pub fn build_left_tree(
                 ),
             };
             let status = run_id.and_then(|rid| status_of.get(&rid).map(|(s, _)| s.clone()));
+            let parent_run_id = run_id.and_then(|rid| status_of.get(&rid).and_then(|(_, p)| *p));
             items.push(LeftTreeItem {
                 id: todo_card_id(ci),
                 name: label,
@@ -209,11 +180,12 @@ pub fn build_left_tree(
                 card_path: Some(card_path.clone()),
                 run_id,
                 lane: Some("todo".to_string()),
+                parent_run_id,
                 status,
             });
         }
     }
-    // `running` / `review` / `done` フォルダ：Kanban ボードと同一分類。
+    // `running` / `review` フォルダ：Kanban ボードと同一分類。
     // 覚え置き済みの `lane_entries` を使い回す（再計算なし）。
     {
         for (folder_id, folder_name, lane) in [
@@ -227,18 +199,12 @@ pub fn build_left_tree(
                 format!("{}review", FOLDER_ICON),
                 agent_link_engine::kanban::KanbanLane::Review,
             ),
-            (
-                DONE_FOLDER_ID,
-                format!("{}done", FOLDER_ICON),
-                agent_link_engine::kanban::KanbanLane::Done,
-            ),
         ] {
             let open = prev_expanded.get(&folder_id).copied().unwrap_or(false);
             let lane_str = match lane {
                 agent_link_engine::kanban::KanbanLane::Todo => "todo",
                 agent_link_engine::kanban::KanbanLane::Running => "running",
                 agent_link_engine::kanban::KanbanLane::Review => "review",
-                agent_link_engine::kanban::KanbanLane::Done => "done",
             };
             items.push(LeftTreeItem {
                 id: folder_id,
@@ -251,9 +217,10 @@ pub fn build_left_tree(
                 card_path: None,
                 run_id: None,
                 lane: Some(lane_str.to_string()),
+                parent_run_id: None,
                 status: None,
             });
-            // 当該レーンの実行（`exec_id` あり）のみ。mb 複製は除外（R/r ツリーと一致）。
+            // 当該レーンの実行（`exec_id` あり）のみ。mb 複製は除外（日付フォルダと一致）。
             let lane_items: Vec<_> = lane_entries
                 .iter()
                 .filter(|e| {
@@ -265,6 +232,7 @@ pub fn build_left_tree(
             for (li, e) in lane_items.iter().enumerate() {
                 let exec_id = e.exec_id.unwrap_or(0);
                 let status = status_of.get(&exec_id).map(|(s, _)| s.clone());
+                let parent_run_id = status_of.get(&exec_id).and_then(|(_, p)| *p);
                 items.push(LeftTreeItem {
                     id: exec_id,
                     name: e.title.clone(),
@@ -276,115 +244,68 @@ pub fn build_left_tree(
                     card_path: e.card_path.clone(),
                     run_id: Some(exec_id),
                     lane: Some(lane_str.to_string()),
+                    parent_run_id,
                     status,
                 });
             }
         }
     }
 
-    // ── ラウンド別ツリー（R / r）────────────────────────────────
+    // ── 日付フォルダ（Workflow へ移した実行）────────────────────
     let mut i = 0usize;
     while i < entries.len() {
-        let gr = entries[i].0;
-        // この GR に属する範囲
+        let date = entries[i].0.clone();
         let mut j = i;
-        while j < entries.len() && entries[j].0 == gr {
+        while j < entries.len() && entries[j].0 == date {
             j += 1;
         }
-        let gr_is_last = j == entries.len();
-
-        // GR フォルダ（R<gr>）
-        let gr_id = gr_folder_id(gr);
+        let folder_id = date_folder_id(&date);
         items.push(LeftTreeItem {
-            id: gr_id,
-            name: format!(
-                "{}R{}",
-                FOLDER_ICON,
-                gr.map(|v: i64| v.to_string())
-                    .unwrap_or_else(|| "?".to_string())
-            ),
+            id: folder_id,
+            name: format!("{}{}", FOLDER_ICON, date),
             depth: 0,
-            expanded_default: prev_expanded.get(&gr_id).copied().unwrap_or(false),
-            is_last_child: gr_is_last,
+            expanded_default: prev_expanded.get(&folder_id).copied().unwrap_or(false),
+            is_last_child: j == entries.len(),
             kind: LeftTreeKind::Folder,
             ancestor_last: Vec::new(),
             card_path: None,
             run_id: None,
-            lane: None,
+            lane: Some("workflow".to_string()),
+            parent_run_id: None,
             status: None,
         });
 
-        // この GR 内の LR グループ（r<lr>）
-        let mut k = i;
-        while k < j {
-            let lr = entries[k].1;
-            let mut m = k;
-            while m < j && entries[m].1 == lr {
-                m += 1;
-            }
-            let lr_is_last = m == j;
-
-            let lr_id = lr_folder_id(gr, lr);
+        // リーフ（実行）: ID<run_id>/<block_name>
+        for (li, (_, exec)) in entries[i..j].iter().enumerate() {
+            let block_id = exec.block_id;
+            let block_name = if let Some(n) = block_name_cache.get(&block_id) {
+                n.clone()
+            } else {
+                let b = store.get_block_by_id(block_id).ok();
+                let n = b
+                    .as_ref()
+                    .map(|b| b.display_name.clone())
+                    .unwrap_or_else(|| format!("(block_id={})", block_id));
+                block_name_cache.insert(block_id, n.clone());
+                n
+            };
+            let exec_id = exec.id.unwrap_or(0);
+            // 日付フォルダ配下の実行リーフも `c` でカードを開けるようパスを解決
+            let card_path = card_path_for_execution(exec.kanban_card_path.as_deref(), exec_id);
             items.push(LeftTreeItem {
-                id: lr_id,
-                name: format!(
-                    "{}r{}",
-                    FOLDER_ICON,
-                    lr.map(|v: i64| v.to_string())
-                        .unwrap_or_else(|| "?".to_string())
-                ),
+                id: exec_id,
+                name: format!("ID{}/{}", exec_id, block_name),
                 depth: 1,
-                expanded_default: prev_expanded.get(&lr_id).copied().unwrap_or(false),
-                is_last_child: lr_is_last,
-                kind: LeftTreeKind::Folder,
+                expanded_default: false,
+                is_last_child: li == j - i - 1,
+                kind: LeftTreeKind::Leaf,
                 ancestor_last: Vec::new(),
-                card_path: None,
-                run_id: None,
-                lane: None,
-                status: None,
+                card_path,
+                run_id: Some(exec_id),
+                lane: Some("workflow".to_string()),
+                parent_run_id: exec.parent_run_id,
+                status: Some(exec.status.clone()),
             });
-
-            // リーフ（実行）: ID<run_id>/<block_name>
-            for (li, (_, _, exec)) in entries[k..m].iter().enumerate() {
-                let block_id = exec.block_id;
-                let block_name = if let Some(n) = block_name_cache.get(&block_id) {
-                    n.clone()
-                } else {
-                    let b = store.get_block_by_id(block_id).ok();
-                    let n = b
-                        .as_ref()
-                        .map(|b| b.display_name.clone())
-                        .unwrap_or_else(|| format!("(block_id={})", block_id));
-                    block_name_cache.insert(block_id, n.clone());
-                    n
-                };
-                let exec_id = exec.id.unwrap_or(0);
-                // R/r 配下の実行リーフも `c` でカードを開けるようパスを解決
-                let card_path = card_path_for_execution(exec.kanban_card_path.as_deref(), exec_id);
-                // phone 用: run の lane はフォルダ所有（workflow_moved）前の所属で表現
-                let lane = Some(agent_link_engine::run_dir::owner_for(
-                    &exec.status,
-                    exec.review_done,
-                    false,
-                    exec.global_round,
-                ));
-                let status = Some(exec.status.clone());
-
-                items.push(LeftTreeItem {
-                    id: exec_id,
-                    name: format!("ID{}/{}", exec_id, block_name),
-                    depth: 2,
-                    expanded_default: false,
-                    is_last_child: li == m - k - 1,
-                    kind: LeftTreeKind::Leaf,
-                    ancestor_last: vec![lr_is_last],
-                    card_path,
-                    run_id: Some(exec_id),
-                    lane,
-                    status,
-                });
-            }
-            k = m;
         }
         i = j;
     }

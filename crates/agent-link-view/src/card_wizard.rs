@@ -139,10 +139,6 @@ pub struct CardSpec {
     pub model: String,
     /// thinking（空 = スキップ）
     pub thinking: String,
-    /// グローバルラウンド（空 = 空欄）
-    pub global_round: String,
-    /// ローカルラウンド（空 = 空欄）
-    pub round: String,
     /// `# task_text` 見出しの直下に挿入する本文（TUI は常に空・nvim で書くため）
     pub task_text: String,
 }
@@ -196,13 +192,6 @@ pub fn create_card(spec: &CardSpec) -> Result<PathBuf, String> {
     }
     if !spec.thinking.trim().is_empty() {
         fm.thinking = spec.thinking.trim().to_string();
-    }
-    // rounds 入力（空時は既存値を維持。空のままなら card run が 1 を使う）
-    if !spec.global_round.trim().is_empty() {
-        fm.global_round = spec.global_round.trim().to_string();
-    }
-    if !spec.round.trim().is_empty() {
-        fm.round = spec.round.trim().to_string();
     }
     write_card_file(&agent_link_engine::kanban::KanbanCard {
         frontmatter: fm,

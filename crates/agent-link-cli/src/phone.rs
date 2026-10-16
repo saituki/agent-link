@@ -10,7 +10,7 @@
 //! card_wizard, phone_view}`）ため、TUI の表示結果と二重実装しない。
 
 use std::collections::BTreeMap;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io::Read;
 use std::path::PathBuf;
 
@@ -134,8 +134,8 @@ fn val(r: PhoneResult<Value>) -> PhoneResult<PhoneOut> {
 
 /// `phone card create` の stdin 入力（項目名は計画 12 §3.2 のとおり）。
 ///
-/// 空文字 = スキップ（TUI と同じく自動値を使う）。廃止した項目（`runner`・`provider`・`tag`）が
-/// 入っていてもエラーにせず無視する（serde は未知の項目を読み飛ばす）。
+/// 空文字 = スキップ（TUI と同じく自動値を使う）。廃止した項目（`runner`・`provider`・`tag`・
+/// round 系の 2 項目）が入っていてもエラーにせず無視する（serde は未知の項目を読み飛ばす）。
 #[derive(Debug, Default, Deserialize)]
 struct CardCreateInput {
     /// block_id（空 = スキップ）
@@ -147,12 +147,6 @@ struct CardCreateInput {
     /// thinking（空 = スキップ）
     #[serde(default)]
     thinking: String,
-    /// グローバルラウンド（空 = card run が 1 を使う）
-    #[serde(default)]
-    global_round: String,
-    /// ローカルラウンド（空 = card run が 1 を使う）
-    #[serde(default)]
-    round: String,
     /// タスク本文の直下に挿入する本文
     #[serde(default)]
     task_text: String,
@@ -272,8 +266,8 @@ fn open_store() -> PhoneResult<SaiStore> {
 ///   フェーズ合成ノードは `メイン実行ID * 10_000 + k`（`phase` に 1, 2, …）。
 ///   `run_id` は「押したときに開く run」で、合成ノードは親（メイン）の実行 ID
 /// - `edges`: 接続線。`kind` は接続の種別、`side` は左右辺接地か（上下辺接地か）
-/// - `separators`: round の区切り線。`global_round` が GR 無しのときは `null`
-/// - `lanes`: Kanban の 4 レーンの札
+/// - `separators`: 日付の区切り線（`y`・`label`。`label` は `yymmdd`）
+/// - `lanes`: Kanban の 3 レーンの札
 ///
 /// DB が開けないときは終了コード 4。実行が 0 件でも空の配列で成功する。
 fn workflow() -> PhoneResult<Value> {
@@ -317,8 +311,6 @@ fn workflow() -> PhoneResult<Value> {
             "cost": src.cost_labels.get(&b.exec_id),
             "orphaned": src.orphaned_runs.contains(&b.exec_id),
             "review": b.reflection_status.map(|s| reflection_name(s).to_string()),
-            "global_round": b.global_round,
-            "round": b.round,
             "parent_run_id": b.parent_exec_id,
             "batch_id": b.batch_id,
             "x": pos.x,
@@ -342,17 +334,11 @@ fn workflow() -> PhoneResult<Value> {
         })
         .collect();
 
-    // round の区切り線。i64::MAX は「その行に GR が無い」意味なので null にする。
+    // 日付の区切り線
     let separators: Vec<Value> = layout
         .separators
         .iter()
-        .map(|s| {
-            json!({
-                "y": s.y,
-                "label": s.label,
-                "global_round": (s.global_round != i64::MAX).then_some(s.global_round),
-            })
-        })
+        .map(|s| json!({ "y": s.y, "label": s.label }))
         .collect();
 
     Ok(json!({
@@ -388,7 +374,7 @@ fn edge_kind_name(k: agent_link_view::workflow::EdgeKind) -> &'static str {
     }
 }
 
-/// Kanban の 4 レーンの札を JSON にする。
+/// Kanban の 3 レーンの札を JSON にする。
 ///
 /// `phone tree` と同じく、旧形式 todo カード（`.agent-link/todo/*.md`・run_id を
 /// 親フォルダ名から取れないもの）は出さない（番号の付けようが無い札のため）。
@@ -396,7 +382,6 @@ fn lanes_json(entries: &[card_entries::CardEntry]) -> Value {
     let mut todo: Vec<Value> = Vec::new();
     let mut running: Vec<Value> = Vec::new();
     let mut review: Vec<Value> = Vec::new();
-    let mut done: Vec<Value> = Vec::new();
     for e in entries {
         let run_id = match e.exec_id {
             Some(id) => id,
@@ -427,14 +412,12 @@ fn lanes_json(entries: &[card_entries::CardEntry]) -> Value {
             L::Todo => todo.push(card),
             L::Running => running.push(card),
             L::Review => review.push(card),
-            L::Done => done.push(card),
         }
     }
     json!({
         "todo": todo,
         "running": running,
         "review": review,
-        "done": done,
     })
 }
 
@@ -442,10 +425,13 @@ fn lanes_json(entries: &[card_entries::CardEntry]) -> Value {
 // tree — 左サイドバーと同形のツリー
 // ============================================================================
 
-/// `phone tree`: TUI 左サイドバーと同じツリーを JSON で返す。
+/// `run tree`: 左サイドバーのツリーを JSON で返す。
 ///
-/// - 状態フォルダ `todo` / `running` / `review` / `done` とラウンド別 `R…` › `r…` を
-///   入れ子で返す（同じ run が両方に出るのは TUI と同じ）
+/// - depth 0 のフォルダは `todo` / `running` / `review`（空でも出す）と、Workflow へ移した
+///   run の日付フォルダ（`yymmdd`・古い順）。
+/// - run は `children` に子 run を持てる（同じ depth 0 のフォルダの中に親がいるときだけ。
+///   孫も同じ）。親が別のフォルダにいる run は、そのフォルダの直下に出る。
+/// - 同じ run は 1 か所にしか出ない。
 /// - 旧形式 todo カード（`.agent-link/todo/*.md`・run_id 無し）は run_id が無いため出さない
 fn tree() -> PhoneResult<Value> {
     let store = open_store()?;
@@ -685,34 +671,52 @@ fn scheduled_at_of(text: &str) -> Option<String> {
     agent_link_engine::kanban::parse_scheduled_at(&at).map(|_| at)
 }
 
-/// 平らなツリー項目を入れ子 JSON（`children`）に組み替える。
-fn nest_tree(items: Vec<left_tree::LeftTreeItem>) -> Vec<Value> {
+/// フォルダ 1 つ分の run（JSON と親の run_id）を、親子の入れ子にして返す。
+///
+/// 親がこのフォルダの中にいる run は親の `children` に入る（何段でも）。親が見つからない
+/// run はフォルダ直下に残る。直下の並びは入力のまま、`children` は `run_id` の昇順。
+fn nest_runs(runs: Vec<(Value, Option<i64>)>) -> Vec<Value> {
+    let id_of = |v: &Value| v["run_id"].as_i64().unwrap_or(0);
+    let ids: HashSet<i64> = runs.iter().map(|(v, _)| id_of(v)).collect();
+    let mut kids: HashMap<i64, Vec<Value>> = HashMap::new();
     let mut roots: Vec<Value> = Vec::new();
-    // (depth, folder value) のスタック。フォルダ閉じ子は top 側に attach する。
-    let mut stack: Vec<(usize, Value)> = Vec::new();
-    // 直近の depth-0 フォルダ ID（`r…` フォルダの `R…/r…` 形式 ID 用）
-    let mut root_id: Option<String> = None;
-
-    fn attach(stack: &mut Vec<(usize, Value)>, roots: &mut Vec<Value>, val: Value) {
-        if let Some((_, top)) = stack.last_mut() {
-            if let Some(arr) = top.get_mut("children").and_then(|c| c.as_array_mut()) {
-                arr.push(val);
-                return;
-            }
+    for (val, parent) in runs {
+        match parent {
+            Some(p) if ids.contains(&p) && p != id_of(&val) => kids.entry(p).or_default().push(val),
+            _ => roots.push(val),
         }
-        roots.push(val);
     }
+    fn attach(mut val: Value, kids: &mut HashMap<i64, Vec<Value>>, depth: usize) -> Value {
+        let id = val["run_id"].as_i64().unwrap_or(0);
+        // 親子の輪（DB が壊れている場合）で止まらないよう、段数に上限を付ける
+        if let (Some(mut list), true) = (kids.remove(&id), depth < 64) {
+            list.sort_by_key(|v| v["run_id"].as_i64().unwrap_or(0));
+            val["children"] = Value::Array(
+                list.into_iter()
+                    .map(|c| attach(c, kids, depth + 1))
+                    .collect(),
+            );
+        }
+        val
+    }
+    let mut out: Vec<Value> = roots
+        .into_iter()
+        .map(|r| attach(r, &mut kids, 0))
+        .collect();
+    // 親子の輪で root に届かなかった run は、直下に並べて落とさない
+    let mut rest: Vec<(i64, Vec<Value>)> = kids.drain().collect();
+    rest.sort_by_key(|(id, _)| *id);
+    for (_, list) in rest {
+        out.extend(list);
+    }
+    out
+}
 
+/// 平らなツリー項目を、フォルダ › run › 子 run の入れ子 JSON（`children`）に組み替える。
+fn nest_tree(items: Vec<left_tree::LeftTreeItem>) -> Vec<Value> {
+    // (フォルダ JSON, そのフォルダの run 群) を順に積む
+    let mut folders: Vec<(Value, Vec<(Value, Option<i64>)>)> = Vec::new();
     for it in items {
-        // 旧形式 todo カード（run_id 無し）は phone では出さない
-        if it.kind == left_tree::LeftTreeKind::Card && it.run_id.is_none() {
-            continue;
-        }
-        // 深さが等しい以上のフォルダを閉じる
-        while stack.last().map(|(d, _)| *d >= it.depth).unwrap_or(false) {
-            let (_, closed) = stack.pop().unwrap();
-            attach(&mut stack, &mut roots, closed);
-        }
         match it.kind {
             left_tree::LeftTreeKind::Folder => {
                 let label = it
@@ -720,28 +724,21 @@ fn nest_tree(items: Vec<left_tree::LeftTreeItem>) -> Vec<Value> {
                     .strip_prefix(left_tree::FOLDER_ICON)
                     .unwrap_or(&it.name)
                     .to_string();
-                let id = if it.depth == 0 {
-                    root_id = Some(label.clone());
-                    label.clone()
-                } else {
-                    format!("{}/{}", root_id.clone().unwrap_or_default(), label)
-                };
-                let mut val = json!({
-                    "type": "folder",
-                    "id": id,
-                    "label": label,
-                    "depth": it.depth,
-                    "children": Vec::<Value>::new(),
-                });
-                // 自身をスタックへ積む（子はここへ attach される）
-                val["children"] = json!([]);
-                stack.push((it.depth, val));
+                folders.push((
+                    json!({
+                        "type": "folder",
+                        "id": label,
+                        "label": label,
+                        "depth": it.depth,
+                        "children": Vec::<Value>::new(),
+                    }),
+                    Vec::new(),
+                ));
             }
             left_tree::LeftTreeKind::Leaf | left_tree::LeftTreeKind::Card => {
-                let run_id = match it.run_id {
-                    Some(id) => id,
-                    None => continue,
-                };
+                // 旧形式 todo カード（run_id 無し）は phone では出さない
+                let Some(run_id) = it.run_id else { continue };
+                let Some((_, runs)) = folders.last_mut() else { continue };
                 let mut val = json!({
                     "type": "run",
                     "run_id": run_id,
@@ -761,15 +758,17 @@ fn nest_tree(items: Vec<left_tree::LeftTreeItem>) -> Vec<Value> {
                         val["card"] = meta;
                     }
                 }
-                attach(&mut stack, &mut roots, val);
+                runs.push((val, it.parent_run_id));
             }
         }
     }
-    // 残ったフォルダを閉じる
-    while let Some((_, closed)) = stack.pop() {
-        attach(&mut stack, &mut roots, closed);
-    }
-    roots
+    folders
+        .into_iter()
+        .map(|(mut folder, runs)| {
+            folder["children"] = Value::Array(nest_runs(runs));
+            folder
+        })
+        .collect()
 }
 
 // ============================================================================
@@ -1111,8 +1110,6 @@ fn card_create_from(parsed: CardCreateInput) -> PhoneResult<Value> {
         block: parsed.block,
         model: parsed.model,
         thinking: parsed.thinking,
-        global_round: parsed.global_round,
-        round: parsed.round,
         task_text,
     };
     // TUI と同じ検査（thinking は一覧の値・block は存在するもの）
@@ -1172,7 +1169,7 @@ fn card_create_from(parsed: CardCreateInput) -> PhoneResult<Value> {
 /// - 標準のキー（run_id など）は受け付けない（終了コード 2）。
 /// - 値の改行は空白に置き換える。
 fn validate_card_meta(meta: &HashMap<String, String>) -> PhoneResult<Vec<(String, String)>> {
-    // 廃止した `runner`・`provider`・`tag` も、`meta` で同名を書かせないため残す。
+    // 廃止した `runner`・`provider`・`tag` と round 系の 2 項目も、`meta` で同名を書かせないため残す。
     const STANDARD_KEYS: [&str; 15] = [
         "runner",
         "creation_date",
@@ -1251,7 +1248,7 @@ const DAEMON_STOPPED: &str = "常駐が止まっています。先に起動し�
 const EXEC_NOT_FOUND: &str = "実行が見つかりません";
 
 /// `phone advance` で review / done 以外の置き場所だったときの stderr 文言（終了コード 1）。
-const ADVANCE_UNSUPPORTED: &str = "review / done の run だけ移動できます";
+const ADVANCE_UNSUPPORTED: &str = "review の run だけ移動できます";
 
 /// `phone card run <run_id>`: todo の未実行カードに実行要求を送る（非対話）。
 ///
@@ -1280,7 +1277,7 @@ fn card_run(run_id: i64) -> PhoneResult<Value> {
 
     // 3. 実行要求（対話なし。`block run --kanban --card … --yes` と同じ流れ）
     crate::kanban_run::run_card_request(
-        &target, None, &[], None, None, None, None, None,
+        &target, None, &[], None, None, None,
     )
     .map_err(|e| PhoneError::usage(e.to_string()))?;
 
@@ -1350,15 +1347,12 @@ fn finalize(run_id: i64) -> PhoneResult<Value> {
     Ok(json!({ "run_id": run_id, "message": "終了を要求しました" }))
 }
 
-/// `phone advance <run_id>`: 実行を次の状態へ進める
-/// （sai-phone の「→ done」「→ Workflow」用・実装計画 A U10）。
+/// `phone advance <run_id>`: review の実行を Workflow へ進める（review → 日付フォルダ）。
 ///
-/// - 今の置き場所は `run_dir::find_run_dir` で決める
-///   - `review` → `done`（`advance_review_to_done`）
-///   - `done` → `R<global_round>`（`advance_done_to_workflow`）
-/// - TUI の `e` と同じ [`run_dir`] の関数を通す（二重実装しない）
-/// - 成功: stdout に `{"run_id": N, "from": "...", "to": "..."}` / 終了コード 0
-/// - 実行が無い: 終了コード 3、review / done 以外: 終了コード 1
+/// - 今の置き場所は `run_dir::find_run_dir` で決める。`review` だけ受ける
+///   （`advance_review_to_workflow`・移し先は `yymmdd`）
+/// - 成功: stdout に `{"run_id": N, "from": "review", "to": "<yymmdd>"}` / 終了コード 0
+/// - 実行が無い: 終了コード 3、review 以外: 終了コード 2
 fn advance(run_id: i64) -> PhoneResult<Value> {
     use agent_link_engine::run_dir;
 
@@ -1368,17 +1362,11 @@ fn advance(run_id: i64) -> PhoneResult<Value> {
     let (from, _) =
         run_dir::find_run_dir(run_id).ok_or_else(|| PhoneError::not_found(EXEC_NOT_FOUND))?;
 
-    // 2. 置き場所に応じて 1 段階進める
-    let to = match from.as_str() {
-        run_dir::REVIEW_OWNER => {
-            run_dir::advance_review_to_done(&store, run_id).map_err(PhoneError::usage)?;
-            run_dir::DONE_OWNER.to_string()
-        }
-        run_dir::DONE_OWNER => {
-            run_dir::advance_done_to_workflow(&store, run_id).map_err(PhoneError::usage)?
-        }
-        _ => return Err(PhoneError::usage(ADVANCE_UNSUPPORTED)),
-    };
+    // 2. review だけ Workflow へ進める
+    if from != run_dir::REVIEW_OWNER {
+        return Err(PhoneError::usage(ADVANCE_UNSUPPORTED));
+    }
+    let to = run_dir::advance_review_to_workflow(&store, run_id).map_err(PhoneError::usage)?;
 
     Ok(json!({ "run_id": run_id, "from": from, "to": to }))
 }
@@ -1953,8 +1941,6 @@ mod tests {
             "model: ",
             "provider: ",
             "inputs:",
-            "round: 1",
-            "global_round: 1",
             "tag: ",
             "description: テストカード",
             "---",
@@ -1985,11 +1971,12 @@ mod tests {
         }
         assert!(out["width"].is_i64() && out["height"].is_i64());
         assert!(out["nodes"].is_array() && out["edges"].is_array());
-        // lanes は todo / running / review / done の 4 つ
+        // lanes は todo / running / review の 3 つ（done は無い）
         let lanes = out["lanes"].as_object().expect("lanes");
-        for l in ["todo", "running", "review", "done"] {
+        for l in ["todo", "running", "review"] {
             assert!(lanes.get(l).is_some(), "lanes.{l} が無い");
         }
+        assert!(lanes.get("done").is_none(), "lanes.done は廃止");
     }
 
     /// 実際に 1 件分の実行が DAG に載ったとき、`nodes` / `edges` が
@@ -2016,7 +2003,7 @@ mod tests {
         };
         for key in [
             "id", "run_id", "phase", "name", "status", "created_at",
-            "description", "cost", "orphaned", "review", "global_round", "round", "parent_run_id",
+            "description", "cost", "orphaned", "review", "parent_run_id",
             "batch_id", "x", "y", "w", "h",
         ] {
             assert!(nodes[0].get(key).is_some(), "nodes[].{key} が無い: {}", nodes[0]);
@@ -2088,8 +2075,6 @@ mod tests {
             None,
             None,
             None,
-            None,
-            None,
         )
         .unwrap_err();
         assert_eq!(
@@ -2105,8 +2090,6 @@ mod tests {
             &root.join(".agent-link/outputs/todo/781/task.md"),
             None,
             &[],
-            None,
-            None,
             None,
             None,
             None,
@@ -2174,8 +2157,8 @@ mod tests {
         assert!(err.msg.contains("human / agent"), "msg={}", err.msg);
     }
 
-    /// `card create` は廃止した `runner` / `provider` / `tag` が入力に入っていてもエラーにせず、
-    /// 作った task.md にそれらの行を書かない。`card options` にも `runners` / `providers` は無い。
+    /// `card create` は廃止した `runner` / `provider` / `tag` / round 系の 2 項目が入力に入っていても
+    /// エラーにせず、作った task.md にそれらの行を書かない。`card options` にも `runners` / `providers` は無い。
     #[test]
     fn card_create_ignores_removed_fields() {
         let _env = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
@@ -2187,13 +2170,13 @@ mod tests {
         drop(SaiStore::open(&db).unwrap());
 
         let parsed: super::CardCreateInput = serde_json::from_str(
-            r#"{"runner":"cc","provider":"x","tag":"y","task_text":"本文"}"#,
+            r#"{"runner":"cc","provider":"x","tag":"y","global_round":"3","round":"1","task_text":"本文"}"#,
         )
         .expect("消した項目が入っていても読める");
         let out = super::card_create_from(parsed).unwrap();
         let path = std::path::PathBuf::from(out["path"].as_str().unwrap());
         let text = std::fs::read_to_string(&path).unwrap();
-        for key in ["runner:", "provider:", "tag:"] {
+        for key in ["runner:", "provider:", "tag:", "round:", "global_round:"] {
             assert!(!text.contains(key), "{key} が残っている: {text}");
         }
         assert!(text.starts_with("---\ncreation_date:"), "{text}");
@@ -2208,6 +2191,35 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(super::card_create_from(bad).unwrap_err().code, EXIT_PARSE);
+        for key in ["round", "global_round"] {
+            let bad = super::CardCreateInput {
+                meta: HashMap::from([(key.to_string(), "1".to_string())]),
+                ..Default::default()
+            };
+            assert_eq!(super::card_create_from(bad).unwrap_err().code, EXIT_PARSE);
+        }
+    }
+
+    /// `nest_runs`: 孫も入れ子・`children` は run_id 昇順・親が別フォルダの run は直下・
+    /// 子が無い run に `children` は付かない。
+    #[test]
+    fn nest_runs_nests_by_parent() {
+        let run = |id: i64| json!({ "type": "run", "run_id": id });
+        let out = super::nest_runs(vec![
+            (run(30), Some(10)), // 親 10 の子（孫 40 の親）
+            (run(10), None),
+            (run(20), Some(10)),
+            (run(40), Some(30)), // 孫
+            (run(50), Some(999)), // 親が別フォルダ → 直下
+        ]);
+        let ids: Vec<i64> = out.iter().map(|v| v["run_id"].as_i64().unwrap()).collect();
+        assert_eq!(ids, vec![10, 50], "直下は入力順（子は親の下）");
+        let kids = out[0]["children"].as_array().unwrap();
+        let kid_ids: Vec<i64> = kids.iter().map(|v| v["run_id"].as_i64().unwrap()).collect();
+        assert_eq!(kid_ids, vec![20, 30], "children は run_id 昇順");
+        assert!(kids[0].get("children").is_none());
+        assert_eq!(kids[1]["children"][0]["run_id"], 40);
+        assert!(out[1].get("children").is_none());
     }
 
     /// テスト用のブロックを作る（実行レコードを差し込むため）。
@@ -2285,24 +2297,35 @@ mod tests {
         assert_eq!(err.msg, DAEMON_STOPPED);
     }
 
-    /// `phone advance`: review → done → `R<gr>` と進み、review / done 以外は弾く。
+    /// `phone advance`: review → 日付フォルダと進み、review 以外は弾く。
+    /// 親子の実行（子は親の `children` に入る）も `run tree` で確かめる。
     #[test]
     fn advance_review_to_workflow_and_unsupported() {
+        use agent_link_engine::run_dir;
         let _env = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let tmp = tempfile::tempdir().unwrap();
         let root = tmp.path();
         let _guard = RootGuard::set(root);
 
-        // 実行レコードを差し込む
+        // 実行レコードを差し込む（親・review の子・running の子）
         let db = root.join(".agent-link/engine/agent-link.db");
         std::fs::create_dir_all(db.parent().unwrap()).unwrap();
         let store = SaiStore::open(&db).unwrap();
         let block_id = insert_test_block(&store);
         let run_id = store.create_execution(block_id, None).unwrap();
         store.update_execution_status(run_id, "completed").unwrap();
-        store
-            .update_execution_rounds(run_id, Some(1), Some(5))
+        let child = store
+            .create_execution_for_subtask(block_id, None, run_id, None)
             .unwrap();
+        store.update_execution_status(child, "completed").unwrap();
+        let running_child = store
+            .create_execution_for_subtask(block_id, None, run_id, None)
+            .unwrap();
+        store
+            .update_execution_status(running_child, "running")
+            .unwrap();
+        let exec = store.get_execution_by_id(run_id).unwrap();
+        let date = run_dir::root_run_date(&store, &exec);
         drop(store);
 
         // (1) run フォルダが無い → 終了コード 3
@@ -2311,38 +2334,51 @@ mod tests {
         assert_eq!(err.msg, EXEC_NOT_FOUND);
 
         // (2) 置き場所が todo（未実行）→ 終了コード 1
-        agent_link_engine::run_dir::ensure_run_dir(agent_link_engine::run_dir::TODO_OWNER, run_id)
-            .unwrap();
+        run_dir::ensure_run_dir(run_dir::TODO_OWNER, run_id).unwrap();
         let err = advance(run_id).unwrap_err();
         assert_eq!(err.code, EXIT_USAGE);
         assert_eq!(err.msg, ADVANCE_UNSUPPORTED);
 
-        // (3) review → done
-        agent_link_engine::run_dir::move_run_dir(
-            run_id,
-            agent_link_engine::run_dir::TODO_OWNER,
-            agent_link_engine::run_dir::REVIEW_OWNER,
-        )
-        .unwrap();
+        // (3) review → 日付フォルダ（review の子も一緒・running の子は動かない）
+        run_dir::move_run_dir(run_id, run_dir::TODO_OWNER, run_dir::REVIEW_OWNER).unwrap();
+        run_dir::ensure_run_dir(run_dir::REVIEW_OWNER, child).unwrap();
+        run_dir::ensure_run_dir(run_dir::RUNNING_OWNER, running_child).unwrap();
         let v = advance(run_id).unwrap_or_else(|e| panic!("{}", e.msg));
         assert_eq!(v["run_id"], run_id);
         assert_eq!(v["from"], "review");
-        assert_eq!(v["to"], "done");
+        assert_eq!(v["to"], date.as_str());
+        assert_eq!(run_dir::find_run_dir(run_id).unwrap().0, date);
+        assert_eq!(run_dir::find_run_dir(child).unwrap().0, date);
         assert_eq!(
-            agent_link_engine::run_dir::find_run_dir(run_id).unwrap().0,
-            "done"
+            run_dir::find_run_dir(running_child).unwrap().0,
+            run_dir::RUNNING_OWNER
         );
+        assert!(root
+            .join(".agent-link/outputs")
+            .join(&date)
+            .join(run_id.to_string())
+            .is_dir());
 
-        // (4) done → Workflow（`R<global_round>`）
-        let v = advance(run_id).unwrap_or_else(|e| panic!("{}", e.msg));
-        assert_eq!(v["from"], "done");
-        assert_eq!(v["to"], "R5");
-        assert_eq!(
-            agent_link_engine::run_dir::find_run_dir(run_id).unwrap().0,
-            "R5"
-        );
+        // (4) `run tree`: 日付フォルダの下に親、その children に子。running の子は running 直下。
+        let t = tree().unwrap_or_else(|e| panic!("{}", e.msg));
+        let items = t["items"].as_array().unwrap();
+        let labels: Vec<&str> = items.iter().map(|i| i["label"].as_str().unwrap()).collect();
+        assert_eq!(labels, vec!["todo", "running", "review", date.as_str()]);
+        let folder = &items[3];
+        assert_eq!(folder["id"], date.as_str());
+        let parents = folder["children"].as_array().unwrap();
+        assert_eq!(parents.len(), 1, "{folder}");
+        assert_eq!(parents[0]["run_id"], run_id);
+        assert_eq!(parents[0]["lane"], "workflow");
+        let kids = parents[0]["children"].as_array().expect("子は children に入る");
+        assert_eq!(kids.len(), 1);
+        assert_eq!(kids[0]["run_id"], child);
+        assert!(kids[0].get("children").is_none(), "子が無い run に children は付かない");
+        let running = items[1]["children"].as_array().unwrap();
+        assert_eq!(running.len(), 1);
+        assert_eq!(running[0]["run_id"], running_child);
 
-        // (5) すでに Workflow（R5）→ 終了コード 1（2 段目以上は行わない）
+        // (5) すでに Workflow（日付フォルダ）→ 弾く（2 段目以上は行わない）
         let err = advance(run_id).unwrap_err();
         assert_eq!(err.code, EXIT_USAGE);
         assert_eq!(err.msg, ADVANCE_UNSUPPORTED);

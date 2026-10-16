@@ -437,7 +437,7 @@ pub enum RunCmd {
         json: bool,
     },
 
-    /// 実行を次の状態へ進める（review → done → Workflow）
+    /// 実行を Workflow へ進める（review → 日付フォルダ）
     Advance {
         #[arg(value_name = "RUN_ID")]
         run_id: i64,
@@ -625,10 +625,6 @@ pub enum DefCmd {
         direction: String,
         #[arg(long)]
         timeout: Option<u64>,
-        #[arg(long, value_name = "N")]
-        round: Option<i64>,
-        #[arg(long = "global-round", value_name = "N")]
-        global_round: Option<i64>,
         #[arg(long, value_name = "BUDGET", value_parser = ["none", "low", "medium", "high", "xhigh", "max"])]
         think: Option<String>,
         #[arg(long, value_name = "MODEL")]
@@ -662,12 +658,6 @@ pub enum ProjectCmd {
 pub enum SessionCmd {
     /// セッション履歴を検索する
     Search {
-        /// Round（グローバルラウンド）N または N-M
-        #[arg(short = 'R', long = "global-round", value_name = "N|N-M")]
-        global_round: Option<String>,
-        /// round（実行ラウンド）N または N-M
-        #[arg(short = 'r', long, value_name = "N|N-M")]
-        round: Option<String>,
         /// ブロック ID 範囲
         #[arg(long, value_name = "N|N-M")]
         id: Option<String>,
@@ -902,8 +892,8 @@ pub enum PhoneCmd {
     /// - `nodes`: TUI が描くのと同じ座標（文字マス単位・`x` `y` `w` `h`）で返す
     /// - `edges`: 接続線（`kind` = phase_chain / delegation / task_output /
     ///   waggle_token / git_commit / other・`side` = 左右辺接地か）
-    /// - `separators`: round の区切り線
-    /// - `lanes`: Kanban の 4 レーン（todo / running / review / done）の札
+    /// - `separators`: 日付の区切り線（`y`・`label`）
+    /// - `lanes`: Kanban の 3 レーン（todo / running / review）の札
     ///
     /// 座標の縮め方（横 1 マス = 何 px）は Web 側の取り決めであり、
     /// agent-link は文字マスのまま返す。DB が開けない場合は終了コード 4。
@@ -1062,7 +1052,7 @@ pub enum PhoneDefCmd {
 /// 処理:
 /// 1. 入力ファイルを waggle トークン化（Blob 保存込み）
 /// 2. block_metadata（user-block）を取得/作成
-/// 3. execution_history に新規レコード（completed）を作成（入力/出力トークン・round 付き）
+/// 3. execution_history に新規レコード（completed）を作成（入力/出力トークン付き）
 /// 4. 入力トークンがあれば、その出力元実行 → user-block 実行の waggle_token 接続（線図の入力辺）
 ///
 /// 同一内容（既存の user-block 出力と同じ SHA-256）の場合は、その旨を出力し、
@@ -1071,20 +1061,12 @@ pub fn handle_user_block_non_interactive(
     input_tokens: &[String],
     input_file: Option<&PathBuf>,
     description: Option<&str>,
-    round: Option<i64>,
-    global_round: Option<i64>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // input-file は must（user-block の出力 = トークン化対象）
     let input_file = input_file.ok_or_else(|| {
         "user-block には --input-file (-f) でトークン化するファイルを指定してください".to_string()
     })?;
-    handle_block_user_block(
-        input_tokens,
-        input_file,
-        description,
-        round,
-        global_round,
-    )
+    handle_block_user_block(input_tokens, input_file, description)
 }
 
 /// 同一内容（既存の user-block 出力と同じ SHA-256）の場合は、その旨を出力し、
@@ -1093,8 +1075,6 @@ pub fn handle_block_user_block(
     input_tokens: &[String],
     input_file: &Path,
     description: Option<&str>,
-    round: Option<i64>,
-    global_round: Option<i64>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // user-block ブロック名（block_metadata / トークン化ラベルに使用）
     const BLOCK_NAME: &str = "user-block";
@@ -1201,7 +1181,6 @@ pub fn handle_block_user_block(
         store.update_execution_input_tokens(exec_id, input_tokens)?;
     }
     store.update_execution_waggle_tokens(exec_id, &output_tokens)?;
-    store.update_execution_overrides(exec_id, round, global_round, None, None, None)?;
 
     // ── 5. 入力辺の接続（線図: 入力トークンの出力元実行 → user-block 実行）──
     // 入力トークンが指定された場合のみ入力辺が存在する。
@@ -1234,8 +1213,6 @@ pub fn handle_block_preview(
     user_input: Option<&str>,
     direction: &str,
     timeout_ms: Option<u64>,
-    round: Option<i64>,
-    global_round: Option<i64>,
     think: Option<String>,
     model: Option<String>,
     block_timeout: Option<u32>,
@@ -1272,8 +1249,6 @@ pub fn handle_block_preview(
         model,
         thinking: think,
         timeout: block_timeout.or_else(|| timeout_ms.map(|ms| (ms / 1000) as u32)),
-        round,
-        global_round,
         direction: Some(parse_direction(direction)),
         worktree: None,
         cwd: None,
@@ -1552,7 +1527,6 @@ struct BlockShowJson {
     run_id: i64,
     block_name: Option<String>,
     block_file: Option<String>,
-    block_round: Option<i64>,
     status: String,
     started_at: Option<String>,
     finished_at: Option<String>,
@@ -1599,7 +1573,6 @@ pub fn handle_block_show(run_id: i64, json: bool) -> Result<(), Box<dyn std::err
             run_id,
             block_name: block.as_ref().map(|b| b.name.clone()),
             block_file: block.as_ref().map(|b| b.file_path.clone()),
-            block_round: block.as_ref().and_then(|b| b.round),
             status: exec.status.clone(),
             started_at: exec.started_at.clone(),
             finished_at: exec.finished_at.clone(),
@@ -1671,13 +1644,6 @@ pub fn handle_block_show(run_id: i64, json: bool) -> Result<(), Box<dyn std::err
         "  Git (終了後):  {}",
         exec.git_commit_after.as_deref().unwrap_or("-")
     );
-
-    // ブロックの round 表示
-    if let Some(ref b) = block {
-        if let Some(round) = b.round {
-            println!("  ラウンド:      {}", round);
-        }
-    }
 
     // セッション統計の表示
     if let Some(ref stats_json) = exec.session_stats_json {

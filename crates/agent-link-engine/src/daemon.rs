@@ -566,8 +566,6 @@ impl Daemon {
             model: req.overrides.model.clone(),
             thinking: req.overrides.thinking.clone(),
             timeout: req.overrides.timeout,
-            round: req.overrides.round,
-            global_round: req.overrides.global_round,
             direction: req.overrides.direction,
             worktree: req.overrides.worktree.clone(),
             cwd: req.overrides.cwd.clone(),
@@ -1459,8 +1457,6 @@ mod tests {
                 model: Some("anthropic/claude-sonnet-4-5".to_string()),
                 thinking: Some("high".to_string()),
                 timeout: Some(900),
-                round: Some(1),
-                global_round: Some(2),
                 worktree: None,
                 cwd: None,
                 direction: Some(SplitDirection::Right),
@@ -1484,8 +1480,6 @@ mod tests {
             Some("anthropic/claude-sonnet-4-5")
         );
         assert_eq!(parsed.overrides.timeout, Some(900));
-        assert_eq!(parsed.overrides.round, Some(1));
-        assert_eq!(parsed.overrides.global_round, Some(2));
         assert_eq!(parsed.overrides.direction, Some(SplitDirection::Right));
         assert!(parsed.overrides.keep_pane);
         assert_eq!(

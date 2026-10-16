@@ -60,11 +60,8 @@ subblocks:
 
 文書を保存し終えたら、`link-cli` の手順で **実装ガイドの数だけ** kantoku のカードを todo に作る。**カードは作るだけで実行しない。** 最初の kantoku の実行はユーザーが行う。kantoku は 1 人目 → 2 人目 → … の順に、前の kantoku が次を起動する鎖になる。
 
-1. 自分の round を調べる。`agent-link run md $AGENT_LINK_PARENT_RUN_ID --kind task` の frontmatter の `global_round:` と `round:` を読む（`round` が空なら 0 とみなす）。
-2. **最後の kantoku から逆順に** カードを作る。次の kantoku の run_id を前の kantoku の task_text に書くためである。ガイドが N 個のとき、i 人目のカードは次の値にする。
+1. **最後の kantoku から逆順に** カードを作る。次の kantoku の run_id を前の kantoku の task_text に書くためである。ガイドが N 個のとき、i 人目のカードは次の値にする。
    - `block`: `kantoku`
-   - `global_round`: 自分と同じ値（空なら空）
-   - `round`: 自分の round + i
    - `model`・`thinking`: 書かない（既定値になる）
    - `task_text`: 下のひな形
 
@@ -94,10 +91,10 @@ subblocks:
    - review の起動を確かめたら（`agent-link run tree` で running に出る）、`agent-link run finalize` を実行する。
    ```
 
-3. 作った各カードの `path` を編集し、frontmatter の 2 行を埋める。
+2. 作った各カードの `path` を編集し、frontmatter の 2 行を埋める。
    - `description:` に `kantoku <i>/<N>: <ガイド i の件名>` を書く。
    - `origin_run_id:` は、1 人目は自分の run_id、i 人目（i ≥ 2）は i-1 人目の run_id にする（TUI の Workflow に鎖の線が引かれる）。
-4. ユーザーに、作ったカードの一覧（i・run_id・ガイドの件名）を示し、1 人目のカードを実行するよう伝える。
+3. ユーザーに、作ったカードの一覧（i・run_id・ガイドの件名）を示し、1 人目のカードを実行するよう伝える。
 
 ## 保存のしかた
 

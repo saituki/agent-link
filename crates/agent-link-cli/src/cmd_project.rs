@@ -20,8 +20,6 @@ pub(crate) fn run(cmd: ProjectCmd) -> Result<(), CmdError> {
 pub(crate) fn run_session(cmd: SessionCmd) -> Result<(), CmdError> {
     match cmd {
         SessionCmd::Search {
-            global_round,
-            round,
             id,
             block,
             date,
@@ -31,8 +29,6 @@ pub(crate) fn run_session(cmd: SessionCmd) -> Result<(), CmdError> {
             project,
             json,
         } => crate::search::run_search_command(crate::search::SearchArgs {
-            global_round,
-            round,
             id,
             block,
             date,

@@ -31,7 +31,7 @@ pub const TODO_DIR: &str = ".agent-link/todo";
 ///
 /// これ以外のキーは `extra`（旧 `file_token` 入力の名残）として `id: 値` で保持する。
 /// `description` は Card 表示用（Workflow / Kanban 共通・3行目以降に表示）。
-const FIXED_FM_KEYS: [&str; 10] = [
+const FIXED_FM_KEYS: [&str; 8] = [
     "creation_date",
     "execution_date",
     "run_id",
@@ -39,8 +39,6 @@ const FIXED_FM_KEYS: [&str; 10] = [
     "block",
     "thinking",
     "model",
-    "round",
-    "global_round",
     "inputs",
 ];
 
@@ -52,7 +50,7 @@ const FIXED_FM_KEYS: [&str; 10] = [
 const META_FM_KEYS: [&str; 3] = ["source_doc", "scheduled_at", "executer"];
 
 /// 廃止したキー（旧カードに残っていても読み飛ばす・書き出さない）。
-const LEGACY_FM_KEYS: [&str; 7] = [
+const LEGACY_FM_KEYS: [&str; 9] = [
     "origin_run_id",
     "origin_block",
     "after_job",
@@ -60,6 +58,8 @@ const LEGACY_FM_KEYS: [&str; 7] = [
     "runner",
     "provider",
     "tag",
+    "round",
+    "global_round",
 ];
 
 /// `executer: agent` のカードで、人が起こす道を試したときの文言。
@@ -113,10 +113,6 @@ pub struct CardFrontmatter {
     pub thinking: String,
     /// モデル（空欄時は block.md の値を使用）
     pub model: String,
-    /// ラウンド番号（block.md にデフォルトなし・task.md 必須）
-    pub round: String,
-    /// グローバルラウンド番号（block.md にデフォルトなし・task.md 必須）
-    pub global_round: String,
     /// 固定キー以外の frontmatter（旧 `file_token` 入力・後方互換用。`id → 値`）
     pub extra: HashMap<String, String>,
     /// メタ情報（`source_doc` / `scheduled_at`。入力検査の対象外）
@@ -142,8 +138,6 @@ impl CardFrontmatter {
             block: String::new(),
             thinking: String::new(),
             model: String::new(),
-            round: String::new(),
-            global_round: String::new(),
             extra: HashMap::new(),
             meta: HashMap::new(),
         }
@@ -204,10 +198,8 @@ pub enum KanbanLane {
     Todo,
     /// 対応 execution が `running` / `pending`
     Running,
-    /// 対応 execution が `completed`（finalize 後）かつ review が空
+    /// 対応 execution が終わっていて、まだ Workflow に移していない
     Review,
-    /// review に実質文字あり（`r` で書いたもの）
-    Done,
 }
 
 /// カード md テキストをパースする。
@@ -251,8 +243,6 @@ pub fn parse_card(text: &str) -> Option<KanbanCard> {
         block: get("block"),
         thinking: get("thinking"),
         model: get("model"),
-        round: get("round"),
-        global_round: get("global_round"),
         extra: {
             // メタキーと廃止したキーは extra から除外する。
             let mut extra = HashMap::new();
@@ -298,15 +288,13 @@ pub fn render_card(card: &KanbanCard) -> String {
     let mut extra_keys: Vec<&String> = card.frontmatter.extra.keys().collect();
     extra_keys.sort();
     let mut fm = format!(
-        "---\ncreation_date: {}\nexecution_date: {}\nrun_id: {}\nblock: {}\nthinking: {}\nmodel: {}\nround: {}\nglobal_round: {}\ndescription: {}",
+        "---\ncreation_date: {}\nexecution_date: {}\nrun_id: {}\nblock: {}\nthinking: {}\nmodel: {}\ndescription: {}",
         card.frontmatter.creation_date,
         card.frontmatter.execution_date,
         card.frontmatter.run_id,
         card.frontmatter.block,
         card.frontmatter.thinking,
         card.frontmatter.model,
-        card.frontmatter.round,
-        card.frontmatter.global_round,
         card.frontmatter.description,
     );
     for k in META_FM_KEYS {
@@ -535,24 +523,13 @@ pub fn owner_of(status: &str, review_exists: bool) -> CardOwner {
 /// * `card` — カード内容
 /// * `exec_status` — カードの `run_id` に対応する execution の `status`
 ///  （カード未実行時は `None`）
-/// * `review_done` — DB `execution_history.review_done`（run-tui `e` で更新）
-pub fn classify_lane(
-    card: &KanbanCard,
-    exec_status: Option<&str>,
-    review_done: bool,
-) -> KanbanLane {
+pub fn classify_lane(card: &KanbanCard, exec_status: Option<&str>) -> KanbanLane {
     if card.frontmatter.is_unexecuted() {
         return KanbanLane::Todo;
     }
     match exec_status {
         Some("running") | Some("pending") => KanbanLane::Running,
-        _ => {
-            if review_done {
-                KanbanLane::Done
-            } else {
-                KanbanLane::Review
-            }
-        }
+        _ => KanbanLane::Review,
     }
 }
 
@@ -631,28 +608,34 @@ mod tests {
     }
 
     #[test]
-    fn classify_lane_four_kinds() {
+    fn classify_lane_three_kinds() {
         let todo = parse_card(SAMPLE).unwrap();
-        assert_eq!(classify_lane(&todo, None, false), KanbanLane::Todo);
+        assert_eq!(classify_lane(&todo, None), KanbanLane::Todo);
 
         let mut running = todo.clone();
         running.frontmatter.run_id = "11".to_string();
         assert_eq!(
-            classify_lane(&running, Some("running"), false),
+            classify_lane(&running, Some("running")),
             KanbanLane::Running
         );
         assert_eq!(
-            classify_lane(&running, Some("pending"), false),
+            classify_lane(&running, Some("pending")),
             KanbanLane::Running
         );
         assert_eq!(
-            classify_lane(&running, Some("completed"), false),
+            classify_lane(&running, Some("completed")),
             KanbanLane::Review
         );
-        assert_eq!(
-            classify_lane(&running, Some("completed"), true),
-            KanbanLane::Done
-        );
+    }
+
+    /// 古い task.md の `round` / `global_round` は読み飛ばし、`extra` に入れず、書き出さない。
+    #[test]
+    fn legacy_round_keys_are_dropped() {
+        let text = "---\ncreation_date: 2026/08/01 10:00:00\nexecution_date: -\nrun_id: -\nblock: worker\nround: 1\nglobal_round: 3\n---\n\n本文\n";
+        let card = parse_card(text).expect("パースできる");
+        assert!(card.frontmatter.extra.is_empty());
+        let rendered = render_card(&card);
+        assert!(!rendered.contains("round:"), "{rendered}");
     }
 
     #[test]

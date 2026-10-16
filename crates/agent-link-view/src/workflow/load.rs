@@ -109,7 +109,7 @@ pub fn load_workflow(store: &SaiStore, prep: &ViewPrep) -> WorkflowSource {
     let reflection = judge_reflection_statuses(executions);
 
     // ブロック名などのキャッシュ（ブロック ID ごと）
-    let mut block_name_cache: HashMap<i64, (String, Option<i64>)> = HashMap::new();
+    let mut block_name_cache: HashMap<i64, String> = HashMap::new();
     let mut blocks: Vec<BlockDisplayData> = Vec::new();
     for e in executions {
         if is_kanban_owned(e) {
@@ -117,21 +117,17 @@ pub fn load_workflow(store: &SaiStore, prep: &ViewPrep) -> WorkflowSource {
         }
         let block_id = e.block_id;
         // ブロック名をキャッシュから取得（基本情報は block_metadata）
-        let (name, block_round) = match block_name_cache.get(&block_id) {
+        let name = match block_name_cache.get(&block_id) {
             Some(cached) => cached.clone(),
             None => {
-                let b = store.get_block_by_id(block_id).ok();
-                let name = b
-                    .as_ref()
-                    .map(|b| b.display_name.clone())
-                    .unwrap_or_else(|| format!("(block_id={})", block_id));
-                let round = b.as_ref().and_then(|b| b.round);
-                block_name_cache.insert(block_id, (name.clone(), round));
-                (name, round)
+                let name = store
+                    .get_block_by_id(block_id)
+                    .map(|b| b.display_name)
+                    .unwrap_or_else(|_| format!("(block_id={})", block_id));
+                block_name_cache.insert(block_id, name.clone());
+                name
             }
         };
-        // execution_history の値を優先（実行時オーバーライド値）
-        let round = e.round.or(block_round);
         // Card 表示用の description：対応カードの frontmatter から取得する。
         // 対応カードが無い実行は空（todo 辞書を使い回し・再走査なし）。
         let description = description_for_execution_cached(
@@ -144,8 +140,7 @@ pub fn load_workflow(store: &SaiStore, prep: &ViewPrep) -> WorkflowSource {
             exec_id: e.id.unwrap_or(0),
             block_id,
             name,
-            global_round: e.global_round,
-            round,
+            date: agent_link_engine::run_dir::root_run_date(store, e),
             parent_exec_id: e.parent_run_id,
             batch_id: e.batch_id.clone(),
             // 実実行はフェーズなし（合成ノードのみ設定）

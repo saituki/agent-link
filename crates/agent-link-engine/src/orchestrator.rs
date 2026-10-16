@@ -126,7 +126,6 @@ impl Default for PipelineConfig {
             worktree: None,
             enable: None,
             category: None,
-            round: None,
             templates: None,
             id: None,
         };
@@ -273,10 +272,6 @@ pub struct ExecutionOverrides {
     /// タイムアウト（**秒**）。None ならフロントマター値または 300 秒
     #[serde(default, alias = "timeout_ms")]
     pub timeout: Option<u32>,
-    /// ラウンド番号（1始まり）
-    pub round: Option<i64>,
-    /// グローバルラウンド番号（GR）
-    pub global_round: Option<i64>,
     /// ペイン分割方向
     pub direction: Option<SplitDirection>,
     /// worktree 指定（"isolation" / "none" / リテラルブランチ名）
@@ -300,10 +295,6 @@ pub struct ResolvedExecutionSettings {
     pub direction: SplitDirection,
     /// 適用する worktree ブランチ指定（None = worktree 不使用）
     pub worktree: Option<String>,
-    /// 解決後のラウンド番号（DB 保存用）
-    pub round: Option<i64>,
-    /// 解決後のグローバルラウンド番号（DB 保存用）
-    pub global_round: Option<i64>,
     /// デバッグ用にペインを維持するか
     pub keep_pane: bool,
 }
@@ -386,16 +377,12 @@ pub fn resolve_execution_settings(
         .clone()
         .or_else(|| config.worktree.clone())
         .filter(|w| w != "none" && !w.is_empty());
-    let round = overrides.round.or(config.round.map(|v| v as i64));
-    let global_round = overrides.global_round;
 
     ResolvedExecutionSettings {
         config,
         timeout_ms,
         direction,
         worktree,
-        round,
-        global_round,
         keep_pane: overrides.keep_pane,
     }
 }
@@ -1278,7 +1265,6 @@ pub fn upsert_block_metadata(
             enable: config.enable.unwrap_or(true),
             file_path: file_path_str,
             body_hash: None,
-            round: config.round.map(|v| v as i64),
             created_at,
             updated_at: String::new(),
         }
@@ -1782,8 +1768,6 @@ fn write_run_task_md(
     fm.block = resolved.config.block_id().to_string();
     fm.model = resolved.config.model.clone().unwrap_or_default();
     fm.thinking = resolved.config.thinking.clone().unwrap_or_default();
-    fm.round = resolved.round.map(|v| v.to_string()).unwrap_or_default();
-    fm.global_round = resolved.global_round.map(|v| v.to_string()).unwrap_or_default();
     let task = task_id.and_then(|t| store.get_task_by_id(t).ok());
     fm.description = task
         .as_ref()
@@ -1855,13 +1839,9 @@ pub fn execute_block_pipeline_full(
         let _ = store.update_task_execution_id(tid, run_id);
     }
 
-    // P1-2: サブタスクが親から round/global_round を引き継げるよう、
     // 実行レコード作成直後（実行前）にオーバーライド値を保存する。
-    // （旧来は完了時にしか保存しておらず、親実行中に起動するサブが None を読んでいた）
     let _ = store.update_execution_overrides(
         run_id,
-        resolved.round,
-        resolved.global_round,
         resolved.config.model.as_deref(),
         resolved.config.thinking.as_deref(),
         resolved.config.timeout.map(|v| v as i32),
@@ -2035,8 +2015,6 @@ pub fn execute_block_pipeline_full(
             // 実行時オーバーライド値を保存（右SB表示用）
             let _ = store.update_execution_overrides(
                 run_id,
-                resolved.round,
-                resolved.global_round,
                 resolved.config.model.as_deref(),
                 resolved.config.thinking.as_deref(),
                 resolved.config.timeout.map(|v| v as i32),
@@ -2488,9 +2466,6 @@ pub fn run_subtask(
         }
     }
 
-    // 親実行から round / global_round を継承（§6.2・既存実装を維持）
-    let parent_exec = store.get_execution_by_id(parent_run_id).ok();
-
     // U2: todo のカードを自分の子として起こす場合の実行設定。
     // カード（`.agent-link/outputs/todo/<run_id>/task.md`）の model / thinking があれば
     // ブロック定義より優先する（`kanban_run::run_card_request` と同じ扱い）。
@@ -2513,8 +2488,6 @@ pub fn run_subtask(
         // timeout はフロントマターの値を尊重する（§7.1.4 の修正点）
         // ただしタスクの timeout（task_create）があればブロック定義より優先する
         timeout: task_timeout,
-        round: parent_exec.as_ref().and_then(|e| e.round),
-        global_round: parent_exec.as_ref().and_then(|e| e.global_round),
         // U2・R4: タブ内で交互分割する場合は方向を明示指定（None ならデフォルト）
         direction,
         worktree,
@@ -4277,7 +4250,6 @@ mod tests {
                 worktree: None,
                 enable: None,
                 category: None,
-                round: None,
                 templates: None,
                 id: None,
             },
@@ -5000,7 +4972,6 @@ mod tests {
             worktree: worktree.map(str::to_string),
             enable: None,
             category: None,
-            round: None,
             templates: None,
             id: None,
         }
@@ -5210,7 +5181,6 @@ mod tests {
             worktree: None,
             enable: None,
             category: None,
-            round: None,
             templates: None,
             id: None,
         };
@@ -5235,7 +5205,6 @@ mod tests {
             worktree: Some("none".to_string()),
             enable: None,
             category: None,
-            round: Some(2),
             templates: None,
             id: None,
         };
@@ -5243,8 +5212,6 @@ mod tests {
             model: Some("anthropic/claude-sonnet-4-5".to_string()),
             thinking: Some("high".to_string()),
             timeout: Some(900),
-            round: Some(3),
-            global_round: Some(1),
             direction: Some(SplitDirection::Down),
             worktree: Some("isolation".to_string()),
             cwd: None,
@@ -5260,8 +5227,6 @@ mod tests {
             Some("anthropic/claude-sonnet-4-5")
         );
         assert_eq!(resolved.config.thinking.as_deref(), Some("high"));
-        assert_eq!(resolved.round, Some(3));
-        assert_eq!(resolved.global_round, Some(1));
     }
 
     #[test]
@@ -5280,7 +5245,6 @@ mod tests {
             worktree: None,
             enable: None,
             category: None,
-            round: None,
             templates: None,
             id: None,
         };
@@ -5329,42 +5293,22 @@ mod tests {
     }
 
     // ---------------------------------------------------------------------
-    // P1-2 / P3-A: サブ実行レコードへの round / global_round / batch_id 保存
+    // P3-A: サブ実行レコードへの batch_id 保存
     // ---------------------------------------------------------------------
 
-    /// P1-2 / P3-A の回帰テスト。
-    ///
-    /// メイン実行開始時に round / global_round が保存され（P1-2 の早期保存）、
-    /// サブ実行レコード作成時に batch_id が保存される（P3-A）ことを検証する。
-    /// 旧コード（修正前）では、サブ実行の round / global_round / batch_id が
-    /// すべて NULL になるため、このテストが失敗する。
+    /// P3-A の回帰テスト: サブ実行レコード作成時に batch_id と親 run が保存される。
     #[test]
-    fn test_subtask_record_inherits_round_global_round_and_batch_id() {
+    fn test_subtask_record_saves_batch_id() {
         use crate::db::models::test_helpers::create_test_block;
         use crate::db::SaiStore;
 
         let store = SaiStore::open_in_memory().unwrap();
         // ブロック定義を登録（ファイルパスは存在しなくても upsert は動作する）
         let _block_id = store.insert_block(&create_test_block("test-sub")).unwrap();
-
-        // 親（メイン）実行を作成し、実行開始時に round / global_round を保存
-        // （P1-2: execute_block_pipeline が実行レコード作成直後に保存するのと同じ操作）
         let parent_block_id = store
             .insert_block(&create_test_block("test-parent"))
             .unwrap();
         let parent_run_id = store.create_execution(parent_block_id, None).unwrap();
-        store
-            .update_execution_overrides(
-                parent_run_id,
-                Some(1),
-                // round
-                Some(5),
-                // global_round
-                None,
-                None,
-                None
-            )
-            .unwrap();
 
         // サブ実行レコード作成（P3-A: batch_id を渡す。run_subtask →
         // execute_block_pipeline → prepare_execution_record の流れを再現）
@@ -5377,11 +5321,10 @@ mod tests {
             extensions: None,
             skills: None,
             subblocks: None,
-                timeout: Some(300),
+            timeout: Some(300),
             worktree: None,
             enable: None,
             category: None,
-            round: None,
             templates: None,
             id: None,
         };
@@ -5395,33 +5338,8 @@ mod tests {
         )
         .expect("サブ実行レコードの作成に失敗");
 
-        // P1-2: 実行レコード作成直後（実行前）に、親から継承したオーバーライド値を保存
-        // （run_subtask は parent_exec.round / global_round を overrides に入れて
-        //  execute_block_pipeline に渡すため、ここでは親の値をそのまま保存する）
-        let parent_exec = store.get_execution_by_id(parent_run_id).unwrap();
-        store
-            .update_execution_overrides(
-                prep.run_id,
-                parent_exec.round,
-                parent_exec.global_round,
-                None,
-                None,
-                None
-            )
-            .unwrap();
-
-        // 検証: サブ実行に round / global_round / batch_id が保存されている
         let sub_exec = store.get_execution_by_id(prep.run_id).unwrap();
-        assert_eq!(
-            sub_exec.round,
-            Some(1),
-            "サブ実行の round が親から引き継がれる（P1-2）"
-        );
-        assert_eq!(
-            sub_exec.global_round,
-            Some(5),
-            "サブ実行の global_round が親から引き継がれる（P1-2）"
-        );
+        assert_eq!(sub_exec.parent_run_id, Some(parent_run_id));
         assert_eq!(
             sub_exec.batch_id.as_deref(),
             Some("batch_test_r1"),
@@ -5482,7 +5400,6 @@ mod tests {
             worktree: None,
             enable: None,
             category: None,
-            round: None,
             templates: None,
         }
     }
@@ -5622,7 +5539,7 @@ mod tests {
         let card_text = format!(
             "---\ncreation_date: 2026/09/30 10:00:00\nexecution_date: -\nrun_id: {}\n\
              description: N12 の読解\nrunner: pi\nblock: reserved-dir-child\nthinking: \n\
-             model: \nprovider: \nround: 1\nglobal_round: 1\ntag: \n\
+             model: \nprovider: \ntag: \n\
              executer: professor\nnote: n1\n---\n\n# task_text\n\nN12 を読解する\n",
             reserved
         );

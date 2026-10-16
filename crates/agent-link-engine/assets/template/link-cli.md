@@ -8,11 +8,11 @@
 
 | やりたいこと | コマンド |
 |---|---|
-| 実行の一覧（todo / running / review / done ごと） | `agent-link run tree` |
+| 実行の一覧（todo / running / review / 日付ごと。子の実行は親の下） | `agent-link run tree` |
 | 1 つの実行の詳細（ブロック・状態・時間・コミット） | `agent-link run show <run_id>` |
 | その実行の依頼文・報告・会話 | `agent-link run md <run_id> --kind task`（`message` / `report` / `system` も可） |
 | その実行が保存した文書 | `agent-link doc list --run <run_id> --all`（本文は `agent-link doc read <トークン>` で読む） |
-| 過去の会話を言葉で探す | `agent-link session search -w <語,語>`（`--block <名>`・`-R <グローバルラウンド>`・`--json` で絞り込み） |
+| 過去の会話を言葉で探す | `agent-link session search -w <語,語>`（`--block <名>`・`--json` で絞り込み） |
 
 結果はほとんどが JSON で返る。長いときは必要な部分だけ取り出して読む。
 
@@ -34,8 +34,6 @@ agent-link card create <<'EOF'
   "block": "kantoku",
   "model": "sonnet",
   "thinking": "high",
-  "global_round": "16",
-  "round": "1",
   "task_text": "下の実装ガイドに従って実装を完遂せよ。\n\nwaggle:<ガイドのトークン>"
 }
 EOF

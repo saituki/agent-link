@@ -75,16 +75,13 @@ subblocks:
 
 **自分が最後の kantoku のとき**（依頼に review に渡す文書が書いてある）:
 
-1. 自分の round を調べる。`agent-link run md $AGENT_LINK_PARENT_RUN_ID --kind task` の frontmatter の `global_round:` と `round:` を読む（`round` が空なら 0 とみなす）。
-2. `link-cli` の手順で review のカードを作る。
+1. `link-cli` の手順で review のカードを作る。
    - `block`: `review`
-   - `global_round`: 自分と同じ値（空なら空）
-   - `round`: 自分の round + 1
    - `model`・`thinking`: 書かない（既定値になる）
    - `task_text`: 下のひな形
-3. 作ったカードの `path` を編集し、`description:` に `review: <要件定義書の件名>`、`origin_run_id:` に自分の run_id を書く。
-4. `agent-link card run <review の run_id>` で起動し、上と同じく running に出たことを確かめる。
-5. 確かめたら `agent-link run finalize` を実行する。
+2. 作ったカードの `path` を編集し、`description:` に `review: <要件定義書の件名>`、`origin_run_id:` に自分の run_id を書く。
+3. `agent-link card run <review の run_id>` で起動し、上と同じく running に出たことを確かめる。
+4. 確かめたら `agent-link run finalize` を実行する。
 
 review の task_text:
 

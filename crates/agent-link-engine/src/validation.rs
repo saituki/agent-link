@@ -212,7 +212,6 @@ mod tests {
             worktree: None,
             enable: None,
             category: None,
-            round: None,
             templates: None,
             id: None,
         }

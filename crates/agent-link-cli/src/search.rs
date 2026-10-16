@@ -28,10 +28,6 @@ use agent_link_engine::search::{
 /// `agent-link search` の引数（`cli.rs` の `Cmd::Search` から生成する）。
 #[derive(Debug, Clone, Default)]
 pub struct SearchArgs {
-    /// Round（グローバルラウンド）
-    pub global_round: Option<String>,
-    /// round（実行ラウンド）
-    pub round: Option<String>,
     /// ブロック ID 範囲
     pub id: Option<String>,
     /// ブロック名部分一致
@@ -54,8 +50,6 @@ impl SearchArgs {
     /// 引数を生入力フォーム（engine の `RawSearchForm`）に変換する。
     fn to_raw_form(&self) -> RawSearchForm {
         RawSearchForm {
-            round_gr: self.global_round.clone().unwrap_or_default(),
-            round: self.round.clone().unwrap_or_default(),
             id: self.id.clone().unwrap_or_default(),
             block: self.block.clone().unwrap_or_default(),
             date: self.date.clone().unwrap_or_default(),
@@ -195,15 +189,14 @@ mod tests {
     #[test]
     fn test_to_raw_form() {
         let args = SearchArgs {
-            global_round: Some("1".into()),
+            id: Some("1".into()),
             word: Some("llm, sai".into()),
             json: true,
             ..Default::default()
         };
         let raw = args.to_raw_form();
-        assert_eq!(raw.round_gr, "1");
+        assert_eq!(raw.id, "1");
         assert_eq!(raw.word, "llm, sai");
-        assert_eq!(raw.round, "");
         assert_eq!(raw.status, "");
         assert_eq!(raw.type_, "");
     }
@@ -212,7 +205,7 @@ mod tests {
     #[test]
     fn test_args_parse_query() {
         let args = SearchArgs {
-            global_round: Some("1-5".into()),
+            id: Some("1-5".into()),
             r#type: Some("user,tool".into()),
             word: Some("LLM".into()),
             ..Default::default()
@@ -222,7 +215,7 @@ mod tests {
         assert_eq!(q.words, vec!["llm"]);
 
         let bad = SearchArgs {
-            global_round: Some("x".into()),
+            id: Some("x".into()),
             ..Default::default()
         };
         assert!(matches!(

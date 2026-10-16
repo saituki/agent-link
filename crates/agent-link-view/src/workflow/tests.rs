@@ -18,8 +18,7 @@ fn block(
     exec_id: i64,
     block_id: i64,
     name: &str,
-    gr: i64,
-    lr: i64,
+    date: &str,
     parent: Option<i64>,
     batch_id: Option<&str>,
     created_at: &str,
@@ -28,8 +27,7 @@ fn block(
         exec_id,
         block_id,
         name: name.to_string(),
-        global_round: Some(gr),
-        round: Some(lr),
+        date: date.to_string(),
         parent_exec_id: parent,
         batch_id: batch_id.map(|s| s.to_string()),
         phase: None,
@@ -49,18 +47,17 @@ fn conn(from: i64, to: i64, ty: &str) -> ConnectionDisplayData {
     }
 }
 
-/// 固定入力（フェーズ合成・複数 round・main 同士の waggle を含む）。
+/// 固定入力（フェーズ合成・複数の日付・main 同士の waggle を含む）。
 fn fixture_blocks() -> Vec<BlockDisplayData> {
     vec![
-        // round 1 の実メイン
-        block(10, 1, "plan", 1, 1, None, None, "2026-09-26T10:00:00"),
+        // 日付 261001 の実メイン
+        block(10, 1, "plan", "261001", None, None, "2026-09-26T10:00:00"),
         // 10 のバッチ 1 サブ（2 件）
         block(
             11,
             2,
             "code",
-            1,
-            1,
+            "261001",
             Some(10),
             Some("batch_20260926_r1_aaa"),
             "2026-09-26T10:01:00",
@@ -69,8 +66,7 @@ fn fixture_blocks() -> Vec<BlockDisplayData> {
             12,
             2,
             "code",
-            1,
-            1,
+            "261001",
             Some(10),
             Some("batch_20260926_r1_aaa"),
             "2026-09-26T10:02:00",
@@ -80,21 +76,19 @@ fn fixture_blocks() -> Vec<BlockDisplayData> {
             13,
             3,
             "reviewer",
-            1,
-            1,
+            "261001",
             Some(10),
             Some("batch_20260926_r2_bbb"),
             "2026-09-26T10:03:00",
         ),
-        // round 2 の別メイン（main 同士は waggle_token でつながる）
-        block(20, 4, "kantoku", 2, 2, None, None, "2026-09-26T11:00:00"),
+        // 日付 261002 の別メイン（main 同士は waggle_token でつながる）
+        block(20, 4, "kantoku", "261002", None, None, "2026-09-26T11:00:00"),
         // 20 のサブ（batch_id なし = レガシー。フェーズ合成はしない）
         block(
             21,
             5,
             "legacy-sub",
-            2,
-            2,
+            "261002",
             Some(20),
             None,
             "2026-09-26T11:01:00",
@@ -219,7 +213,7 @@ fn edge_kinds_and_sides_match_pre_move_values() {
     assert_eq!(got, expected, "辺の種類・接地方法が移設前から変わった");
 }
 
-/// round 区切り線（`SeparatorLine`）の label と座標。
+/// 日付区切り線（`SeparatorLine`）の label と座標。
 #[test]
 fn separators_match_pre_move_values() {
     let blocks = fixture_blocks();
@@ -228,14 +222,14 @@ fn separators_match_pre_move_values() {
     let (_, layout_graph) = build_block_graph(&blocks, &connections, &finalized);
     let layout = calculate_layout(&layout_graph, true);
 
-    let got: Vec<(i32, String, i64)> = layout
+    let got: Vec<(i32, String)> = layout
         .separators
         .iter()
-        .map(|s| (s.y, s.label.clone(), s.global_round))
+        .map(|s| (s.y, s.label.clone()))
         .collect();
     assert_eq!(
         got,
-        vec![(0, "round1".to_string(), 1), (29, "round2".to_string(), 2)],
+        vec![(0, "261001".to_string()), (29, "261002".to_string())],
         "区切り線が移設前から変わった"
     );
 }

@@ -654,7 +654,6 @@ mod tests {
             worktree: None,
             enable: Some(true),
             category: None,
-            round: None,
             templates: None,
             id: None,
         }

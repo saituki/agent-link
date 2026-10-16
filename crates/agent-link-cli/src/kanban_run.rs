@@ -33,8 +33,6 @@ use dialoguer::Select;
 pub fn kanban_block_run(
     block: Option<&str>,
     fields: &[String],
-    round: Option<i64>,
-    global_round: Option<i64>,
     think: Option<String>,
     model: Option<String>,
     block_timeout: Option<u32>,
@@ -70,8 +68,6 @@ pub fn kanban_block_run(
         &card_path,
         block,
         fields,
-        round,
-        global_round,
         think,
         model,
         block_timeout,
@@ -89,8 +85,6 @@ pub fn run_card_request(
     card_path: &std::path::Path,
     block: Option<&str>,
     fields: &[String],
-    round: Option<i64>,
-    global_round: Option<i64>,
     think: Option<String>,
     model: Option<String>,
     block_timeout: Option<u32>,
@@ -140,9 +134,6 @@ pub fn run_card_request(
     let reserved_run_id: Option<i64> = card.frontmatter.run_id.trim().parse().ok();
 
     // 実行設定：task.md 優先、未記載は block.md のデフォルト。
-    // round / global_round は block.md にデフォルトが無い。未記載なら 1 を使う。
-    let round = resolve_round(round, &card.frontmatter.round, "round")?;
-    let global_round = resolve_round(global_round, &card.frontmatter.global_round, "global_round")?;
     let non_empty = |s: &str| {
         let t = s.trim();
         if t.is_empty() {
@@ -160,8 +151,6 @@ pub fn run_card_request(
     // timeout は廃止（block.md の値を使用。task.md では指定しない）。
     let timeout = block_timeout.or(parsed.config.timeout);
     let mut overrides = agent_link_engine::orchestrator::ExecutionOverrides::default();
-    overrides.round = Some(round);
-    overrides.global_round = Some(global_round);
     overrides.thinking = thinking;
     overrides.model = model;
     overrides.timeout = timeout;
@@ -186,20 +175,6 @@ pub fn resolve_card_inputs(
     field_overrides: &HashMap<String, String>,
 ) -> Result<HashMap<String, String>, Box<dyn std::error::Error>> {
     agent_link_engine::kanban::resolve_card_inputs(card, field_overrides).map_err(|e| e.into())
-}
-
-/// round / global_round を決める。引数 → task.md の順に見て、どちらも空なら 1 を使う。
-///
-/// root の Card は継承元が無いため、空のまま `card run` が断ると起こせなくなる。
-fn resolve_round(arg: Option<i64>, card_value: &str, key: &str) -> Result<i64, String> {
-    let text = arg
-        .map(|v| v.to_string())
-        .unwrap_or_else(|| card_value.trim().to_string());
-    if text.is_empty() {
-        return Ok(1);
-    }
-    text.parse()
-        .map_err(|_| format!("task.md の `{}:` が数値ではありません", key))
 }
 
 /// `serde_yaml::Value` の default 値を文字列化する。
@@ -470,20 +445,5 @@ fn prompt_number_u32(
             Ok(v) => return Ok(Some(v)),
             Err(_) => println!("⚠ 無効な数値です。整数で入力してください。"),
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::resolve_round;
-
-    /// round・global_round が空の Card は 1 で起こせる（断らない）。
-    #[test]
-    fn empty_round_defaults_to_one() {
-        assert_eq!(resolve_round(None, "", "round"), Ok(1));
-        assert_eq!(resolve_round(None, "  ", "global_round"), Ok(1));
-        assert_eq!(resolve_round(None, "3", "round"), Ok(3));
-        assert_eq!(resolve_round(Some(5), "", "round"), Ok(5));
-        assert!(resolve_round(None, "abc", "round").unwrap_err().contains("`round:` が数値ではありません"));
     }
 }

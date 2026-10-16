@@ -2867,7 +2867,7 @@ mod tests {
             format!(
                 "---\ncreation_date: 2026/09/30 10:00:00\nexecution_date: -\nrun_id: {rid}\n\
                  description: {desc}\nblock: {block}\nthinking: \nmodel: \n\
-                 round: 1\nglobal_round: 1\nexecuter: {executer}\n\
+                 executer: {executer}\n\
                  note: n1\n---\n\n# task_text\n\n{text}\n",
                 rid = run_id,
                 desc = description,

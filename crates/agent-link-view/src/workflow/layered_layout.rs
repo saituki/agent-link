@@ -1,12 +1,12 @@
-//! ラウンドベースのブロック配置レイアウト。
+//! 日付ベースのブロック配置レイアウト。
 //!
 //! ブロック接続グラフのノード配置を計算します（`docs/block-position-rule.md` 準拠）。
 //!
-//! - **行** = (Global Round, Local Round) グループ。GR 昇順 → LR 昇順で上から並ぶ
+//! - **行** = 同じ日付（`yymmdd`）の親ブロックのグループ。日付昇順で上から並ぶ
 //! - **列** = 同一行内の DATE（作成日時）順。左から右へ並ぶ
 //! - **サブブロック（sb）** = フェーズノードの右側に**横並びチェーン**で配置
 //!   （`mb → sb1 → sb2 → ...`。同じバッチのサブは同じ段に並べる）
-//! - GR が変わる行グループの上に **区切り線（roundN）** を描画するための座標を保持
+//! - 日付ごとの行グループの上に **区切り線（日付）** を描画するための座標を保持
 
 use std::collections::HashSet;
 
@@ -82,17 +82,13 @@ pub struct NodePosition {
 // DagLayout — レイアウト結果
 // ============================================================================
 
-/// ラウンド区切り線（`roundN────...`）1 本分の情報。
+/// 日付区切り線（`yymmdd────...`）1 本分の情報。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SeparatorLine {
     /// Y 座標（コンテンツ座標）
     pub y: i32,
-    /// 表示ラベル（`round<N>` または `round?`）
+    /// 表示ラベル（日付 `yymmdd`）
     pub label: String,
-    /// この区切り線が属す GR（global_round）。`round{N}` ラベルからの再パース
-    /// を避けるため、生成時の値をそのまま保持する（レガシーデータで GR 無しの
-    /// 場合は `i64::MAX` とし、常に「最後の区切り線」として扱う）
-    pub global_round: i64,
 }
 
 /// レイアウト計算結果。
@@ -104,7 +100,7 @@ pub struct DagLayout {
     pub content_width: i32,
     /// コンテンツ全体の高さ
     pub content_height: i32,
-    /// 区切り線。GR が変わる行グループの上に描画する
+    /// 区切り線。日付ごとの行グループの上に描画する
     pub separators: Vec<SeparatorLine>,
 }
 
@@ -126,10 +122,8 @@ pub struct LayoutNode {
     pub id: NodeId,
     pub width: u16,
     pub height: u16,
-    /// グローバルラウンド（GR）。行グループの決定に使用
-    pub global_round: Option<i64>,
-    /// ローカルラウンド（LR）。行グループの決定に使用
-    pub round: Option<i64>,
+    /// 日付（`yymmdd`）。行グループの決定に使用
+    pub date: String,
     /// 作成日時（ISO 8601）。同一行内の左→右の順序に使用
     pub created_at: String,
     /// 親実行 ID（サブブロックの場合）。main ブロックの右側に配置する
@@ -165,8 +159,7 @@ impl LayoutGraph {
         id: NodeId,
         width: u16,
         height: u16,
-        global_round: Option<i64>,
-        round: Option<i64>,
+        date: String,
         created_at: String,
         parent_id: Option<NodeId>,
     ) {
@@ -175,8 +168,7 @@ impl LayoutGraph {
             id,
             width,
             height,
-            global_round,
-            round,
+            date,
             created_at,
             parent_id,
             phase_parent: None,
@@ -243,53 +235,35 @@ pub fn calculate_layout_with(graph: &LayoutGraph, opts: &LayoutOptions) -> DagLa
     let mut positions: Vec<NodePosition> = Vec::with_capacity(graph.nodes.len());
     let mut separators: Vec<SeparatorLine> = Vec::new();
 
-    // ── メインを (GR, LR) グループでソート・グループ化 ──
-    // ソートキー: (GR, LR, created_at)。GR/LR が None のレガシーデータは最後に回す
+    // ── メインを日付グループでソート・グループ化 ──
+    // ソートキー: (date, created_at, id)
     let mut mains_sorted: Vec<&LayoutNode> = mains.clone();
     mains_sorted.sort_by(|a, b| {
-        let ka = (
-            a.global_round.map_or(i64::MAX, |v| v),
-            a.round.map_or(i64::MAX, |v| v),
-            a.created_at.as_str(),
-        );
-        let kb = (
-            b.global_round.map_or(i64::MAX, |v| v),
-            b.round.map_or(i64::MAX, |v| v),
-            b.created_at.as_str(),
-        );
-        ka.cmp(&kb)
+        (a.date.as_str(), a.created_at.as_str(), a.id)
+            .cmp(&(b.date.as_str(), b.created_at.as_str(), b.id))
     });
 
-    let mut groups: Vec<(Option<i64>, Option<i64>, Vec<&LayoutNode>)> = Vec::new();
+    let mut groups: Vec<(&str, Vec<&LayoutNode>)> = Vec::new();
     for node in mains_sorted {
-        let key = (node.global_round, node.round);
         match groups.last_mut() {
-            Some((g, l, list)) if (*g, *l) == key => list.push(node),
-            _ => groups.push((key.0, key.1, vec![node])),
+            Some((d, list)) if *d == node.date.as_str() => list.push(node),
+            _ => groups.push((node.date.as_str(), vec![node])),
         }
     }
 
     // ── 行の Y 座標と列の X 座標を計算 ──
     let mut y_cursor: i32 = 0;
-    let mut prev_gr: Option<i64> = None;
     // 上の行から下の行へ伸びる縦エッジの経路（入力ノードID, 経路 X）。
     // 出力元の行の配置完了時に追加し、入力先の行の配置時に除去する。
     let mut pending_paths: Vec<(NodeId, i32)> = Vec::new();
 
-    for (idx, (gr, _lr, group)) in groups.iter().enumerate() {
-        // GR が変わる（または最初の）行グループの上に区切り線
-        if idx == 0 || prev_gr != *gr {
-            let label = gr
-                .map(|g| format!("round{}", g))
-                .unwrap_or_else(|| "round?".to_string());
-            separators.push(SeparatorLine {
-                y: y_cursor,
-                label,
-                global_round: gr.unwrap_or(i64::MAX),
-            });
-            y_cursor += opts.separator_lines;
-        }
-        prev_gr = *gr;
+    for (date, group) in groups.iter() {
+        // 日付ごとの行グループの上に区切り線
+        separators.push(SeparatorLine {
+            y: y_cursor,
+            label: date.to_string(),
+        });
+        y_cursor += opts.separator_lines;
 
         let row_y = y_cursor;
         // この行グループに属するノード ID（経路の終端判定に使用）
@@ -506,13 +480,12 @@ mod tests {
     fn add(
         graph: &mut LayoutGraph,
         id: u64,
-        gr: Option<i64>,
-        lr: Option<i64>,
+        date: &str,
         created_at: &str,
         parent: Option<NodeId>,
     ) -> NodeIndex {
         let idx = petgraph::graph::NodeIndex::new(graph.nodes.len());
-        graph.add_node(idx, id, 16, 6, gr, lr, created_at.to_string(), parent);
+        graph.add_node(idx, id, 16, 6, date.to_string(), created_at.to_string(), parent);
         idx
     }
 
@@ -540,9 +513,9 @@ mod tests {
     #[test]
     fn test_layout_with_default_matches_calculate_layout() {
         let mut g = LayoutGraph::new();
-        add(&mut g, 1, Some(1), Some(1), "2026-08-01T10:00:00", None);
-        add(&mut g, 2, Some(1), Some(2), "2026-08-01T10:01:00", None);
-        add(&mut g, 3, Some(2), Some(1), "2026-08-01T10:02:00", None);
+        add(&mut g, 1, "261001", "2026-08-01T10:00:00", None);
+        add(&mut g, 2, "261001", "2026-08-01T10:01:00", None);
+        add(&mut g, 3, "261002", "2026-08-01T10:02:00", None);
         g.add_edge(1, 3, false);
 
         let a = calculate_layout(&g, true);
@@ -555,9 +528,9 @@ mod tests {
     #[test]
     fn test_layout_with_wider_options_spreads_gaps() {
         let mut g = LayoutGraph::new();
-        add(&mut g, 1, Some(1), Some(1), "2026-08-01T10:00:00", None);
-        add(&mut g, 2, Some(1), Some(1), "2026-08-01T10:01:00", None);
-        add(&mut g, 3, Some(2), Some(1), "2026-08-01T10:02:00", None);
+        add(&mut g, 1, "261001", "2026-08-01T10:00:00", None);
+        add(&mut g, 2, "261001", "2026-08-01T10:01:00", None);
+        add(&mut g, 3, "261002", "2026-08-01T10:02:00", None);
 
         let narrow = calculate_layout(&g, true);
         let wide = calculate_layout_with(
@@ -585,13 +558,13 @@ mod tests {
     }
 
     #[test]
-    fn test_rows_grouped_by_gr_lr_and_columns_by_date() {
+    fn test_rows_grouped_by_date_and_columns_by_created_at() {
         let mut g = LayoutGraph::new();
-        add(&mut g, 1, Some(1), Some(1), "2026-08-01T10:00:00", None); // BL1.1
-        add(&mut g, 2, Some(1), Some(2), "2026-08-01T10:01:00", None); // BL1.2 (a)
-        add(&mut g, 3, Some(1), Some(2), "2026-08-01T10:02:00", None); // BL1.2 (b)
-        add(&mut g, 4, Some(2), Some(1), "2026-08-01T10:03:00", None); // BL2.1
-        add(&mut g, 5, Some(1), Some(3), "2026-08-01T10:04:00", None); // BL1.3
+        add(&mut g, 1, "261001", "2026-08-01T10:00:00", None);
+        add(&mut g, 2, "261002", "2026-08-01T10:01:00", None); // 同じ日付 (a)
+        add(&mut g, 3, "261002", "2026-08-01T10:02:00", None); // 同じ日付 (b)
+        add(&mut g, 4, "261004", "2026-08-01T10:03:00", None);
+        add(&mut g, 5, "261003", "2026-08-01T10:04:00", None);
 
         let layout = calculate_layout(&g, true);
 
@@ -601,34 +574,32 @@ mod tests {
         let p5 = find_pos(&layout, 5);
         let p4 = find_pos(&layout, 4);
 
-        // 同じ (GR, LR) = (1, 2) の 2 つは同じ行
-        assert_eq!(p2.y, p3.y, "同じ (GR,LR) は同じ行になるべき");
-        // 行の並び: (1,1) < (1,2) < (1,3) < (2,1)
-        assert!(p1.y < p2.y, "GR/LR 昇順で上から並ぶべき");
-        assert!(p2.y < p5.y, "LR 昇順で上から並ぶべき");
-        assert!(p5.y < p4.y, "GR 昇順で上から並ぶべき");
-        // 同じ行内は DATE 順（左 → 右）
-        assert!(p2.x < p3.x, "DATE 順に左から並ぶべき");
+        // 同じ日付の 2 つは同じ行
+        assert_eq!(p2.y, p3.y, "同じ日付は同じ行になるべき");
+        // 行の並び: 日付昇順
+        assert!(p1.y < p2.y, "日付昇順で上から並ぶべき");
+        assert!(p2.y < p5.y, "日付昇順で上から並ぶべき");
+        assert!(p5.y < p4.y, "日付昇順で上から並ぶべき");
+        // 同じ行内は created_at 順（左 → 右）
+        assert!(p2.x < p3.x, "created_at 順に左から並ぶべき");
     }
 
     /// サブブロックは main ブロックの右側に**横並びチェーン**で配置されること。
     #[test]
     fn test_sub_blocks_placed_right_of_main() {
         let mut g = LayoutGraph::new();
-        add(&mut g, 10, Some(1), Some(1), "2026-08-01T10:00:00", None); // main
+        add(&mut g, 10, "261001", "2026-08-01T10:00:00", None); // main
         add(
             &mut g,
             11,
-            Some(1),
-            Some(1),
+            "261001",
             "2026-08-01T10:00:10",
             Some(10),
         ); // sub1
         add(
             &mut g,
             12,
-            Some(1),
-            Some(1),
+            "261001",
             "2026-08-01T10:00:20",
             Some(10),
         ); // sub2
@@ -652,14 +623,14 @@ mod tests {
         assert_eq!(main.y, sub1.y);
     }
 
-    /// 区切り線は GR が変わるときにのみ描画されること。
+    /// 区切り線は日付ごとに 1 本、ラベルは日付になること。
     #[test]
-    fn test_separators_per_gr() {
+    fn test_separators_per_date() {
         let mut g = LayoutGraph::new();
-        add(&mut g, 1, Some(1), Some(1), "2026-08-01T10:00:00", None);
-        add(&mut g, 2, Some(1), Some(2), "2026-08-01T10:01:00", None);
-        add(&mut g, 3, Some(2), Some(1), "2026-08-01T10:02:00", None);
-        add(&mut g, 4, Some(3), Some(1), "2026-08-01T10:03:00", None);
+        add(&mut g, 1, "261001", "2026-08-01T10:00:00", None);
+        add(&mut g, 2, "261001", "2026-08-01T10:01:00", None);
+        add(&mut g, 3, "261002", "2026-08-01T10:02:00", None);
+        add(&mut g, 4, "261003", "2026-08-01T10:03:00", None);
 
         let layout = calculate_layout(&g, true);
 
@@ -670,26 +641,26 @@ mod tests {
                 .map(|s| s.label.clone())
                 .collect::<Vec<_>>(),
             vec![
-                "round1".to_string(),
-                "round2".to_string(),
-                "round3".to_string()
+                "261001".to_string(),
+                "261002".to_string(),
+                "261003".to_string()
             ],
-            "GR ごとに区切り線（最初の GR 含む）"
+            "日付ごとに区切り線（最初の日付含む）"
         );
     }
 
-    /// GR/LR 未設定（レガシーデータ）は最後の行にまとめられること。
+    /// 行は date 昇順（created_at が後でも、日付が早ければ上）。
     #[test]
-    fn test_legacy_rows_without_round_at_bottom() {
+    fn test_rows_sorted_by_date_before_created_at() {
         let mut g = LayoutGraph::new();
-        add(&mut g, 1, Some(1), Some(1), "2026-08-01T10:00:00", None);
-        add(&mut g, 2, None, None, "2026-08-01T10:01:00", None);
+        add(&mut g, 1, "261002", "2026-08-01T10:00:00", None);
+        add(&mut g, 2, "261001", "2026-08-01T10:01:00", None);
 
         let layout = calculate_layout(&g, true);
 
         let p1 = find_pos(&layout, 1);
         let p2 = find_pos(&layout, 2);
-        assert!(p1.y < p2.y, "GR/LR 未設定は最後の行");
+        assert!(p2.y < p1.y, "date が早い方が上の行");
     }
 
     /// 上の行から伸びる縦エッジの経路（出力元ノードの中心 X）を
@@ -699,11 +670,11 @@ mod tests {
         let mut g = LayoutGraph::new();
         // 行 0: ID1 (x=0), ID2 (x=18)。行 1: ID3, ID4。行 2: ID5。
         // ID2→ID5 の縦エッジ経路（ID2 の中心 X）を、途中の行 1 のノードが避ける。
-        add(&mut g, 1, Some(1), Some(1), "2026-08-01T10:00:00", None);
-        add(&mut g, 2, Some(1), Some(1), "2026-08-01T10:01:00", None);
-        add(&mut g, 3, Some(2), Some(1), "2026-08-01T10:02:00", None);
-        add(&mut g, 4, Some(2), Some(1), "2026-08-01T10:03:00", None);
-        add(&mut g, 5, Some(3), Some(1), "2026-08-01T10:04:00", None);
+        add(&mut g, 1, "261001", "2026-08-01T10:00:00", None);
+        add(&mut g, 2, "261001", "2026-08-01T10:01:00", None);
+        add(&mut g, 3, "261002", "2026-08-01T10:02:00", None);
+        add(&mut g, 4, "261002", "2026-08-01T10:03:00", None);
+        add(&mut g, 5, "261003", "2026-08-01T10:04:00", None);
         g.add_edge(2, 5, false);
 
         let layout = calculate_layout(&g, true);
@@ -728,10 +699,10 @@ mod tests {
     #[test]
     fn test_nodes_packed_when_no_paths() {
         let mut g = LayoutGraph::new();
-        add(&mut g, 1, Some(1), Some(1), "2026-08-01T10:00:00", None);
-        add(&mut g, 2, Some(1), Some(1), "2026-08-01T10:01:00", None);
-        add(&mut g, 3, Some(2), Some(1), "2026-08-01T10:02:00", None);
-        add(&mut g, 4, Some(2), Some(1), "2026-08-01T10:03:00", None);
+        add(&mut g, 1, "261001", "2026-08-01T10:00:00", None);
+        add(&mut g, 2, "261001", "2026-08-01T10:01:00", None);
+        add(&mut g, 3, "261002", "2026-08-01T10:02:00", None);
+        add(&mut g, 4, "261002", "2026-08-01T10:03:00", None);
         // エッジなし（経路回避しない）
 
         let layout = calculate_layout(&g, true);
@@ -753,21 +724,19 @@ mod tests {
     fn test_phase_columns_stack_vertically() {
         let mut g = LayoutGraph::new();
         // メイン（フェーズ0）
-        let _m_idx = add(&mut g, 10, Some(1), Some(1), "2026-08-01T10:00:00", None);
+        let _m_idx = add(&mut g, 10, "261001", "2026-08-01T10:00:00", None);
         // 合成フェーズノード P_1 / P_2（phase_parent = 10）
         let _p1_idx = add(
             &mut g,
             100_001,
-            Some(1),
-            Some(1),
+            "261001",
             "2026-08-01T10:00:00",
             Some(10),
         );
         let _p2_idx = add(
             &mut g,
             100_002,
-            Some(1),
-            Some(1),
+            "261001",
             "2026-08-01T10:00:00",
             Some(10),
         );
@@ -775,24 +744,21 @@ mod tests {
         let _s11 = add(
             &mut g,
             11,
-            Some(1),
-            Some(1),
+            "261001",
             "2026-08-01T10:01:00",
             Some(10),
         );
         let _s12 = add(
             &mut g,
             12,
-            Some(1),
-            Some(1),
+            "261001",
             "2026-08-01T10:02:00",
             Some(10),
         );
         let _s13 = add(
             &mut g,
             13,
-            Some(1),
-            Some(1),
+            "261001",
             "2026-08-01T10:03:00",
             Some(10),
         );

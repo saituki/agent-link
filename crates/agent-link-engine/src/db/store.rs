@@ -36,9 +36,9 @@ const EXECUTION_SELECT_COLS: &str = "id, block_id, status, user_inputs_json, res
      git_commit_before, git_commit_after, \
      herdr_pane_id, pid, started_at, finished_at, \
      duration_ms, exit_code, error_message, output_content, session_stats_json, \
-     round, model, thinking, timeout, session_dir, pi_command, \
-     parent_run_id, created_at, global_round, batch_id, finalized, \
-     origin_run_id, kanban_card_path, execution_mode, workflow_moved, review_done, agent_session_id";
+     model, thinking, timeout, session_dir, pi_command, \
+     parent_run_id, created_at, batch_id, finalized, \
+     origin_run_id, kanban_card_path, execution_mode, workflow_moved, agent_session_id";
 
 /// `execution_history` の行を `ExecutionHistory` に変換する共通マッパー（P13）。
 fn execution_from_row(row: &Row) -> rusqlite::Result<ExecutionHistory> {
@@ -65,25 +65,21 @@ fn execution_from_row(row: &Row) -> rusqlite::Result<ExecutionHistory> {
         error_message: row.get(17)?,
         output_content: row.get(18)?,
         session_stats_json: row.get(19)?,
-        round: row.get(20)?,
-        model: row.get(21)?,
-        thinking: row.get(22)?,
-        timeout: row.get(23)?,
-        session_dir: row.get(24)?,
-        pi_command: row.get(25)?,
-        parent_run_id: row.get(26)?,
-        created_at: row.get(27)?,
-        global_round: row.get(28)?,
-        batch_id: row.get(29)?,
-        finalized: row.get::<_, i64>(30).unwrap_or(0) != 0,
-        kanban_card_path: row.get(32).ok(),
-        execution_mode: row.get(33).ok(),
+        model: row.get(20)?,
+        thinking: row.get(21)?,
+        timeout: row.get(22)?,
+        session_dir: row.get(23)?,
+        pi_command: row.get(24)?,
+        parent_run_id: row.get(25)?,
+        created_at: row.get(26)?,
+        batch_id: row.get(27)?,
+        finalized: row.get::<_, i64>(28).unwrap_or(0) != 0,
+        kanban_card_path: row.get(30).ok(),
+        execution_mode: row.get(31).ok(),
         // 旧 DB（カラムなし）は 0（Kanban 所有）扱い
-        workflow_moved: row.get::<_, i64>(34).unwrap_or(0) != 0,
-        // 旧 DB（カラムなし）は 0（review レーン）扱い
-        review_done: row.get::<_, i64>(35).unwrap_or(0) != 0,
+        workflow_moved: row.get::<_, i64>(32).unwrap_or(0) != 0,
         // エージェント側セッション ID（cc のみ。旧 DB は NULL）
-        agent_session_id: row.get(36).ok(),
+        agent_session_id: row.get(33).ok(),
     })
 }
 
@@ -452,7 +448,7 @@ impl SaiStore {
         let result = tx.execute(
             "INSERT INTO block_metadata (name, display_name, description, model, thinking, \
              tools, extensions, skills, timeout, worktree, enable, file_path, \
-             body_hash, round) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+             body_hash) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
             params![
                 block.name,
                 block.display_name,
@@ -467,7 +463,6 @@ impl SaiStore {
                 block.enable,
                 block.file_path,
                 block.body_hash,
-                block.round,
             ],
         );
 
@@ -498,7 +493,7 @@ impl SaiStore {
         conn.query_row(
             "SELECT id, name, display_name, description, model, thinking, tools, extensions, \
              skills, timeout, worktree, enable, file_path, body_hash, \
-             round, created_at, updated_at FROM block_metadata WHERE id = ?1",
+             created_at, updated_at FROM block_metadata WHERE id = ?1",
             params![id],
             |row| {
                 Ok(BlockMetadata {
@@ -516,9 +511,8 @@ impl SaiStore {
                     enable: row.get::<_, i32>(11)? != 0,
                     file_path: row.get(12)?,
                     body_hash: row.get(13)?,
-                    round: row.get(14)?,
-                    created_at: row.get(15)?,
-                    updated_at: row.get(16)?,
+                    created_at: row.get(14)?,
+                    updated_at: row.get(15)?,
                 })
             },
         )
@@ -534,7 +528,7 @@ impl SaiStore {
         conn.query_row(
             "SELECT id, name, display_name, description, model, thinking, tools, extensions, \
              skills, timeout, worktree, enable, file_path, body_hash, \
-             round, created_at, updated_at FROM block_metadata WHERE name = ?1",
+             created_at, updated_at FROM block_metadata WHERE name = ?1",
             params![name],
             |row| {
                 Ok(BlockMetadata {
@@ -552,9 +546,8 @@ impl SaiStore {
                     enable: row.get::<_, i32>(11)? != 0,
                     file_path: row.get(12)?,
                     body_hash: row.get(13)?,
-                    round: row.get(14)?,
-                    created_at: row.get(15)?,
-                    updated_at: row.get(16)?,
+                    created_at: row.get(14)?,
+                    updated_at: row.get(15)?,
                 })
             },
         )
@@ -572,7 +565,7 @@ impl SaiStore {
         let mut stmt = conn.prepare(
             "SELECT id, name, display_name, description, model, thinking, tools, extensions, \
              skills, timeout, worktree, enable, file_path, body_hash, \
-             round, created_at, updated_at FROM block_metadata WHERE enable = 1 ORDER BY name",
+             created_at, updated_at FROM block_metadata WHERE enable = 1 ORDER BY name",
         )?;
 
         let rows = stmt.query_map([], |row| {
@@ -591,9 +584,8 @@ impl SaiStore {
                 enable: row.get::<_, i32>(11)? != 0,
                 file_path: row.get(12)?,
                 body_hash: row.get(13)?,
-                round: row.get(14)?,
-                created_at: row.get(15)?,
-                updated_at: row.get(16)?,
+                created_at: row.get(14)?,
+                updated_at: row.get(15)?,
             })
         })?;
 
@@ -619,8 +611,8 @@ impl SaiStore {
             "UPDATE block_metadata SET name = ?1, display_name = ?2, description = ?3, model = ?4, \
              thinking = ?5, tools = ?6, extensions = ?7, skills = ?8, \
              timeout = ?9, worktree = ?10, enable = ?11, \
-             file_path = ?12, body_hash = ?13, round = ?14, \
-             updated_at = datetime('now') WHERE id = ?15",
+             file_path = ?12, body_hash = ?13, \
+             updated_at = datetime('now') WHERE id = ?14",
             params![
                 block.name,
                 block.display_name,
@@ -635,7 +627,6 @@ impl SaiStore {
                 block.enable,
                 block.file_path,
                 block.body_hash,
-                block.round,
                 id,
             ],
         );
@@ -1035,7 +1026,6 @@ impl SaiStore {
             enable: false,
             file_path: "".to_string(),
             body_hash: None,
-            round: None,
             created_at: String::new(),
             updated_at: String::new(),
         };
@@ -1848,22 +1838,19 @@ impl SaiStore {
         Ok(rows)
     }
 
-    /// 実行時のオーバーライド値（Round, Model, Thinking, Timeout）を一括保存する。
+    /// 実行時のオーバーライド値（Model, Thinking, Timeout）を一括保存する。
     /// 右SB表示用に実行インスタンス単位で記録する。
     pub fn update_execution_overrides(
         &self,
         id: i64,
-        round: Option<i64>,
-        global_round: Option<i64>,
         model: Option<&str>,
         thinking: Option<&str>,
         timeout: Option<i32>,
     ) -> Result<(), DbError> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
-            "UPDATE execution_history SET round = ?1, global_round = ?2, \
-             model = ?3, thinking = ?4, timeout = ?5 WHERE id = ?6",
-            params![round, global_round, model, thinking, timeout, id],
+            "UPDATE execution_history SET model = ?1, thinking = ?2, timeout = ?3 WHERE id = ?4",
+            params![model, thinking, timeout, id],
         )?;
         Ok(())
     }
@@ -1915,33 +1902,6 @@ impl SaiStore {
         Ok(())
     }
 
-    /// Kanban のレビュー済みフラグを設定する（run-tui `e` の review→done で使用）。
-    pub fn update_execution_review_done(&self, id: i64, done: bool) -> Result<(), DbError> {
-        let conn = self.conn.lock().unwrap();
-        conn.execute(
-            "UPDATE execution_history SET review_done = ?1 WHERE id = ?2",
-            params![i64::from(done), id],
-        )?;
-        Ok(())
-    }
-
-    /// 実行時のラウンド（`round` / `global_round`）だけを更新する。
-    ///
-    /// その他のオーバーライド値を保持したままラウンドだけを反映したい場合に使う。
-    pub fn update_execution_rounds(
-        &self,
-        id: i64,
-        round: Option<i64>,
-        global_round: Option<i64>,
-    ) -> Result<(), DbError> {
-        let conn = self.conn.lock().unwrap();
-        conn.execute(
-            "UPDATE execution_history SET round = ?1, global_round = ?2 WHERE id = ?3",
-            params![round, global_round, id],
-        )?;
-        Ok(())
-    }
-
     /// エージェント側セッション ID（Claude Code の UUID）を設定する。
     ///
     /// pi 実行では使わない（`session_dir` の JSONL パスで再開するため）。
@@ -1968,9 +1928,9 @@ impl SaiStore {
              eh.input_waggle_tokens, eh.output_waggle_token, eh.output_waggle_tokens, eh.output_type, \
              eh.git_commit_before, eh.git_commit_after, eh.herdr_pane_id, eh.pid, eh.started_at, eh.finished_at, \
              eh.duration_ms, eh.exit_code, eh.error_message, eh.output_content, eh.session_stats_json, \
-             eh.round, eh.model, eh.thinking, eh.timeout, eh.session_dir, eh.pi_command, \
-             eh.parent_run_id, eh.created_at, eh.global_round, eh.batch_id, eh.finalized, \
-             eh.origin_run_id, eh.kanban_card_path, eh.execution_mode, eh.workflow_moved, eh.review_done, eh.agent_session_id \
+             eh.model, eh.thinking, eh.timeout, eh.session_dir, eh.pi_command, \
+             eh.parent_run_id, eh.created_at, eh.batch_id, eh.finalized, \
+             eh.origin_run_id, eh.kanban_card_path, eh.execution_mode, eh.workflow_moved, eh.agent_session_id \
              FROM execution_history eh, json_each(eh.output_waggle_tokens) \
              WHERE json_each.value = ?1 \
              ORDER BY eh.created_at DESC LIMIT 1",
@@ -2067,7 +2027,7 @@ impl SaiStore {
         };
         let mut sql = format!(
             "SELECT json_each.value AS token, bm.name AS block_name, \
-             eh.id AS execution_id, COALESCE(eh.round, bm.round) AS round, \
+             eh.id AS execution_id, \
              eh.created_at, eh.output_type, eh.status \
              FROM execution_history eh \
              JOIN block_metadata bm ON bm.id = eh.block_id \
@@ -2112,15 +2072,14 @@ impl SaiStore {
                 token: row.get(0)?,
                 block_name: row.get(1)?,
                 execution_id: row.get(2)?,
-                round: row.get(3)?,
-                created_at: row.get(4)?,
+                created_at: row.get(3)?,
                 output_type: row
-                    .get::<_, Option<String>>(5)
+                    .get::<_, Option<String>>(4)
                     .ok()
                     .flatten()
                     .unwrap_or_else(|| "document".to_string()),
-                // SELECT 7列目 eh.status。旧クエリ互換のため取れなければ空
-                status: row.get::<_, Option<String>>(6).ok().flatten().unwrap_or_default(),
+                // SELECT 6列目 eh.status。旧クエリ互換のため取れなければ空
+                status: row.get::<_, Option<String>>(5).ok().flatten().unwrap_or_default(),
             })
         })?;
 

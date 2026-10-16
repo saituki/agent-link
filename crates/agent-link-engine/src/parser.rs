@@ -546,7 +546,6 @@ mod tests {
             worktree: None,
             enable: None,
             category: None,
-            round: None,
             templates: Some(vec!["tmp1".to_string(), "tmp2".to_string()]),
             id: None,
         };
@@ -588,7 +587,6 @@ mod tests {
             worktree: None,
             enable: None,
             category: None,
-            round: None,
             templates: Some(vec!["guide".to_string()]),
             id: None,
         };
@@ -613,7 +611,6 @@ mod tests {
             worktree: None,
             enable: None,
             category: None,
-            round: None,
             templates: Some(vec!["not_exist".to_string()]),
             id: None,
         };
@@ -643,7 +640,6 @@ mod tests {
             worktree: None,
             enable: None,
             category: None,
-            round: None,
             templates: None,
             id: None,
         };
@@ -679,7 +675,6 @@ mod tests {
             worktree: None,
             enable: None,
             category: None,
-            round: None,
             templates: Some(vec!["tmp1".to_string()]),
             id: None,
         };

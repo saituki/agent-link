@@ -29,10 +29,8 @@ pub struct BlockDisplayData {
     pub block_id: i64,
     /// ブロック名
     pub name: String,
-    /// グローバルラウンド（GR）。DAG の行グループと区切り線に使用
-    pub global_round: Option<i64>,
-    /// ラウンド（LR）
-    pub round: Option<i64>,
+    /// 日付フォルダ名（`yymmdd`・一番上の親 run の日付）。DAG の行グループと区切り線に使用
+    pub date: String,
     /// 親実行ID（サブブロックの場合）
     pub parent_exec_id: Option<i64>,
     /// タスクバッチID（P3-A。サブ実行のフェーズ合成に使用）
@@ -155,8 +153,7 @@ pub fn build_block_graph(
             id,
             width,
             height,
-            block.global_round,
-            block.round,
+            block.date.clone(),
             block.created_at.clone(),
             block.parent_exec_id.map(|p| p as u64),
         );
@@ -259,8 +256,7 @@ pub fn build_block_graph(
                 exec_id: phase_id,
                 block_id: m.block_id,
                 name,
-                global_round: m.global_round,
-                round: m.round,
+                date: m.date.clone(),
                 parent_exec_id: Some(m.exec_id), // フェーズ親
                 batch_id: batch_id.clone(),      // バッチ k の batch_id（小ブロック表示用）
                 phase: Some(k as u32),
@@ -283,8 +279,7 @@ pub fn build_block_graph(
                 phase_id as u64,
                 width,
                 height,
-                m.global_round,
-                m.round,
+                m.date.clone(),
                 m.created_at.clone(),
                 Some(m.exec_id as u64),
             );
