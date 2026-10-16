@@ -75,7 +75,7 @@ pub fn run(id: &str, command: &str) -> Result<(), HerdrError> {
         env_root.as_str(),
         command,
     ])?;
-    check(&out, id, "起動")
+    check(&out, id, "start")
 }
 
 /// 入力中の文を `draft.txt` に上書きする。
@@ -103,20 +103,20 @@ pub fn send_keys(id: &str, keys: &str) -> Result<(), HerdrError> {
         || key.eq_ignore_ascii_case("escape")
         || key.eq_ignore_ascii_case("ctrl+c")
     {
-        check(&tmux(&["send-keys", "-t", id, "Escape"])?, id, "中断")?;
+        check(&tmux(&["send-keys", "-t", id, "Escape"])?, id, "interrupt")?;
         set_state(&dir, "idle")?;
         return Ok(());
     }
     let draft = dir.join("draft.txt");
     if draft.is_file() {
         let draft_s = draft.to_string_lossy().to_string();
-        check(&tmux(&["load-buffer", "-b", id, draft_s.as_str()])?, id, "貼付け")?;
-        check(&tmux(&["paste-buffer", "-p", "-d", "-b", id, "-t", id])?, id, "貼付け")?;
+        check(&tmux(&["load-buffer", "-b", id, draft_s.as_str()])?, id, "paste")?;
+        check(&tmux(&["paste-buffer", "-p", "-d", "-b", id, "-t", id])?, id, "paste")?;
         std::fs::remove_file(&draft)?;
         // 貼った文を入力欄が受け取るまで待つ（改行の前に確定させない）
         std::thread::sleep(Duration::from_millis(300));
     }
-    check(&tmux(&["send-keys", "-t", id, "Enter"])?, id, "確定")
+    check(&tmux(&["send-keys", "-t", id, "Enter"])?, id, "confirm")
 }
 
 /// 状態を読み、`PaneInfo` を返す。
@@ -142,7 +142,7 @@ pub fn status(id: &str) -> Result<PaneInfo, HerdrError> {
 pub fn read_output(id: &str, lines: u32) -> Result<String, HerdrError> {
     let start = format!("-{}", lines.max(1));
     let out = tmux(&["capture-pane", "-p", "-t", id, "-S", start.as_str()])?;
-    check(&out, id, "画面の読取り")?;
+    check(&out, id, "read screen")?;
     Ok(String::from_utf8_lossy(&out.stdout).trim_end().to_string())
 }
 
@@ -231,9 +231,9 @@ fn tmux(args: &[&str]) -> Result<Output, HerdrError> {
         .spawn()
         .map_err(|e| {
             if e.kind() == std::io::ErrorKind::NotFound {
-                api_error("tmux が見つかりません（cc の対話モードに必要です）".to_string())
+                api_error("tmux not found. It is required for the cc interactive mode.".to_string())
             } else {
-                api_error(format!("tmux の起動に失敗: {}", e))
+                api_error(format!("Failed to start tmux: {}", e))
             }
         })?;
     // 出力を読みながら待つ（パイプが詰まって止まるのを防ぐ）。
@@ -245,7 +245,7 @@ fn tmux(args: &[&str]) -> Result<Output, HerdrError> {
         Ok(Ok(out)) => Ok(out),
         Ok(Err(e)) => Err(e.into()),
         Err(_) => Err(api_error(format!(
-            "tmux の命令が {} 秒以内に終わりません",
+            "A tmux command did not finish within {} seconds.",
             TMUX_TIMEOUT.as_secs()
         ))),
     }
@@ -263,7 +263,7 @@ fn check(out: &Output, id: &str, what: &str) -> Result<(), HerdrError> {
         .find(|l| !l.trim().is_empty())
         .unwrap_or("")
         .trim();
-    Err(api_error(format!("tmux の{}に失敗 (pane={}): {}", what, id, last)))
+    Err(api_error(format!("tmux {} failed (pane={}): {}", what, id, last)))
 }
 
 /// session が生きているか。
@@ -304,7 +304,7 @@ fn ensure_settings(root: &Path) -> std::io::Result<()> {
         std::fs::create_dir_all(parent)?;
     }
     let text = serde_json::to_string_pretty(&want)
-        .map_err(|e| std::io::Error::other(format!("JSON 直列化失敗: {}", e)))?;
+        .map_err(|e| std::io::Error::other(format!("JSON serialization failed: {}", e)))?;
     std::fs::write(path, text)
 }
 
@@ -325,7 +325,7 @@ fn seed_home_claude_json(dirs: &[&str]) -> std::io::Result<()> {
     let key = std::env::var("ANTHROPIC_API_KEY").ok();
     let seeded = seed_claude_json(current, dirs, key.as_deref());
     let text = serde_json::to_string_pretty(&seeded)
-        .map_err(|e| std::io::Error::other(format!("JSON 直列化失敗: {}", e)))?;
+        .map_err(|e| std::io::Error::other(format!("JSON serialization failed: {}", e)))?;
     let tmp = path.with_file_name(".claude.json.agent-link.tmp");
     std::fs::write(&tmp, text)?;
     std::fs::rename(&tmp, &path)

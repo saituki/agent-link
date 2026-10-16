@@ -176,7 +176,7 @@ pub struct CliCallCount {
 pub struct CliFailureCount {
     /// 失敗の分類
     pub class: &'static str,
-    /// 命令名。命令が読めない `agent-link*` の呼び出しは `(不明)`
+    /// 命令名。命令が読めない `agent-link*` の呼び出しは `(unknown)`
     pub command: String,
     /// 件数
     pub count: u64,
@@ -270,10 +270,10 @@ pub fn cli_summary(events: &[HistoryEvent]) -> CliSummary {
             }
         }
         // 失敗は CLI（`agent-link*`）の呼び出しだけ数える。命令が読めなくても入力に `agent-link*` があれば
-        // `(不明)` で数える（U04）。`Edit` など他の道具の失敗は数えない。
+        // `(unknown)` で数える（U04）。`Edit` など他の道具の失敗は数えない。
         if let (Some(true), Some(class)) = (e.is_error, e.failure) {
             if e.command.is_some() || e.cli_mention {
-                let command = e.command.clone().unwrap_or_else(|| "(不明)".to_string());
+                let command = e.command.clone().unwrap_or_else(|| "(unknown)".to_string());
                 *failures.entry((class, command)).or_default() += 1;
             }
         }
@@ -368,7 +368,7 @@ mod tests {
                 help: true,
                 ..event(None, None, None)
             },
-            // 命令が読めない `agent-link*` の失敗は `(不明)` で数える（U04）
+            // 命令が読めない `agent-link*` の失敗は `(unknown)` で数える（U04）
             HistoryEvent {
                 cli_mention: true,
                 is_error: Some(true),
@@ -414,7 +414,7 @@ mod tests {
                     },
                     CliFailureCount {
                         class: "other",
-                        command: "(不明)".into(),
+                        command: "(unknown)".into(),
                         count: 1
                     },
                     CliFailureCount {

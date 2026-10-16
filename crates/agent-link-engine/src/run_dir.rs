@@ -276,7 +276,7 @@ pub fn move_run_dir(run_id: i64, from_owner: &str, to_owner: &str) -> std::io::R
             if dst.exists() {
                 return Err(std::io::Error::new(
                     std::io::ErrorKind::AlreadyExists,
-                    format!("移動先が既に存在: {}", dst.display()),
+                    format!("Destination already exists: {}", dst.display()),
                 ));
             }
             if let Some(parent) = dst.parent() {
@@ -291,7 +291,7 @@ pub fn move_run_dir(run_id: i64, from_owner: &str, to_owner: &str) -> std::io::R
     if dst.exists() {
         return Err(std::io::Error::new(
             std::io::ErrorKind::AlreadyExists,
-            format!("移動先が既に存在: {}", dst.display()),
+            format!("Destination already exists: {}", dst.display()),
         ));
     }
     if let Some(parent) = dst.parent() {
@@ -335,7 +335,7 @@ pub fn delete_run(
     let summary = store.delete_execution_cascade(id).map_err(|e| e.to_string())?;
     for rid in ids {
         if let Err(e) = crate::orchestrator::remove_run_dir_files(rid) {
-            eprintln!("警告: run フォルダ {} の削除に失敗: {}", rid, e);
+            eprintln!("Warning: failed to delete run folder {}: {}", rid, e);
         }
     }
     Ok(summary)

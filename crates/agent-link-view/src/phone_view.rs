@@ -63,16 +63,16 @@ pub fn resolve_md_path(store: &SaiStore, run_id: i64, kind: MdKind) -> MdResolve
             Ok(p) => p,
             // run が無いときは「見つからない」（CLI の終了コード 3）
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                return MdResolve::Missing(format!("message: run がありません (run_id {})", run_id))
+                return MdResolve::Missing(format!("message: run not found (run_id {})", run_id))
             }
-            Err(e) => return MdResolve::Failed(format!("message: 保存に失敗: {}", e)),
+            Err(e) => return MdResolve::Failed(format!("message: failed to save: {}", e)),
         },
         // 報告は run フォルダの finalize-report.md にしか無い。todo のカードには無い。
         MdKind::Report => match agent_link_engine::agent_api::report_path_for_run(run_id) {
             Some(p) => p,
             None => {
                 return MdResolve::Missing(format!(
-                    "report: {} が見つかりません (run_id {})",
+                    "report: {} not found (run_id {})",
                     agent_link_engine::agent_api::REPORT_FILE,
                     run_id
                 ))
@@ -83,7 +83,7 @@ pub fn resolve_md_path(store: &SaiStore, run_id: i64, kind: MdKind) -> MdResolve
             Some((_, dir)) => dir.join(agent_link_engine::run_dir::SYSTEM_PROMPT_FILE),
             None => {
                 return MdResolve::Missing(format!(
-                    "system: {} が見つかりません (run_id {})",
+                    "system: {} not found (run_id {})",
                     agent_link_engine::run_dir::SYSTEM_PROMPT_FILE,
                     run_id
                 ))
@@ -95,7 +95,7 @@ pub fn resolve_md_path(store: &SaiStore, run_id: i64, kind: MdKind) -> MdResolve
                 Some(p) => p,
                 None => {
                     return MdResolve::Missing(format!(
-                        "task: task.md が見つかりません (run_id {})",
+                        "task: task.md not found (run_id {})",
                         run_id
                     ))
                 }
@@ -108,7 +108,7 @@ pub fn resolve_md_path(store: &SaiStore, run_id: i64, kind: MdKind) -> MdResolve
                 MdResolve::Found(path)
             } else {
                 MdResolve::Missing(format!(
-                    "message: message.md がありません ({})",
+                    "message: message.md not found ({})",
                     path.display()
                 ))
             }
@@ -117,7 +117,7 @@ pub fn resolve_md_path(store: &SaiStore, run_id: i64, kind: MdKind) -> MdResolve
             if path.exists() {
                 MdResolve::Found(path)
             } else {
-                MdResolve::Missing(format!("task: task.md がありません ({})", path.display()))
+                MdResolve::Missing(format!("task: task.md not found ({})", path.display()))
             }
         }
         MdKind::Report => {
@@ -125,7 +125,7 @@ pub fn resolve_md_path(store: &SaiStore, run_id: i64, kind: MdKind) -> MdResolve
                 MdResolve::Found(path)
             } else {
                 MdResolve::Missing(format!(
-                    "report: {} がありません ({})",
+                    "report: {} not found ({})",
                     agent_link_engine::agent_api::REPORT_FILE,
                     path.display()
                 ))
@@ -137,7 +137,7 @@ pub fn resolve_md_path(store: &SaiStore, run_id: i64, kind: MdKind) -> MdResolve
                 MdResolve::Found(path)
             } else {
                 MdResolve::Missing(format!(
-                    "system: {} がありません ({})",
+                    "system: {} not found ({})",
                     agent_link_engine::run_dir::SYSTEM_PROMPT_FILE,
                     path.display()
                 ))
@@ -395,13 +395,13 @@ pub struct WaggleDoc {
 pub fn load_waggle_token(token: &str) -> Result<WaggleDoc, String> {
     let db_path = agent_link_engine::project::resolve_db_path();
     let integrator = agent_link_engine::waggle_integration::WaggleIntegrator::open(&db_path)
-        .map_err(|e| format!("waggle: integrator 起動失敗: {}", e))?;
+        .map_err(|e| format!("waggle: failed to start the integrator: {}", e))?;
     let view = integrator
         .resolve_token(token)
-        .map_err(|e| format!("waggle: 解決エラー: {}", e))?;
+        .map_err(|e| format!("waggle: resolve error: {}", e))?;
     let content = integrator
         .resolve_content(token)
-        .map_err(|e| format!("waggle: 内容解決失敗: {}", e))?;
+        .map_err(|e| format!("waggle: failed to resolve the content: {}", e))?;
     let target = view.manifest.target.as_str();
     let file_name = target
         .strip_prefix("file://")

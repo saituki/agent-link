@@ -95,7 +95,7 @@ impl SearchHitType {
                 SearchHitType::ToolResult,
             ]),
             other => Err(SearchError::Parse(format!(
-                "不明な type 値です: `{other}`（user/agent/thinking/tool_call/tool_name/tool_result/tool が指定可能）"
+                "Unknown type value: `{other}`. Use user, agent, thinking, tool_call, tool_name, tool_result or tool."
             ))),
         }
     }
@@ -215,13 +215,13 @@ impl ProjectSource {
 #[derive(Debug, thiserror::Error)]
 pub enum SearchError {
     /// 入力書式のエラー（数値範囲・日付・type 値など）
-    #[error("検索条件の書式エラー: {0}")]
+    #[error("Search syntax error: {0}")]
     Parse(String),
     /// DB アクセスのエラー
-    #[error("DB エラー: {0}")]
+    #[error("DB error: {0}")]
     Db(#[from] crate::db::models::DbError),
     /// ファイル I/O のエラー
-    #[error("I/O エラー: {0}")]
+    #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
 }
 
@@ -243,23 +243,23 @@ pub enum SearchError {
 pub fn parse_num_range(s: &str) -> Result<NumRange, SearchError> {
     let t = s.trim();
     if t.is_empty() {
-        return Err(SearchError::Parse("空の数値範囲です".to_string()));
+        return Err(SearchError::Parse("The number range is empty.".to_string()));
     }
     // 全角ハイフン・全角数字は扱わない（ASCII のみ許容）
     let (min_s, max_s) = match t.split_once('-') {
         Some((a, b)) => (a.trim(), b.trim()),
         None => (t, t), // 単一値は min == max
     };
-    let min = parse_bound(min_s, "下限")?;
-    let max = parse_bound(max_s, "上限")?;
+    let min = parse_bound(min_s, "lower bound")?;
+    let max = parse_bound(max_s, "upper bound")?;
     // "3-" や "-5" は片側のみ。両方空は不正
     if min.is_none() && max.is_none() {
-        return Err(SearchError::Parse(format!("不正な数値範囲です: `{t}`")));
+        return Err(SearchError::Parse(format!("Invalid number range: `{t}`.")));
     }
     if let (Some(a), Some(b)) = (min, max) {
         if a > b {
             return Err(SearchError::Parse(format!(
-                "数値範囲の下限が上限を超えています: `{t}`"
+                "The lower bound of the number range exceeds the upper bound: `{t}`."
             )));
         }
     }
@@ -273,7 +273,7 @@ fn parse_bound(s: &str, label: &str) -> Result<Option<i64>, SearchError> {
     }
     s.parse::<i64>().map(Some).map_err(|_| {
         SearchError::Parse(format!(
-            "不正な{label}です: `{s}`（整数を指定してください）"
+            "Invalid {label}: `{s}`. Use an integer."
         ))
     })
 }
@@ -284,26 +284,26 @@ fn parse_bound(s: &str, label: &str) -> Result<Option<i64>, SearchError> {
 pub fn parse_date_range(s: &str) -> Result<DateRange, SearchError> {
     let t = s.trim();
     if t.is_empty() {
-        return Err(SearchError::Parse("空の日付範囲です".to_string()));
+        return Err(SearchError::Parse("The date range is empty.".to_string()));
     }
     let parse_one = |v: &str| -> Result<NaiveDate, SearchError> {
         let parts: Vec<&str> = v.trim().split('/').collect();
         if parts.len() != 3 {
             return Err(SearchError::Parse(format!(
-                "不正な日付です: `{v}`（YYYY/MM/DD 形式で指定してください）"
+                "Invalid date: `{v}`. Use the YYYY/MM/DD format."
             )));
         }
         let year: i32 = parts[0]
             .parse()
-            .map_err(|_| SearchError::Parse(format!("不正な年です: `{}`", parts[0])))?;
+            .map_err(|_| SearchError::Parse(format!("Invalid year: `{}`.", parts[0])))?;
         let month: u32 = parts[1]
             .parse()
-            .map_err(|_| SearchError::Parse(format!("不正な月です: `{}`", parts[1])))?;
+            .map_err(|_| SearchError::Parse(format!("Invalid month: `{}`.", parts[1])))?;
         let day: u32 = parts[2]
             .parse()
-            .map_err(|_| SearchError::Parse(format!("不正な日です: `{}`", parts[2])))?;
+            .map_err(|_| SearchError::Parse(format!("Invalid day: `{}`.", parts[2])))?;
         NaiveDate::from_ymd_opt(year, month, day)
-            .ok_or_else(|| SearchError::Parse(format!("存在しない日付です: `{v}`")))
+            .ok_or_else(|| SearchError::Parse(format!("The date does not exist: `{v}`.")))
     };
     // 日付は `YYYY/MM/DD`（区切り `/`）、範囲は `-` で接続するため
     // 最初の `-` で分割すればよい（負数は許容しない）
@@ -357,7 +357,7 @@ pub fn parse_query(raw: &RawSearchForm) -> Result<SearchQuery, SearchError> {
                 q.statuses.push(s);
             }
             _ => {
-                return Err(SearchError::Parse(format!("不正な status です: `{s}`")));
+                return Err(SearchError::Parse(format!("Invalid status: `{s}`.")));
             }
         }
     }

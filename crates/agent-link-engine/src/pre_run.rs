@@ -75,11 +75,11 @@ pub fn run_with(cmd: &[String], root: &Path, timeout: Duration) -> PreRunOutcome
     match status {
         Some(status) if status.success() => PreRunOutcome::Ok,
         Some(status) => PreRunOutcome::Failed(with_output(
-            format!("コマンドが{} で失敗しました", exit_text(status)),
+            format!("The command failed with {}.", exit_text(status)),
             &stdout,
             &stderr,
         )),
-        None => PreRunOutcome::Failed(format!("時間切れ（{} 秒）", timeout.as_secs())),
+        None => PreRunOutcome::Failed(format!("Timed out after {} seconds.", timeout.as_secs())),
     }
 }
 
@@ -110,7 +110,7 @@ fn run_child(
     }
     let mut child = match command.spawn() {
         Ok(child) => child,
-        Err(e) => return Err(format!("起動できません: {program}: {e}")),
+        Err(e) => return Err(format!("Cannot start {program}: {e}")),
     };
 
     // 本文は別スレッドで書いて閉じる（子が読まずに終わっても詰まらない）。
@@ -156,7 +156,7 @@ fn run_child(
                 // try_wait 自体の失敗。プロセスを始末して失敗を返す。
                 let _ = child.kill();
                 let _ = child.wait();
-                return Err(format!("プロセスの待機に失敗しました: {e}"));
+                return Err(format!("Failed to wait for the process: {e}"));
             }
         }
     };
@@ -190,11 +190,11 @@ pub fn run_with_stdin(
     timeout: Duration,
 ) -> StdinOutcome {
     if cmd.is_empty() {
-        return StdinOutcome::Broken("命令が空です".to_string());
+        return StdinOutcome::Broken("The command is empty.".to_string());
     }
     match run_child(cmd, root, envs, Some(stdin_text), timeout) {
         Err(reason) => StdinOutcome::Broken(truncate_reason(reason)),
-        Ok((None, ..)) => StdinOutcome::Broken(format!("{} 秒で終わりませんでした", timeout.as_secs())),
+        Ok((None, ..)) => StdinOutcome::Broken(format!("Did not finish within {} seconds.", timeout.as_secs())),
         Ok((Some(status), stdout, stderr)) => match status.code() {
             Some(0) => StdinOutcome::Ok(
                 String::from_utf8_lossy(&stdout).chars().take(MAX_CAPTURE_CHARS).collect(),
@@ -220,12 +220,12 @@ fn truncate_reason(reason: String) -> String {
 /// 「不明」になるのは、シグナルで止まったのにシグナル番号を取れなかったときだけ。
 fn exit_text(status: ExitStatus) -> String {
     if let Some(code) = status.code() {
-        return format!("終了コード {code}");
+        return format!("exit code {code}");
     }
     if let Some(signal) = status.signal() {
-        return format!("シグナル {signal}");
+        return format!("signal {signal}");
     }
-    "終了コード 不明".to_string()
+    "unknown exit code".to_string()
 }
 
 /// 失敗理由に出力の先頭 [`MAX_OUTPUT_CHARS`] 文字を足す（空なら理由だけ）。
@@ -269,7 +269,7 @@ mod tests {
         let cmd = vec!["false".to_string()];
         match run_with(&cmd, dir.path(), Duration::from_secs(5)) {
             PreRunOutcome::Failed(msg) => assert!(
-                msg.contains("終了コード"),
+                msg.contains("exit code"),
                 "理由に終了コードが含まれる: {msg}"
             ),
             other => panic!("Failed を期待したが {other:?}"),
@@ -283,8 +283,8 @@ mod tests {
         let cmd = vec!["sh".to_string(), "-c".to_string(), "kill -9 $$".to_string()];
         match run_with(&cmd, dir.path(), Duration::from_secs(5)) {
             PreRunOutcome::Failed(msg) => {
-                assert!(msg.contains("シグナル 9"), "理由: {msg}");
-                assert!(!msg.contains("不明"), "理由: {msg}");
+                assert!(msg.contains("signal 9"), "理由: {msg}");
+                assert!(!msg.contains("unknown"), "理由: {msg}");
             }
             other => panic!("Failed を期待したが {other:?}"),
         }
@@ -296,7 +296,7 @@ mod tests {
         let cmd = vec!["agent-link-pre-run-command-does-not-exist-xyz".to_string()];
         match run_with(&cmd, dir.path(), Duration::from_secs(5)) {
             PreRunOutcome::Failed(msg) => {
-                assert!(msg.contains("起動できません"), "理由: {msg}")
+                assert!(msg.contains("Cannot start"), "理由: {msg}")
             }
             other => panic!("Failed を期待したが {other:?}"),
         }
@@ -315,7 +315,7 @@ mod tests {
         ];
         assert_eq!(
             run_with(&cmd, dir.path(), Duration::from_secs(1)),
-            PreRunOutcome::Failed("時間切れ（1 秒）".to_string())
+            PreRunOutcome::Failed("Timed out after 1 seconds.".to_string())
         );
 
         // 打ち切り後、子プロセスが残っていないこと（PID が存在しない）。
@@ -365,7 +365,7 @@ mod tests {
         ];
         match run_with(&cmd, dir.path(), Duration::from_secs(5)) {
             PreRunOutcome::Failed(msg) => {
-                assert!(msg.contains("終了コード 3"), "理由: {msg}");
+                assert!(msg.contains("exit code 3"), "理由: {msg}");
                 let detail = msg.split_once(": ").map(|(_, d)| d).unwrap_or("");
                 assert_eq!(
                     detail.chars().count(),

@@ -706,7 +706,7 @@ impl Daemon {
                         }
                         let _ = self.store.append_execution_error_note(
                             run_id,
-                            "デーモン再起動後のフォールバック確定（finalize_request）",
+                            "Fallback finalize after the daemon restarted (finalize_request)",
                         );
                         // L1: フォールバック確定でも実行 usage を自動保存する（ベストエフォート）。
                         if let Err(e) = crate::usage::record_execution_usage(&self.store, run_id) {
@@ -897,7 +897,7 @@ impl Daemon {
             }
         }
         // 借用衝突を避けるため書き出し器を一時的に取り出す（ループ後に戻す）
-        let exporter = state.exporter.take().expect("直上で確保済み");
+        let exporter = state.exporter.take().expect("exporter was reserved just above");
 
         let (mut written, mut skipped, mut failed) = (0usize, 0usize, 0usize);
         for exec in &execs {
@@ -1003,7 +1003,7 @@ impl Daemon {
             }
             let _ = self
                 .store
-                .update_execution_error(orphan.run_id, "デーモン停止により中断", 1);
+                .update_execution_error(orphan.run_id, "Interrupted because the daemon stopped", 1);
             eprintln!(
                 "[agent-link] 停止時確定: run_id={}（{}）を failed にしました",
                 orphan.run_id, orphan.block_name

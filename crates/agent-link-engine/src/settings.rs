@@ -76,7 +76,7 @@ const RESERVED_ENV_KEYS: [&str; 4] = [
 pub fn load_settings() -> SettingsJson {
     let (settings, warnings) = load_settings_quiet();
     for w in &warnings {
-        eprintln!("[agent-link] 警告: {}", w);
+        eprintln!("[agent-link] Warning: {}", w);
     }
     settings
 }
@@ -124,7 +124,7 @@ fn merge_settings_file(path: &std::path::Path, merged: &mut SettingsJson, warnin
     };
     let Ok(parsed) = serde_json::from_str::<SettingsJson>(&content) else {
         warnings.push(format!(
-            "settings.json のパースに失敗しました: {}",
+            "Failed to parse settings.json: {}",
             path.display()
         ));
         return;
@@ -174,25 +174,25 @@ fn check_env_entry(key: &str, value: &str) -> Result<(), String> {
     let tail_ok = chars.all(|c| c.is_ascii_alphanumeric() || c == '_');
     if !head_ok || !tail_ok {
         return Err(format!(
-            "settings.json の env のキー {:?} は A-Za-z_ で始まり A-Za-z0-9_ だけからなる名前ではありません",
+            "Dropped env key {:?} in settings.json: a key must start with A-Za-z_ and contain only A-Za-z0-9_.",
             key
         ));
     }
     if RESERVED_ENV_KEYS.contains(&key) {
         return Err(format!(
-            "settings.json の env のキー {} は agent-link 自身が使う予約キーのため破棄しました",
+            "Dropped env key {} in settings.json: it is reserved for agent-link itself.",
             key
         ));
     }
     if value.contains('\n') || value.contains('\r') {
         return Err(format!(
-            "settings.json の env の値 {} が 1 行に収まらないため破棄しました",
+            "Dropped env value {} in settings.json: it must be a single line.",
             key
         ));
     }
     if value.is_empty() || value.chars().count() > 2000 {
         return Err(format!(
-            "settings.json の env の値 {} は 1〜2000 文字のあいだにしてください（{} 文字）",
+            "Dropped env value {} in settings.json: it must be 1 to 2000 characters long ({} given).",
             key,
             value.chars().count()
         ));
@@ -264,7 +264,7 @@ mod tests {
         let (_settings, warnings) = merge_settings_from(Some(&bad), None);
         let _ = std::fs::remove_dir_all(&dir);
         assert_eq!(warnings.len(), 1, "警告は stderr ではなく返り値で渡る");
-        assert!(warnings[0].contains("settings.json のパースに失敗しました"));
+        assert!(warnings[0].contains("Failed to parse settings.json"));
         assert!(warnings[0].contains(&bad_display));
     }
 

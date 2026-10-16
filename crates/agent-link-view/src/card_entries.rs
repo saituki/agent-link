@@ -43,7 +43,7 @@ impl TodoCardInfo {
     pub fn title(&self) -> String {
         match self.run_id {
             Some(rid) => format!("ID{}/{}", rid, self.block),
-            None => format!("ID?/{} ⚠run_id不一致", self.block),
+            None => format!("ID?/{} ⚠run_id mismatch", self.block),
         }
     }
 

@@ -61,38 +61,38 @@ use waggle_store_sqlite::SqliteStore;
 #[derive(Debug, thiserror::Error)]
 pub enum WaggleIntegrationError {
     /// ファイル読み込みエラー（ファイル不在、パーミッション不足など）。
-    #[error("ファイル読み込みエラー: {0}")]
+    #[error("File read error: {0}")]
     FileRead(#[from] std::io::Error),
 
     /// waggle ストアエラー（DB 接続障害、整合性違反など）。
-    #[error("waggle ストアエラー: {0}")]
+    #[error("waggle store error: {0}")]
     Store(#[from] StoreError),
 
     /// waggle ミントエラー（マニフェストサイズ超過、重複キャッチオールなど）。
-    #[error("waggle ミントエラー: {0}")]
+    #[error("waggle mint error: {0}")]
     Mint(#[from] waggle_core::MintError),
 
     /// SHA-256 ハッシュ計算エラー。
-    #[error("SHA-256 ハッシュ計算エラー: {0}")]
+    #[error("SHA-256 hash error: {0}")]
     Hash(String),
 
     /// トークンに対応するマニフェストが見つからない。
-    #[error("トークン {0} に対応するマニフェストが見つかりません")]
+    #[error("Manifest for token {0} not found.")]
     TokenNotFound(Token),
 
     /// 無効なターゲット URL（ファイルパス由来の URL 構築失敗など）。
-    #[error("無効なターゲットURL: {0}")]
+    #[error("Invalid target URL: {0}")]
     InvalidTarget(String),
 
     /// 空のファイル（空ファイルはトークン化できません）。
-    #[error("空のファイルです: {path}")]
+    #[error("The file is empty: {path}")]
     EmptyFile {
         /// ファイルパス
         path: PathBuf,
     },
 
     /// エントロピーソースエラー（乱数生成の失敗）。
-    #[error("エントロピーソースエラー: {0}")]
+    #[error("Entropy source error: {0}")]
     Entropy(String),
 }
 
@@ -160,7 +160,7 @@ fn compute_sha256(
     let hex_string = format!("{:x}", hash);
 
     let sha256 = waggle_core::Sha256Hex::new(&hex_string)
-        .map_err(|e| WaggleIntegrationError::Hash(format!("Sha256Hex 生成エラー: {:?}", e)))?;
+        .map_err(|e| WaggleIntegrationError::Hash(format!("Sha256Hex error: {:?}", e)))?;
 
     Ok((sha256, bytes, byte_size))
 }
@@ -293,7 +293,7 @@ impl WaggleIntegrator {
         let store = SqliteStore::open(db_path.as_ref())?;
         Ok(Self {
             store: Arc::new(store),
-            sharer: Sharer::new("agent-link").expect("'agent-link' は有効な sharer 名です"),
+            sharer: Sharer::new("agent-link").expect("'agent-link' is a valid sharer name"),
             channel: Channel::subagent_general(),
         })
     }
@@ -310,7 +310,7 @@ impl WaggleIntegrator {
         let store = SqliteStore::open_in_memory()?;
         Ok(Self {
             store: Arc::new(store),
-            sharer: Sharer::new("agent-link").expect("'agent-link' は有効な sharer 名です"),
+            sharer: Sharer::new("agent-link").expect("'agent-link' is a valid sharer name"),
             channel: Channel::subagent_general(),
         })
     }
@@ -425,7 +425,7 @@ impl WaggleIntegrator {
                 byte_size,
             }),
             _ => Err(WaggleIntegrationError::Store(StoreError::Backend(
-                "append が予期しない結果（Minted 以外）を返しました".into(),
+                "append returned an unexpected result (not Minted).".into(),
             ))),
         }
     }
@@ -477,7 +477,7 @@ impl WaggleIntegrator {
         token_str: &str,
     ) -> Result<waggle_store::ManifestView, WaggleIntegrationError> {
         let token = Token::parse(token_str).map_err(|e| {
-            WaggleIntegrationError::InvalidTarget(format!("トークンのパースに失敗: {e}"))
+            WaggleIntegrationError::InvalidTarget(format!("Failed to parse the token: {e}"))
         })?;
 
         pollster::block_on(self.store.manifest(token))?
@@ -520,7 +520,7 @@ impl WaggleIntegrator {
         let target_str = view.manifest.target.as_str();
         let file_path = extract_file_path_from_url(target_str).ok_or_else(|| {
             WaggleIntegrationError::InvalidTarget(format!(
-                "file:// URL からパスを抽出できません: {target_str}"
+                "Cannot extract a path from the file:// URL: {target_str}"
             ))
         })?;
 
@@ -540,7 +540,7 @@ impl WaggleIntegrator {
                 Err(WaggleIntegrationError::FileRead(std::io::Error::new(
                     std::io::ErrorKind::NotFound,
                     format!(
-                        "元ファイル {} と Blob ストアの両方から内容を取得できませんでした",
+                        "Could not get the content from the original file {} or the blob store.",
                         file_path.display()
                     ),
                 )))
@@ -1002,7 +1002,7 @@ mod tests {
         assert!(result.is_err(), "無効なトークンでエラーになること");
         match &result {
             Err(WaggleIntegrationError::InvalidTarget(msg)) => {
-                assert!(msg.contains("パース"), "パースエラーメッセージを含む");
+                assert!(msg.contains("parse"), "パースエラーメッセージを含む");
             }
             _ => panic!("InvalidTarget エラーになること: {:?}", result),
         }

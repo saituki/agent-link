@@ -151,7 +151,7 @@ pub fn validate_card_spec(spec: &CardSpec) -> Result<(), String> {
     let thinking = spec.thinking.trim();
     if !thinking.is_empty() && !THINKING_OPTIONS.contains(&thinking) {
         return Err(format!(
-            "thinking が不正です: {}（選択肢: {}）",
+            "Invalid thinking: {}. Choose one of: {}",
             thinking,
             THINKING_OPTIONS.join(", ")
         ));
@@ -161,9 +161,9 @@ pub fn validate_card_spec(spec: &CardSpec) -> Result<(), String> {
         return Ok(());
     }
     let path =
-        resolve_block_path(block).ok_or_else(|| format!("ブロックが見つかりません: {}", block))?;
+        resolve_block_path(block).ok_or_else(|| format!("Block not found: {}", block))?;
     agent_link_engine::parser::parse_block_file(&path)
-        .map_err(|e| format!("ブロック定義の読み込みに失敗: {}", e))?;
+        .map_err(|e| format!("Failed to load the block definition: {}", e))?;
     Ok(())
 }
 

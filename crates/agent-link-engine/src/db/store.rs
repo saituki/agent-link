@@ -604,7 +604,7 @@ impl SaiStore {
         let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
 
         let id = block.id.ok_or_else(|| {
-            DbError::InvalidArgument("update_block には id が必要です".to_string())
+            DbError::InvalidArgument("update_block requires an id.".to_string())
         })?;
 
         let result = tx.execute(
@@ -952,7 +952,7 @@ impl SaiStore {
         let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
 
         let id = output.id.ok_or_else(|| {
-            DbError::InvalidArgument("update_output には id が必要です".to_string())
+            DbError::InvalidArgument("update_output requires an id.".to_string())
         })?;
 
         let affected = tx.execute(
@@ -1014,8 +1014,8 @@ impl SaiStore {
         let block = BlockMetadata {
             id: None,
             name: "__todo__".to_string(),
-            display_name: "未割当".to_string(),
-            description: "カード予約用プレースホルダー".to_string(),
+            display_name: "Unassigned".to_string(),
+            description: "Placeholder for reserved cards".to_string(),
             model: "inherit".to_string(),
             thinking: "off".to_string(),
             tools: "false".to_string(),
@@ -1057,7 +1057,7 @@ impl SaiStore {
             params![block_id, user_inputs_json, run_id],
         )?;
         if affected == 0 {
-            return Err(DbError::NotFound(format!("予約 run がありません: {}", run_id)));
+            return Err(DbError::NotFound(format!("Reserved run not found: {}", run_id)));
         }
         Ok(())
     }
@@ -1082,7 +1082,7 @@ impl SaiStore {
             params![block_id, user_inputs_json, parent_run_id, batch_id, run_id],
         )?;
         if affected == 0 {
-            return Err(DbError::NotFound(format!("予約 run がありません: {}", run_id)));
+            return Err(DbError::NotFound(format!("Reserved run not found: {}", run_id)));
         }
         Ok(())
     }

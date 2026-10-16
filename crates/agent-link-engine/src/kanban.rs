@@ -67,7 +67,7 @@ const LEGACY_FM_KEYS: [&str; 9] = [
 /// 人が起こすと root の run になり、報告が起こす側（エージェント）に届かないため止める。
 /// CLI（`kanban_run::run_card_request`）と TUI（`cli_mode::do_run_flow`）で同じ文を出す。
 pub const AGENT_EXECUTER_MESSAGE: &str =
-    "このカードはエージェントが子の run として起こします（executer: agent）。人が起こすときは、カードの executer を human に直してください";
+    "This card is started by an agent as a subtask run (executer: agent). To start it yourself, change the card's executer to human.";
 
 /// `scheduled_at:` の値（`YYYY-MM-DD HH:MM`）を読む。読めなければ `None`。
 pub fn parse_scheduled_at(s: &str) -> Option<chrono::NaiveDateTime> {
@@ -395,7 +395,7 @@ pub fn resolve_card_inputs(
         .or_else(|| text_inputs(&card.body).remove("task_text"))
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
-        .ok_or("task.md 本文に `# task_text` セクションがありません（または空です）")?;
+        .ok_or("The task.md body has no `# task_text` section, or it is empty.")?;
     Ok(HashMap::from([("task_text".to_string(), text)]))
 }
 

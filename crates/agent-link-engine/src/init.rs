@@ -128,7 +128,7 @@ const SERENA_SCAN_MAX_FILES: usize = 20_000;
 #[derive(Error, Debug)]
 pub enum InitError {
     /// ディレクトリ・ファイル作成時の I/O エラー。
-    #[error("初期化中に I/O エラーが発生しました: {0}")]
+    #[error("I/O error during init: {0}")]
     Io(#[from] std::io::Error),
 }
 
@@ -204,7 +204,7 @@ pub fn init_project(root: &Path, update: bool) -> Result<InitReport, InitError> 
     // design skill（cc が読む `.claude/skills/`）
     for (rel, text) in crate::cc_command::DESIGN_SKILL_FILES {
         let path = root.join(".claude/skills").join(rel);
-        std::fs::create_dir_all(path.parent().expect("skill の親フォルダ"))?;
+        std::fs::create_dir_all(path.parent().expect("skill file has a parent folder"))?;
         files.push((path, text.to_string()));
     }
     for (path, text) in files {

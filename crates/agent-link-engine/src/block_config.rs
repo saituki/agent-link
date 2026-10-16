@@ -57,7 +57,7 @@ impl<'de> Visitor<'de> for ToolsConfigVisitor {
     type Value = ToolsConfig;
 
     fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-        formatter.write_str("真偽値（true/false）またはカンマ区切り文字列")
+        formatter.write_str("a boolean (true/false) or a comma-separated string")
     }
 
     fn visit_bool<E: de::Error>(self, v: bool) -> Result<ToolsConfig, E> {
@@ -249,7 +249,7 @@ where
                 .collect::<Option<Vec<_>>>()
                 .ok_or_else(|| {
                     de::Error::custom(
-                        "templates の各要素は文字列（テンプレートファイル名）である必要があります",
+                        "Each item of templates must be a string (template file name).",
                     )
                 })?;
             if items.is_empty() {
@@ -259,7 +259,7 @@ where
             }
         }
         Some(other) => Err(de::Error::custom(format!(
-            "templates の値としてカンマ区切り文字列またはリストが必要ですが、'{:?}' が指定されました",
+            "templates must be a comma-separated string or a list, but '{:?}' was given.",
             other
         ))),
     }
@@ -305,7 +305,7 @@ where
                 .collect::<Option<Vec<_>>>()
                 .ok_or_else(|| {
                     de::Error::custom(
-                        "tools/extensions の各要素は文字列（ツール名または拡張機能パス）である必要があります",
+                        "Each item of tools/extensions must be a string (tool name or extension path).",
                     )
                 })?;
             if items.is_empty() {
@@ -315,7 +315,7 @@ where
             }
         }
         Some(other) => Err(de::Error::custom(format!(
-            "tools/extensions の値として真偽値または文字列・リストが必要ですが、'{:?}' が指定されました",
+            "tools/extensions must be a boolean, a string or a list, but '{:?}' was given.",
             other
         ))),
     }

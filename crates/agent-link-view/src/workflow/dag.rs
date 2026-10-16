@@ -93,8 +93,8 @@ impl<N> DagGraph<N> {
             .edge_references()
             .map(|e| {
                 (
-                    self.graph.node_weight(e.source()).expect("端点は必ず存在する"),
-                    self.graph.node_weight(e.target()).expect("端点は必ず存在する"),
+                    self.graph.node_weight(e.source()).expect("edge endpoints always exist"),
+                    self.graph.node_weight(e.target()).expect("edge endpoints always exist"),
                     e.weight(),
                 )
             })

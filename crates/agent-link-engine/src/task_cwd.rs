@@ -30,13 +30,13 @@ pub fn resolve_task_cwd_with_home(
     let trimmed = raw.trim();
     if trimmed.is_empty() {
         return Err(
-            "cwd が空です。絶対パス・~/ 始まり・プロジェクトルートからの相対パスを指定してください。"
+            "cwd is empty. Give an absolute path, a path starting with ~/, or a path relative to the project root."
                 .to_string(),
         );
     }
 
     let expanded = expand_tilde(trimmed, home)
-        .ok_or_else(|| format!("cwd の `~` を解決できません（HOME 未設定）: {}", trimmed))?;
+        .ok_or_else(|| format!("Cannot resolve `~` in cwd because HOME is not set: {}", trimmed))?;
 
     let absolute = if expanded.is_absolute() {
         expanded
@@ -46,11 +46,11 @@ pub fn resolve_task_cwd_with_home(
 
     let normalized = normalize_path(&absolute);
     if !normalized.exists() {
-        return Err(format!("cwd が存在しません: {}", normalized.display()));
+        return Err(format!("cwd does not exist: {}", normalized.display()));
     }
     if !normalized.is_dir() {
         return Err(format!(
-            "cwd がフォルダではありません: {}",
+            "cwd is not a folder: {}",
             normalized.display()
         ));
     }
@@ -175,7 +175,7 @@ mod tests {
     fn resolve_missing_path_is_error() {
         let root = temp_dir("missing");
         let err = resolve_task_cwd("no-such-folder-xyz", &root).unwrap_err();
-        assert!(err.contains("存在しません"), "実際: {}", err);
+        assert!(err.contains("does not exist"), "実際: {}", err);
         let _ = fs::remove_dir_all(&root);
     }
 
@@ -185,14 +185,14 @@ mod tests {
         let file = root.join("a.txt");
         fs::write(&file, "x").unwrap();
         let err = resolve_task_cwd(file.to_str().unwrap(), &root).unwrap_err();
-        assert!(err.contains("フォルダではありません"), "実際: {}", err);
+        assert!(err.contains("is not a folder"), "実際: {}", err);
         let _ = fs::remove_dir_all(&root);
     }
 
     #[test]
     fn resolve_empty_is_error() {
         let err = resolve_task_cwd("   ", Path::new("/")).unwrap_err();
-        assert!(err.contains("空"), "実際: {}", err);
+        assert!(err.contains("empty"), "実際: {}", err);
     }
 
     #[test]

@@ -122,7 +122,7 @@ fn test_pipeline_cancellation_config() {
     // OrchestratorError::Cancelled の display を確認
     let err = OrchestratorError::Cancelled;
     let msg = format!("{}", err);
-    assert!(msg.contains("キャンセル"));
+    assert!(msg.contains("Cancelled"));
 }
 
 /// エラークリーンアップの設定検証。
@@ -151,7 +151,7 @@ fn test_timeout_error_display() {
     let err = OrchestratorError::Timeout { timeout_ms: 30000 };
     let msg = format!("{}", err);
     assert!(msg.contains("30000"));
-    assert!(msg.contains("以内に"));
+    assert!(msg.contains("within"));
 }
 
 /// プレースホルダー展開がパイプライン設定で正しく機能することを確認（統合）。
@@ -305,12 +305,12 @@ fn test_pipeline_error_display_all_variants() {
     let err = OrchestratorError::Timeout { timeout_ms: 5000 };
     let msg = format!("{}", err);
     assert!(msg.contains("5000"));
-    assert!(msg.contains("以内に"));
+    assert!(msg.contains("within"));
 
     // Cancelled
     let err = OrchestratorError::Cancelled;
     let msg = format!("{}", err);
-    assert!(msg.contains("キャンセル"));
+    assert!(msg.contains("Cancelled"));
 
     // HerdrError (from)
     let err = OrchestratorError::HerdrError(agent_link_engine::herdr::HerdrError::HerdrNotFound);
@@ -320,26 +320,26 @@ fn test_pipeline_error_display_all_variants() {
     // CommandError
     let err = OrchestratorError::CommandError("invalid model".to_string());
     let msg = format!("{}", err);
-    assert!(msg.contains("コマンド構築"));
+    assert!(msg.contains("Command build"));
     assert!(msg.contains("invalid model"));
 
     // SessionError
     let err = OrchestratorError::SessionError("session dir creation failed".to_string());
     let msg = format!("{}", err);
-    assert!(msg.contains("セッションファイル"));
+    assert!(msg.contains("Session file"));
     assert!(msg.contains("session dir creation failed"));
 
     // IoError (from)
     let io_err = std::io::Error::new(std::io::ErrorKind::NotFound, "file not found");
     let err = OrchestratorError::IoError(io_err);
     let msg = format!("{}", err);
-    assert!(msg.contains("IO エラー"));
+    assert!(msg.contains("IO error"));
     assert!(msg.contains("file not found"));
 
     // SystemPromptError
     let err = OrchestratorError::SystemPromptError("temp file write failed".to_string());
     let msg = format!("{}", err);
-    assert!(msg.contains("システムプロンプト"));
+    assert!(msg.contains("System prompt"));
     assert!(msg.contains("temp file write failed"));
 }
 

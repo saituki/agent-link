@@ -242,10 +242,10 @@ pub fn register_project(registry: &Path, name: &str, project_root: &Path) -> Res
         Ok(text) if !text.trim().is_empty() => serde_json::from_str::<serde_json::Value>(&text)
             .ok()
             .and_then(|v| v.as_array().cloned())
-            .ok_or_else(|| format!("{} が配列の JSON ではありません", registry.display()))?,
+            .ok_or_else(|| format!("{} is not a JSON array.", registry.display()))?,
         Ok(_) => Vec::new(),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
-        Err(e) => return Err(format!("{} を読めません: {e}", registry.display())),
+        Err(e) => return Err(format!("Cannot read {}: {e}", registry.display())),
     };
     let target = normalize_path_str(project_root);
     for e in &entries {
@@ -256,7 +256,7 @@ pub fn register_project(registry: &Path, name: &str, project_root: &Path) -> Res
         }
         if entry_name == name {
             return Err(format!(
-                "名前 {name} は別のフォルダ（{root}）で使われています。--name で別の名前を付けてください"
+                "Name {name} is already used by another folder ({root}). Choose another name with --name."
             ));
         }
     }
@@ -270,10 +270,10 @@ pub fn register_project(registry: &Path, name: &str, project_root: &Path) -> Res
         "last_opened": now,
     }));
     if let Some(parent) = registry.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| format!("{} を作れません: {e}", parent.display()))?;
+        std::fs::create_dir_all(parent).map_err(|e| format!("Cannot create {}: {e}", parent.display()))?;
     }
     let text = serde_json::to_string_pretty(&entries).map_err(|e| e.to_string())?;
-    std::fs::write(registry, text + "\n").map_err(|e| format!("{} に書けません: {e}", registry.display()))?;
+    std::fs::write(registry, text + "\n").map_err(|e| format!("Cannot write {}: {e}", registry.display()))?;
     Ok(RegistryAdd::Added)
 }
 
@@ -593,7 +593,7 @@ fn write_json_atomic(tmp: &Path, dst: &Path, body: &serde_json::Value) -> std::i
         std::fs::create_dir_all(parent)?;
     }
     let text = serde_json::to_string_pretty(body)
-        .map_err(|e| std::io::Error::other(format!("JSON 直列化失敗: {}", e)))?;
+        .map_err(|e| std::io::Error::other(format!("JSON serialization failed: {}", e)))?;
     std::fs::write(tmp, text)?;
     std::fs::rename(tmp, dst)?;
     Ok(())
@@ -622,7 +622,7 @@ pub fn write_run_json_in(dir: &Path, doc: &PhoneRunDoc) -> std::io::Result<bool>
     let tmp_path = dir.join(format!(".{}.json.tmp", doc.run_id));
 
     let text = serde_json::to_string_pretty(doc)
-        .map_err(|e| std::io::Error::other(format!("JSON 直列化失敗: {}", e)))?;
+        .map_err(|e| std::io::Error::other(format!("JSON serialization failed: {}", e)))?;
 
     // 同じ内容（updated_at を除く）が既にあれば書かない（sai-phone の再読込防止）
     if let Ok(existing) = std::fs::read_to_string(&final_path) {
@@ -699,7 +699,7 @@ impl Exporter {
     pub fn new(project_root: &Path) -> std::io::Result<Self> {
         let project_name = project_name_for(project_root);
         let dir = export_dir(&project_name).ok_or_else(|| {
-            std::io::Error::other("HOME が未設定のため phone 書き出し先を決められません")
+            std::io::Error::other("HOME is not set, so the phone export destination cannot be decided.")
         })?;
         Ok(Self {
             project_root: project_root.to_path_buf(),
@@ -757,7 +757,7 @@ impl ExportSummary {
     /// 要約 1 行（ログ用）。
     pub fn brief(&self) -> String {
         format!(
-            "{} 件書く / {} 件省略 / {} 件失敗",
+            "{} written / {} skipped / {} failed",
             self.written, self.skipped, self.failed
         )
     }
@@ -833,7 +833,7 @@ pub fn export_all(store: &SaiStore) -> ExportSummary {
 pub fn export_one(store: &SaiStore, run_id: i64) -> std::io::Result<Option<bool>> {
     let exec = store
         .get_execution_by_id(run_id)
-        .map_err(|e| std::io::Error::other(format!("実行が見つからない: {}", e)))?;
+        .map_err(|e| std::io::Error::other(format!("Run not found: {}", e)))?;
     let project_root = crate::project::project_root();
     let exporter = Exporter::new(&project_root)?;
     exporter.export(store, &exec)

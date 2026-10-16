@@ -19,23 +19,23 @@ use thiserror::Error;
 #[derive(Error, Debug)]
 pub enum DbError {
     /// レコードが見つからない（`get_*` 系操作で該当行がない場合）
-    #[error("レコードが見つかりません: {0}")]
+    #[error("Record not found: {0}")]
     NotFound(String),
 
     /// 重複した名前（`name` UNIQUE 制約違反）
-    #[error("重複したブロック名です: '{0}'")]
+    #[error("Duplicate block name: '{0}'")]
     DuplicateName(String),
 
     /// SQLite エラーのラッパー
-    #[error("データベースエラー: {0}")]
+    #[error("Database error: {0}")]
     Rusqlite(#[from] rusqlite::Error),
 
     /// JSON シリアライズ/デシリアライズエラーのラッパー
-    #[error("JSON エラー: {0}")]
+    #[error("JSON error: {0}")]
     Json(#[from] serde_json::Error),
 
     /// 無効な引数
-    #[error("無効な引数: {0}")]
+    #[error("Invalid argument: {0}")]
     InvalidArgument(String),
 }
 

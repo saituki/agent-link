@@ -29,7 +29,7 @@ fn uuid_pattern_regex() -> &'static regex::Regex {
         regex::Regex::new(
             r"[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}(?:\.jsonl)?$",
         )
-        .expect("UUID 正規表現は常にコンパイル可能")
+        .expect("the UUID regex always compiles")
     })
 }
 
@@ -37,23 +37,23 @@ fn uuid_pattern_regex() -> &'static regex::Regex {
 #[derive(Debug, thiserror::Error)]
 pub enum SessionError {
     /// I/O エラー（ファイル作成・読み取り・削除の失敗）
-    #[error("I/O エラー: {0}")]
+    #[error("I/O error: {0}")]
     IoError(#[from] std::io::Error),
 
     /// JSON パースエラー（セッションファイルの内容が不正な JSONL）
-    #[error("JSON パースエラー: {0}")]
+    #[error("JSON parse error: {0}")]
     JsonParseError(String),
 
     /// セッションファイルが大きすぎる（10MB 超過）
-    #[error("セッションファイルが大きすぎます: {size} bytes (上限 10MB)")]
+    #[error("Session file is too large: {size} bytes (limit 10MB).")]
     FileTooLarge { size: u64 },
 
     /// セッションディレクトリの作成に失敗
-    #[error("セッションディレクトリ作成エラー: {0}")]
+    #[error("Session directory creation error: {0}")]
     CreateDirError(String),
 
     /// セッションファイルの作成に失敗
-    #[error("セッションファイル作成エラー: {0}")]
+    #[error("Session file creation error: {0}")]
     CreateFileError(String),
 }
 
@@ -69,7 +69,7 @@ const MAX_FILE_SIZE: u64 = 10 * 1024 * 1024;
 /// 暗号学的乱数（getrandom）に置き換えた。
 fn random_u32() -> u32 {
     let mut buf = [0u8; 4];
-    getrandom::getrandom(&mut buf).expect("OS の乱数生成に失敗");
+    getrandom::getrandom(&mut buf).expect("failed to get random bytes from the OS");
     u32::from_le_bytes(buf)
 }
 
@@ -117,7 +117,7 @@ pub fn create_session_dir(agent_name: &str) -> Result<PathBuf, SessionError> {
     let base_dir = crate::project::project_root().join(crate::project::PROJECT_DIR).join("sessions");
     fs::create_dir_all(&base_dir).map_err(|e| {
         SessionError::CreateDirError(format!(
-            "セッションベースディレクトリ '{}' の作成に失敗: {}",
+            "Failed to create the session base directory '{}': {}",
             base_dir.display(),
             e
         ))
@@ -126,7 +126,7 @@ pub fn create_session_dir(agent_name: &str) -> Result<PathBuf, SessionError> {
 
     fs::create_dir_all(&dirpath).map_err(|e| {
         SessionError::CreateDirError(format!(
-            "ディレクトリ '{}' の作成に失敗: {}",
+            "Failed to create directory '{}': {}",
             dirpath.display(),
             e
         ))
@@ -189,11 +189,11 @@ pub fn create_session_file(session_dir: &Path, agent_name: &str) -> Result<PathB
     });
 
     let header_line = serde_json::to_string(&header)
-        .map_err(|e| SessionError::CreateFileError(format!("JSON シリアライズ失敗: {}", e)))?;
+        .map_err(|e| SessionError::CreateFileError(format!("JSON serialization failed: {}", e)))?;
 
     fs::write(&filepath, header_line + "\n").map_err(|e| {
         SessionError::CreateFileError(format!(
-            "ファイル '{}' への書き込みに失敗: {}",
+            "Failed to write file '{}': {}",
             filepath.display(),
             e
         ))
@@ -504,7 +504,7 @@ pub fn find_main_session_file(session_dir: &Path) -> Result<PathBuf, SessionErro
         return Err(SessionError::IoError(std::io::Error::new(
             std::io::ErrorKind::NotFound,
             format!(
-                "セッションディレクトリが存在しません: {}",
+                "Session directory does not exist: {}",
                 session_dir.display()
             ),
         )));
@@ -525,7 +525,7 @@ pub fn find_main_session_file(session_dir: &Path) -> Result<PathBuf, SessionErro
         return Err(SessionError::IoError(std::io::Error::new(
             std::io::ErrorKind::NotFound,
             format!(
-                "セッションディレクトリ内に .jsonl ファイルがありません: {}",
+                "No .jsonl file in the session directory: {}",
                 session_dir.display()
             ),
         )));
@@ -1862,7 +1862,7 @@ fn iso_8601_timestamp() -> String {
 /// 16 バイトの暗号学的乱数を 16 進文字列（32 文字）として返します。
 fn generate_session_id() -> String {
     let mut buf = [0u8; 16];
-    getrandom::getrandom(&mut buf).expect("OS の乱数生成に失敗");
+    getrandom::getrandom(&mut buf).expect("failed to get random bytes from the OS");
     let mut hex = String::with_capacity(32);
     for b in buf {
         hex.push_str(&format!("{:02x}", b));

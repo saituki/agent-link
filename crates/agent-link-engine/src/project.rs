@@ -81,20 +81,20 @@ pub fn project_root_checked() -> Result<PathBuf, String> {
                 return Ok(pb);
             }
             return Err(format!(
-                "AGENT_LINK_PROJECT_ROOT のフォルダがありません: {}",
+                "The AGENT_LINK_PROJECT_ROOT folder does not exist: {}",
                 pb.display()
             ));
         }
     }
     let cwd = std::env::current_dir()
-        .map_err(|e| format!("カレントディレクトリを取得できません: {e}"))?;
+        .map_err(|e| format!("Cannot get the current directory: {e}"))?;
     let home = std::env::var_os("HOME")
         .map(PathBuf::from)
         .filter(|p| !p.as_os_str().is_empty());
     if let Some(root) = find_project_root(&cwd, home.as_deref()) {
         return Ok(root);
     }
-    Err("プロジェクトが見つかりません（agent-link init を実行してください）".to_string())
+    Err("Project not found. Run \"agent-link init\".".to_string())
 }
 
 /// `start` から上へたどり、`.agent-link/` を持つ最初のフォルダを返す。

@@ -185,7 +185,7 @@ fn test_validate_disabled_block_warning() {
     let result = validate(&config);
     assert!(result.is_valid());
     assert!(result.has_warnings());
-    assert!(result.warnings.iter().any(|w| w.contains("無効化")));
+    assert!(result.warnings.iter().any(|w| w.contains("disabled")));
 }
 
 #[test]

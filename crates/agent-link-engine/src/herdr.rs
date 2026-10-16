@@ -321,7 +321,7 @@ pub enum HerdrError {
     /// herdr バイナリが見つからない
     ///
     /// `PATH` 上に herdr が存在しない、または実行権限がない場合。
-    #[error("herdr が見つかりません。herdr がインストールされているか確認してください。")]
+    #[error("herdr not found. Check that herdr is installed.")]
     HerdrNotFound,
 
     /// herdr CLI が非ゼロの終了コードを返した
@@ -329,7 +329,7 @@ pub enum HerdrError {
     /// exit_code は `Option<i32>` として保持され、プロセスがシグナルで
     /// 終了した場合は `None` となります。エラーメッセージには含まれませんが、
     /// プログラムからは `exit_code` フィールドで参照可能です。
-    #[error("herdr CLI エラー: {stderr}")]
+    #[error("herdr CLI error: {stderr}")]
     HerdrCliError {
         /// 終了コード（プロセスがシグナルで終了した場合は None）
         exit_code: Option<i32>,
@@ -341,33 +341,33 @@ pub enum HerdrError {
     ///
     /// `split_pane()` 実行時に `focused: true` のペインが
     /// 1つも存在しない場合。
-    #[error("フォーカスされたペインが見つかりません。")]
+    #[error("Focused pane not found.")]
     NoFocusedPane,
 
     /// herdr コマンドの標準出力が空
-    #[error("herdr の出力が空です (コマンド: {command})")]
+    #[error("herdr output is empty (command: {command}).")]
     EmptyOutput {
         /// 実行したコマンド文字列
         command: String,
     },
 
     /// JSON のデシリアライズに失敗
-    #[error("JSON パース失敗: {0}")]
+    #[error("JSON parse error: {0}")]
     JsonParseError(#[from] serde_json::Error),
 
     /// I/O エラー（プロセス起動失敗等）
-    #[error("IO エラー: {0}")]
+    #[error("IO error: {0}")]
     IoError(#[from] std::io::Error),
 
     /// UTF-8 文字列への変換に失敗
-    #[error("UTF-8 変換エラー: {0}")]
+    #[error("UTF-8 conversion error: {0}")]
     Utf8Error(#[from] std::string::FromUtf8Error),
 
     /// herdr API がエラーレスポンスを返した
     ///
     /// コマンドは成功（exit 0）したが、JSON レスポンスに
     /// `error` フィールドが含まれていた場合。
-    #[error("herdr API エラー: {message}")]
+    #[error("herdr API error: {message}")]
     ApiError {
         /// エラーメッセージ
         message: String,
@@ -379,7 +379,7 @@ pub enum HerdrError {
     /// ペインが削除された直後などに herdr CLI がハングすることがあるため、
     /// デーモンの実行パイプラインを保護する（§4.2 ケース3 の耐障害性）。
     #[error(
-        "herdr CLI タイムアウト: {timeout_ms}ms 以内に完了しませんでした (コマンド: {command})"
+        "herdr CLI timed out: not finished within {timeout_ms}ms (command: {command})."
     )]
     HerdrTimeout {
         /// タイムアウト（ミリ秒）
@@ -457,7 +457,7 @@ pub fn layout_for_wip(n: usize, wip: usize) -> (usize, usize) {
 /// herdr が使えないときに返すエラー（sai-tree は headless だけ）。
 fn disabled_error() -> HerdrError {
     HerdrError::ApiError {
-        message: "herdr は使えません（sai-tree は headless だけです）".to_string(),
+        message: "herdr is not available (agent-link runs headless only).".to_string(),
     }
 }
 

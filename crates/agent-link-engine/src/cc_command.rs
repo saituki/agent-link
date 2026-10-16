@@ -600,8 +600,8 @@ pub fn check_project_files(cwd: &Path) -> Result<std::path::PathBuf, String> {
         return Ok(dir);
     }
     Err(format!(
-        "{} および agent-link のプロジェクトルート ({}) に cc の設定（.claude/settings.json）がありません。\
-         プロジェクトルートで `agent-link init` を実行し、.claude/ を commit してください",
+        "No cc settings (.claude/settings.json) found in {} or in the agent-link project root ({}). \
+         Run `agent-link init` in the project root and commit .claude/.",
         cwd.display(),
         crate::project::project_root().display()
     ))

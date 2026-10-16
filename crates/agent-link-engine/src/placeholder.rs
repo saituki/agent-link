@@ -35,7 +35,7 @@ use std::sync::OnceLock;
 fn placeholder_regex() -> &'static regex::Regex {
     static REGEX: OnceLock<regex::Regex> = OnceLock::new();
     REGEX.get_or_init(|| {
-        regex::Regex::new(PLACEHOLDER_PATTERN).expect("プレースホルダー正規表現のコンパイルに失敗")
+        regex::Regex::new(PLACEHOLDER_PATTERN).expect("failed to compile the placeholder regex")
     })
 }
 
@@ -50,7 +50,7 @@ const WAGGLE_TOKEN_PATTERN: &str = r"^waggle:[1-9A-HJ-NP-Za-km-z]{1,23}$";
 fn waggle_ref_regex() -> &'static regex::Regex {
     static REGEX: OnceLock<regex::Regex> = OnceLock::new();
     REGEX.get_or_init(|| {
-        regex::Regex::new(WAGGLE_REF_PATTERN).expect("waggle 参照正規表現のコンパイルに失敗")
+        regex::Regex::new(WAGGLE_REF_PATTERN).expect("failed to compile the waggle reference regex")
     })
 }
 
@@ -58,7 +58,7 @@ fn waggle_ref_regex() -> &'static regex::Regex {
 fn waggle_token_regex() -> &'static regex::Regex {
     static REGEX: OnceLock<regex::Regex> = OnceLock::new();
     REGEX.get_or_init(|| {
-        regex::Regex::new(WAGGLE_TOKEN_PATTERN).expect("waggle トークン正規表現のコンパイルに失敗")
+        regex::Regex::new(WAGGLE_TOKEN_PATTERN).expect("failed to compile the waggle token regex")
     })
 }
 

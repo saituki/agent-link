@@ -80,8 +80,8 @@ fn parse_block_file_with_template_dir(
             .unwrap_or_default();
         if stem != id {
             let msg = format!(
-                "ブロック '{}': frontmatter の id '{}' がファイル名 '{}' と一致しません。\
-                 `agent-link def list` は id で解決するため、ファイル名を '{}.md' に揃えてください。",
+                "Block '{}': the front matter id '{}' does not match the file name '{}'. \
+                 `agent-link def list` resolves blocks by id, so rename the file to '{}.md'.",
                 parsed.config.display_name(),
                 id,
                 path.as_ref().display(),
@@ -222,7 +222,7 @@ pub fn apply_templates(
                 let Some(content) = content else {
                     return Err(ParseError::TemplateError {
                         name: filename.clone(),
-                        message: format!("参照パス: {}", tried.join(", ")),
+                        message: format!("Paths tried: {}", tried.join(", ")),
                     });
                 };
                 parts.push(content.trim_end().to_string());

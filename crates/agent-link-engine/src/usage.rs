@@ -114,7 +114,7 @@ pub fn backfill_execution_usage(
         if find_main_session_file(&session_dir).is_err() {
             report.skipped += 1;
             progress(&format!(
-                "ID{}: セッション jsonl が見つかりません（スキップ）",
+                "ID{}: session jsonl not found (skipped)",
                 exec_id
             ));
             continue;
@@ -124,7 +124,7 @@ pub fn backfill_execution_usage(
             match extract_execution_usage(&session_dir) {
                 Ok(scan) => {
                     progress(&format!(
-                        "ID{}: total(in={}, out={}, cache={}, cost=${:.4}) 内訳 {} 行",
+                        "ID{}: total(in={}, out={}, cache={}, cost=${:.4}), {} breakdown rows",
                         exec_id,
                         scan.total.input,
                         scan.total.output,
@@ -136,7 +136,7 @@ pub fn backfill_execution_usage(
                 }
                 Err(e) => {
                     report.skipped += 1;
-                    progress(&format!("ID{}: 解析に失敗（スキップ）: {}", exec_id, e));
+                    progress(&format!("ID{}: parse failed (skipped): {}", exec_id, e));
                 }
             }
             continue;
@@ -147,10 +147,10 @@ pub fn backfill_execution_usage(
             Ok(Some(total)) => {
                 let cost = match total.cost {
                     Some(c) => format!("{:.4}", c),
-                    None => "不明".to_string(),
+                    None => "unknown".to_string(),
                 };
                 progress(&format!(
-                    "ID{}: total(in={}, out={}, cache={}, cost=${}) を保存",
+                    "ID{}: saved total(in={}, out={}, cache={}, cost=${})",
                     exec_id, total.input, total.output, total.cache, cost
                 ));
                 report.updated += 1;
@@ -158,13 +158,13 @@ pub fn backfill_execution_usage(
             Ok(None) => {
                 report.skipped += 1;
                 progress(&format!(
-                    "ID{}: セッションが見つかりません（スキップ）",
+                    "ID{}: session not found (skipped)",
                     exec_id
                 ));
             }
             Err(e) => {
                 report.skipped += 1;
-                progress(&format!("ID{}: 保存に失敗（スキップ）: {}", exec_id, e));
+                progress(&format!("ID{}: save failed (skipped): {}", exec_id, e));
             }
         }
     }

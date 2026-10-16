@@ -180,19 +180,19 @@ pub struct PipelineResult {
 /// パイプライン実行エラー。
 #[derive(Debug, thiserror::Error)]
 pub enum OrchestratorError {
-    #[error("herdr 操作エラー: {0}")]
+    #[error("herdr operation error: {0}")]
     HerdrError(#[from] HerdrError),
-    #[error("コマンド構築エラー: {0}")]
+    #[error("Command build error: {0}")]
     CommandError(String),
-    #[error("セッションファイルエラー: {0}")]
+    #[error("Session file error: {0}")]
     SessionError(String),
-    #[error("{timeout_ms}ms 以内にエージェントが完了しませんでした")]
+    #[error("The agent did not finish within {timeout_ms}ms.")]
     Timeout { timeout_ms: u64 },
-    #[error("ユーザーによってキャンセルされました")]
+    #[error("Cancelled.")]
     Cancelled,
-    #[error("IO エラー: {0}")]
+    #[error("IO error: {0}")]
     IoError(#[from] std::io::Error),
-    #[error("システムプロンプト一時ファイルエラー: {0}")]
+    #[error("System prompt temp file error: {0}")]
     SystemPromptError(String),
 }
 
@@ -589,7 +589,7 @@ pub fn prepare_pipeline(config: &PipelineConfig) -> Result<PreparedPipeline, Orc
         std::fs::create_dir_all(parent)?;
     }
     let integrator = WaggleIntegrator::open(&waggle_db_path)
-        .map_err(|e| OrchestratorError::CommandError(format!("waggle DB 初期化失敗: {}", e)))?;
+        .map_err(|e| OrchestratorError::CommandError(format!("Failed to initialize the waggle DB: {}", e)))?;
 
     // HashMap<String, String> → HashMap<String, PlaceholderValue>
     let placeholder_values: HashMap<String, PlaceholderValue> = config
@@ -698,7 +698,7 @@ pub fn prepare_pipeline(config: &PipelineConfig) -> Result<PreparedPipeline, Orc
         }
         let cc_cmd = builder.build()
             .map_err(|e| {
-                OrchestratorError::CommandError(format!("cc コマンド構築失敗: {}", e))
+                OrchestratorError::CommandError(format!("Failed to build the cc command: {}", e))
             })?;
         // エージェント側セッション ID（`--session-id` に渡し DB へ保存する）
         (cc_cmd.command, cc_cmd.args, Some(session_id))
@@ -979,7 +979,7 @@ pub fn run_pipeline(config: PipelineConfig) -> Result<PipelineResult, Orchestrat
         PipelineProgress::Failed { error } => Err(OrchestratorError::SessionError(error)),
         PipelineProgress::Cancelled => Err(OrchestratorError::Cancelled),
         _ => Err(OrchestratorError::SessionError(
-            "予期しない終了状態です".to_string(),
+            "Unexpected end state.".to_string(),
         )),
     }
 }
@@ -1064,7 +1064,7 @@ pub fn run_pipeline_with_watcher(
         PipelineProgress::Failed { error } => Err(OrchestratorError::SessionError(error)),
         PipelineProgress::Cancelled => Err(OrchestratorError::Cancelled),
         _ => Err(OrchestratorError::SessionError(
-            "予期しない終了状態です".to_string(),
+            "Unexpected end state.".to_string(),
         )),
     }
 }
@@ -1223,7 +1223,7 @@ pub fn upsert_block_metadata(
     if !vresult.is_valid() {
         let detail: Vec<String> = vresult.errors.iter().map(|e| e.to_string()).collect();
         return Err(OrchestratorError::CommandError(format!(
-            "ブロック '{}' はバリデーションエラーのため登録をスキップします: {}",
+            "Skipped registering block '{}' because of validation errors: {}",
             config.name,
             detail.join("; ")
         )));
@@ -1273,7 +1273,7 @@ pub fn upsert_block_metadata(
     match store.get_block_by_name(config.block_id()) {
         Ok(existing) => {
             let block_id = existing.id.ok_or_else(|| {
-                OrchestratorError::CommandError("既存ブロックに ID がありません".to_string())
+                OrchestratorError::CommandError("The existing block has no ID.".to_string())
             })?;
             let updated = upsert(Some(existing));
             let _ = store.update_block(&updated);
@@ -1282,7 +1282,7 @@ pub fn upsert_block_metadata(
         Err(_) => {
             let new_block = upsert(None);
             store.insert_block(&new_block).map_err(|e| {
-                OrchestratorError::CommandError(format!("ブロック登録に失敗: {}", e))
+                OrchestratorError::CommandError(format!("Failed to register the block: {}", e))
             })
         }
     }
@@ -1343,13 +1343,13 @@ pub fn prepare_execution_record_full(
                 .claim_reserved_run(rid, block_id, user_inputs_json)
                 .map_err(|e| {
                     OrchestratorError::CommandError(format!(
-                        "予約 run の確定に失敗: {}",
+                        "Failed to claim the reserved run: {}",
                         e
                     ))
                 })?;
             // ステータスを running に更新
             store.update_execution_status(rid, "running").map_err(|e| {
-                OrchestratorError::CommandError(format!("ステータス更新に失敗: {}", e))
+                OrchestratorError::CommandError(format!("Failed to update the status: {}", e))
             })?;
             // kanban 実行は呼び出し元が `update_execution_kanban_info` で上書きする
             let _ = store.update_execution_kanban_info(rid, None, "interactive");
@@ -1366,11 +1366,11 @@ pub fn prepare_execution_record_full(
         store
             .claim_reserved_run_for_subtask(rid, block_id, user_inputs_json, pid, batch_id)
             .map_err(|e| {
-                OrchestratorError::CommandError(format!("予約 run の確定に失敗: {}", e))
+                OrchestratorError::CommandError(format!("Failed to claim the reserved run: {}", e))
             })?;
 
         let parent_block_id = store.get_execution_by_id(pid).map_err(|e| {
-            OrchestratorError::CommandError(format!("親実行の取得に失敗: {}", e))
+            OrchestratorError::CommandError(format!("Failed to get the parent run: {}", e))
         })?;
         let parent_block_id = parent_block_id.block_id;
         let delegation_conn = crate::db::BlockConnection::new_task_delegation(
@@ -1382,7 +1382,7 @@ pub fn prepare_execution_record_full(
         let _ = store.insert_connection(&delegation_conn);
 
         store.update_execution_status(rid, "running").map_err(|e| {
-            OrchestratorError::CommandError(format!("ステータス更新に失敗: {}", e))
+            OrchestratorError::CommandError(format!("Failed to update the status: {}", e))
         })?;
         // カード経由の実行は呼び出し元が `update_execution_kanban_info` で `kanban` に上書きする
         let _ = store.update_execution_kanban_info(rid, None, "interactive");
@@ -1396,7 +1396,7 @@ pub fn prepare_execution_record_full(
         Some(pid) => {
             // 親実行からブロック ID を取得して委譲接続を作成
             let parent_exec = store.get_execution_by_id(pid).map_err(|e| {
-                OrchestratorError::CommandError(format!("親実行の取得に失敗: {}", e))
+                OrchestratorError::CommandError(format!("Failed to get the parent run: {}", e))
             })?;
             let parent_block_id = parent_exec.block_id;
 
@@ -1404,7 +1404,7 @@ pub fn prepare_execution_record_full(
                 .create_execution_for_subtask(block_id, user_inputs_json, pid, batch_id)
                 .map_err(|e| {
                     OrchestratorError::CommandError(format!(
-                        "サブタスク実行レコード作成に失敗: {}",
+                        "Failed to create the subtask run record: {}",
                         e
                     ))
                 })?;
@@ -1423,14 +1423,14 @@ pub fn prepare_execution_record_full(
         None => store
             .create_execution(block_id, user_inputs_json)
             .map_err(|e| {
-                OrchestratorError::CommandError(format!("実行レコード作成に失敗: {}", e))
+                OrchestratorError::CommandError(format!("Failed to create the run record: {}", e))
             })?,
     };
 
     // ステータスを running に更新
     store
         .update_execution_status(run_id, "running")
-        .map_err(|e| OrchestratorError::CommandError(format!("ステータス更新に失敗: {}", e)))?;
+        .map_err(|e| OrchestratorError::CommandError(format!("Failed to update the status: {}", e)))?;
 
     // 通常実行は `execution_mode='interactive'` を記録する（kanban 実行は
     // CLI 側が `update_execution_kanban_info` で `kanban` を上書きする）。
@@ -1477,7 +1477,7 @@ pub fn git_toplevel_at(dir: &Path) -> Result<PathBuf, OrchestratorError> {
         .arg(dir)
         .args(["rev-parse", "--show-toplevel"])
         .output()
-        .map_err(|e| OrchestratorError::CommandError(format!("git の実行に失敗: {}", e)))?;
+        .map_err(|e| OrchestratorError::CommandError(format!("Failed to run git: {}", e)))?;
     if output.status.success() {
         let s = String::from_utf8_lossy(&output.stdout).trim().to_string();
         if !s.is_empty() {
@@ -1485,7 +1485,7 @@ pub fn git_toplevel_at(dir: &Path) -> Result<PathBuf, OrchestratorError> {
         }
     }
     Err(OrchestratorError::CommandError(format!(
-        "git リポジトリを解決できません: {}",
+        "Cannot resolve a git repository: {}",
         dir.display()
     )))
 }
@@ -1512,7 +1512,7 @@ pub fn apply_worktree_at(repo_root: &Path, branch: &str) -> Result<PathBuf, Orch
         .current_dir(repo_root)
         .status()
         .map_err(|e| {
-            OrchestratorError::CommandError(format!("git worktree の実行に失敗: {}", e))
+            OrchestratorError::CommandError(format!("Failed to run git worktree: {}", e))
         })?;
 
     if !status.success() {
@@ -1524,11 +1524,11 @@ pub fn apply_worktree_at(repo_root: &Path, branch: &str) -> Result<PathBuf, Orch
             .current_dir(repo_root)
             .status()
             .map_err(|e| {
-                OrchestratorError::CommandError(format!("git worktree の実行に失敗: {}", e))
+                OrchestratorError::CommandError(format!("Failed to run git worktree: {}", e))
             })?;
         if !status2.success() {
             return Err(OrchestratorError::CommandError(format!(
-                "worktree の作成に失敗: {}",
+                "Failed to create the worktree: {}",
                 branch
             )));
         }
@@ -2349,7 +2349,7 @@ pub fn run_subtask(
     // ブロック定義をパース（存在しない場合はエラー）
     if !block_path.exists() {
         return Err(OrchestratorError::CommandError(format!(
-            "ブロック定義ファイルが見つかりません: {} → {}",
+            "Block definition file not found: {} -> {}",
             block_type,
             block_path.display()
         )));
@@ -2364,7 +2364,7 @@ pub fn run_subtask(
     }
 
     let parsed = crate::parser::parse_block_file(&block_path).map_err(|e| {
-        OrchestratorError::CommandError(format!("ブロック定義のパースに失敗: {}", e))
+        OrchestratorError::CommandError(format!("Failed to parse the block definition: {}", e))
     })?;
 
     // P2: サブブロック呼び出し制限（subblocks）と入力検証
@@ -2493,12 +2493,12 @@ fn todo_card_relative_path(card_run_id: i64) -> String {
 pub fn read_todo_card(card_run_id: i64) -> Result<crate::kanban::KanbanCard, String> {
     let path = todo_card_path(card_run_id);
     let text = std::fs::read_to_string(&path)
-        .map_err(|_| format!("todo にカード {} がありません", card_run_id))?;
+        .map_err(|_| format!("Card {} not found in todo.", card_run_id))?;
     let card = crate::kanban::parse_card(&text)
-        .ok_or_else(|| format!("カード {} の task.md を読み取れません", card_run_id))?;
+        .ok_or_else(|| format!("Cannot read task.md of card {}.", card_run_id))?;
     if card.frontmatter.run_id.trim() != card_run_id.to_string() {
         return Err(format!(
-            "todo にカード {} がありません（task.md の run_id: {}）",
+            "Card {} not found in todo (run_id in task.md: {}).",
             card_run_id,
             card.frontmatter.run_id.trim()
         ));
@@ -2522,11 +2522,11 @@ fn validate_subtask_block(
 ) -> Result<(), OrchestratorError> {
     // 親実行 → 親ブロックを取得
     let parent_exec = store.get_execution_by_id(parent_run_id).map_err(|e| {
-        OrchestratorError::CommandError(format!("親実行 {} の取得に失敗: {}", parent_run_id, e))
+        OrchestratorError::CommandError(format!("Failed to get parent run {}: {}", parent_run_id, e))
     })?;
     let parent_block = store.get_block_by_id(parent_exec.block_id).map_err(|e| {
         OrchestratorError::CommandError(format!(
-            "親ブロック {} の取得に失敗: {}",
+            "Failed to get parent block {}: {}",
             parent_exec.block_id, e
         ))
     })?;
@@ -2538,7 +2538,7 @@ fn validate_subtask_block(
         return Ok(());
     }
     let parsed = crate::parser::parse_block_file(&parent_path).map_err(|e| {
-        OrchestratorError::CommandError(format!("親ブロック定義のパースに失敗: {}", e))
+        OrchestratorError::CommandError(format!("Failed to parse the parent block definition: {}", e))
     })?;
 
     is_subblock_allowed(&parent_block.name, &parsed.config.subblocks, block_type)
@@ -2557,8 +2557,8 @@ fn is_subblock_allowed(
     match parent_subblocks {
         // 未指定（None）: subblocks 自体が定義されていない → サブブロックは呼び出せない
         None => Err(OrchestratorError::CommandError(format!(
-            "ブロック '{}' は subblocks が定義されていないため、サブブロックを呼び出せません。\n\
-             ブロック定義書の subblocks: に呼び出し可能ブロックを列挙してください。",
+            "Block '{}' defines no subblocks, so it cannot call subblocks.\n\
+             List the callable blocks under subblocks: in the block definition.",
             parent_name
         ))),
         Some(allowed) => {
@@ -2566,11 +2566,11 @@ fn is_subblock_allowed(
                 Ok(())
             } else {
                 Err(OrchestratorError::CommandError(format!(
-                    "ブロック '{}' は親ブロック '{}' の subblocks に含まれていないため呼び出せません。許可: {}",
+                    "Block '{}' is not in the subblocks of parent block '{}', so it cannot be called. Allowed: {}",
                     block_type,
                     parent_name,
                     if allowed.is_empty() {
-                        "(なし)".to_string()
+                        "(none)".to_string()
                     } else {
                         allowed.join(", ")
                     }
@@ -2668,7 +2668,7 @@ fn execute_pipeline_background(
         match herdr.get_pane_status(pid) {
             Ok(p) => p,
             Err(e) => {
-                let msg = format!("利用予定の pane の取得に失敗 (pane={}): {}", pid, e);
+                let msg = format!("Failed to get the pane to use (pane={}): {}", pid, e);
                 *progress.lock().unwrap() = PipelineProgress::Failed { error: msg };
                 return;
             }
@@ -2677,7 +2677,7 @@ fn execute_pipeline_background(
         match crate::headless::new_pane(cwd_str.as_deref()) {
             Ok(p) => p,
             Err(e) => {
-                let msg = format!("擬似 pane の作成に失敗: {}", e);
+                let msg = format!("Failed to create a pseudo pane: {}", e);
                 *progress.lock().unwrap() = PipelineProgress::Failed { error: msg };
                 return;
             }
@@ -2708,7 +2708,7 @@ fn execute_pipeline_background(
         None => prepared.pi_command.clone(),
     };
     if let Err(e) = herdr.run_in_pane(&pane_info.pane_id, &launch_command) {
-        let msg = format!("エージェント起動に失敗: {}", e);
+        let msg = format!("Failed to start the agent: {}", e);
         *progress.lock().unwrap() = PipelineProgress::Failed { error: msg };
         return;
     }
@@ -2943,7 +2943,7 @@ pub(crate) fn pane_gone_error(finalize_requested: bool) -> Option<&'static str> 
     if finalize_requested {
         None
     } else {
-        Some("エージェントが finalize の前に終了しました（pane が消えました）")
+        Some("The agent exited before finalize (the pane is gone).")
     }
 }
 
@@ -3015,7 +3015,7 @@ fn execute_completion_with_doc_write(
         Ok(i) => i,
         Err(e) => {
             *progress.lock().unwrap() = PipelineProgress::Failed {
-                error: format!("waggle DB の初期化に失敗: {}", e),
+                error: format!("Failed to initialize the waggle DB: {}", e),
             };
 
             return;
@@ -3079,7 +3079,7 @@ fn execute_completion_with_doc_write(
                     deadline = Instant::now() + Duration::from_millis(timeout_ms);
                 } else {
                     *progress.lock().unwrap() = PipelineProgress::Failed {
-                        error: format!("タイムアウト: {}ms 以内にファイナライズ（agent-link run finalize）による完了を検出できませんでした。以降はユーザーが手動で対応してください。", timeout_ms),
+                        error: format!("Timed out: no completion by finalize (agent-link run finalize) was detected within {}ms. Handle the rest manually.", timeout_ms),
                     };
 
                     return;
@@ -3183,7 +3183,7 @@ fn execute_completion_with_doc_write(
                     }
                     if waggle_tokens.is_empty() {
                         *progress.lock().unwrap() = PipelineProgress::Failed {
-                            error: "デーモン停止により中断しました（出力なし）".to_string(),
+                            error: "Interrupted because the daemon stopped (no output).".to_string(),
                         };
                         return;
                     }
@@ -3216,7 +3216,7 @@ fn execute_completion_with_doc_write(
                                     );
                                     *progress.lock().unwrap() = PipelineProgress::Failed {
                                         error: format!(
-                                            "Claude の認証に失敗しました（401）。Account 画面で Claude のログイン（または token）を確かめてください: {}",
+                                            "Claude authentication failed (401). Check the Claude login or token: {}",
                                             line
                                         ),
                                     };
@@ -3304,7 +3304,7 @@ fn execute_completion_with_doc_write(
                 }
                 Err(mpsc::RecvTimeoutError::Disconnected) => {
                     *progress.lock().unwrap() = PipelineProgress::Failed {
-                        error: "デーモンとの接続が切断されました（sai-write 完了判定不能）"
+                        error: "The connection to the daemon was lost (cannot tell whether the run completed)."
                             .to_string(),
                     };
 
@@ -3336,7 +3336,7 @@ fn execute_completion_with_doc_write(
                     Err(_) => {}
                 }
                 *progress.lock().unwrap() = PipelineProgress::Failed {
-                    error: format!("{}ms 以内にエージェントが完了しませんでした", timeout_ms),
+                    error: format!("The agent did not finish within {}ms.", timeout_ms),
                 };
 
                 return;
@@ -3503,7 +3503,7 @@ pub fn send_turn_to_pane(
         Ok(info) => info.cwd.clone(),
         Err(e) => {
             return Err(OrchestratorError::CommandError(format!(
-                "ターン送信先の pane が利用できません: {} ({})",
+                "The pane for sending the turn is not available: {} ({})",
                 pane_id, e
             )))
         }
@@ -3518,7 +3518,7 @@ pub fn send_turn_to_pane(
         let _ = std::fs::create_dir_all(parent);
     }
     let integrator = WaggleIntegrator::open(&waggle_db_path).map_err(|e| {
-        OrchestratorError::CommandError(format!("waggle DB の初期化に失敗: {}", e))
+        OrchestratorError::CommandError(format!("Failed to initialize the waggle DB: {}", e))
     })?;
     let _ = doc_write_notify::ensure_pending_dir();
     let _ = doc_write_notify::ensure_processed_dir();
@@ -3592,7 +3592,7 @@ pub fn send_turn_to_pane(
                 pane_error_count += 1;
                 if pane_error_count >= 3 {
                     return Err(OrchestratorError::CommandError(
-                        "ターン実行中に pane が消滅しました".to_string(),
+                        "The pane disappeared during the turn.".to_string(),
                     ));
                 }
             }
@@ -3733,7 +3733,7 @@ pub(crate) fn submit_prompt_verified(
     // 1. テキストを入力欄へ送る（1 回だけ。再送は確定キーのみ）
     herdr
         .send_text(pane_id, text)
-        .map_err(|e| OrchestratorError::CommandError(format!("テキスト送信に失敗: {}", e)))?;
+        .map_err(|e| OrchestratorError::CommandError(format!("Failed to send text: {}", e)))?;
 
     for attempt in 1..=MAX_ATTEMPTS {
         if cancelled(cancel_flag) {
@@ -3743,7 +3743,7 @@ pub(crate) fn submit_prompt_verified(
         // 2. 入力欄が整うのを待ってから確定キーを送る
         std::thread::sleep(Duration::from_millis(300));
         herdr.send_keys(pane_id, submit_key).map_err(|e| {
-            OrchestratorError::CommandError(format!("確定キー送信に失敗: {}", e))
+            OrchestratorError::CommandError(format!("Failed to send the confirm key: {}", e))
         })?;
 
         // 3. working になるか確認する
@@ -3769,7 +3769,7 @@ pub(crate) fn submit_prompt_verified(
     }
 
     Err(OrchestratorError::CommandError(format!(
-        "プロンプトを送信できませんでした（確定キー {} を {} 回送っても working になりません）",
+        "Could not send the prompt: the status did not become working after sending the confirm key {} {} times.",
         submit_key, MAX_ATTEMPTS
     )))
 }
@@ -4775,11 +4775,11 @@ mod tests {
         let err_timeout = OrchestratorError::Timeout { timeout_ms: 5000 };
         let msg = format!("{}", err_timeout);
         assert!(msg.contains("5000ms"));
-        assert!(msg.contains("以内に"));
+        assert!(msg.contains("within"));
 
         let err_cancelled = OrchestratorError::Cancelled;
         let msg = format!("{}", err_cancelled);
-        assert!(msg.contains("キャンセル"));
+        assert!(msg.contains("Cancelled"));
 
         let err_herdr = OrchestratorError::HerdrError(HerdrError::HerdrNotFound);
         let msg = format!("{}", err_herdr);
@@ -4792,7 +4792,7 @@ mod tests {
         let orch_err: OrchestratorError = session_err.into();
         let msg = format!("{}", orch_err);
         assert!(msg.contains("test error"));
-        assert!(msg.contains("セッションファイル"));
+        assert!(msg.contains("Session file"));
     }
 
     #[test]
@@ -5210,10 +5210,10 @@ mod tests {
 
     #[test]
     fn test_is_subblock_allowed_empty_list() {
-        // 空リスト → すべて拒否（"(なし)" 表示）
+        // 空リスト → すべて拒否（"(none)" 表示）
         let allowed = Some(Vec::new());
         let err = is_subblock_allowed("parent", &allowed, "x").expect_err("空リストは全拒否");
-        assert!(format!("{}", err).contains("(なし)"));
+        assert!(format!("{}", err).contains("(none)"));
     }
 
     // ---------------------------------------------------------------------
@@ -5389,7 +5389,7 @@ mod tests {
         )
         .expect_err("予約行は 1 度しか確定できない");
         assert!(
-            format!("{}", err).contains("予約 run の確定に失敗"),
+            format!("{}", err).contains("Failed to claim the reserved run"),
             "実際のエラー: {}",
             err
         );
@@ -5908,7 +5908,7 @@ mod tests {
     fn pane_gone_error_depends_on_finalize_request() {
         assert_eq!(
             pane_gone_error(false),
-            Some("エージェントが finalize の前に終了しました（pane が消えました）")
+            Some("The agent exited before finalize (the pane is gone).")
         );
         assert_eq!(pane_gone_error(true), None);
     }

@@ -67,7 +67,7 @@ pub fn validate(config: &BlockConfig) -> ValidationResult {
             errors.push(ParseError::InvalidValue {
                 field: "id".to_string(),
                 value: trimmed.to_string(),
-                expected: "[a-z0-9_-]+ パターンに従う機械可読 ID（CLI・コマンドで使用）"
+                expected: "a machine-readable ID matching [a-z0-9_-]+ (used by the CLI and commands)"
                     .to_string(),
             });
         }
@@ -77,13 +77,13 @@ pub fn validate(config: &BlockConfig) -> ValidationResult {
     match &config.description {
         None => {
             warnings.push(format!(
-                "ブロック '{}' に description がありません。空文字として保存されます。",
+                "Block '{}' has no description. It is saved as an empty string.",
                 config.name
             ));
         }
         Some(desc) if desc.trim().is_empty() => {
             warnings.push(format!(
-                "ブロック '{}' の description が空です。",
+                "The description of block '{}' is empty.",
                 config.name
             ));
         }
@@ -96,13 +96,13 @@ pub fn validate(config: &BlockConfig) -> ValidationResult {
     match &config.model {
         None => {
             warnings.push(format!(
-                "ブロック '{}' に model がありません。'inherit' として扱われます。",
+                "Block '{}' has no model. It is treated as 'inherit'.",
                 config.name
             ));
         }
         Some(m) if m.trim().is_empty() => {
             warnings.push(format!(
-                "ブロック '{}' の model が空です。'inherit' として扱われます。",
+                "The model of block '{}' is empty. It is treated as 'inherit'.",
                 config.name
             ));
         }
@@ -125,7 +125,7 @@ pub fn validate(config: &BlockConfig) -> ValidationResult {
             errors.push(ParseError::InvalidValue {
                 field: "timeout".to_string(),
                 value: timeout.to_string(),
-                expected: "1〜3600 の整数".to_string(),
+                expected: "an integer from 1 to 3600".to_string(),
             });
         }
     }
@@ -137,7 +137,7 @@ pub fn validate(config: &BlockConfig) -> ValidationResult {
             errors.push(ParseError::InvalidValue {
                 field: "worktree".to_string(),
                 value: worktree.clone(),
-                expected: "\"none\", \"isolation\", または空でないブランチ名".to_string(),
+                expected: "\"none\", \"isolation\" or a non-empty branch name".to_string(),
             });
         }
     }
@@ -145,7 +145,7 @@ pub fn validate(config: &BlockConfig) -> ValidationResult {
     // enable: Some(false) の場合は警告
     if let Some(false) = config.enable {
         warnings.push(format!(
-            "ブロック '{}' は無効化されています（enable: false）",
+            "Block '{}' is disabled (enable: false).",
             config.name
         ));
     }
@@ -160,7 +160,7 @@ pub fn validate(config: &BlockConfig) -> ValidationResult {
                 errors.push(ParseError::InvalidValue {
                     field: "templates".to_string(),
                     value: t.clone(),
-                    expected: "空でないテンプレートファイル名".to_string(),
+                    expected: "a non-empty template file name".to_string(),
                 });
                 continue;
             }
@@ -171,7 +171,7 @@ pub fn validate(config: &BlockConfig) -> ValidationResult {
                 errors.push(ParseError::InvalidValue {
                     field: "templates".to_string(),
                     value: trimmed.to_string(),
-                    expected: "`PROJECTROOT/.agent-link/template/` 直下のファイル名（パスを含まない）"
+                    expected: "a file name directly under `PROJECTROOT/.agent-link/template/` (no path)"
                         .to_string(),
                 });
             }
@@ -339,7 +339,7 @@ mod tests {
         let result = validate(&config);
         assert!(result.is_valid());
         assert!(result.has_warnings());
-        assert!(result.warnings.iter().any(|w| w.contains("無効化")));
+        assert!(result.warnings.iter().any(|w| w.contains("disabled")));
     }
 
     #[test]

@@ -16,40 +16,40 @@ pub enum ParseError {
     ///
     /// 指定されたパスのファイルが存在しない、読み取り権限がない、
     /// または I/O エラーが発生した場合。
-    #[error("ファイル読み込みエラー: {0}")]
+    #[error("File read error: {0}")]
     IoError(String),
 
     /// YAML パースエラー
     ///
     /// フロントマターの YAML 書式が不正で、`serde_yaml` による
     /// デシリアライズに失敗した場合。
-    #[error("YAML パースエラー: {0}")]
+    #[error("YAML parse error: {0}")]
     YamlError(String),
 
     /// フロントマターが見つからない
     ///
     /// ファイルの先頭が `---` で始まっていない場合。
     /// ブロック定義ファイルは必ず YAML frontmatter を持つ必要があります。
-    #[error("フロントマターが見つかりません: ファイルは `---` で始まる必要があります")]
+    #[error("Front matter not found. The file must start with `---`.")]
     MissingFrontmatter,
 
     /// 閉じ `---` がない
     ///
     /// 開始 `---` 以降で閉じ `---` が見つからない場合。
-    #[error("フロントマターの閉じ `---` が見つかりません")]
+    #[error("Closing `---` of the front matter not found.")]
     UnclosedFrontmatter,
 
     /// 必須フィールド欠落
     ///
     /// `name`、`description`、`model` などの必須フィールドが
     /// 設定されていないか、空文字列の場合。
-    #[error("必須フィールド '{0}' が設定されていません")]
+    #[error("Required field '{0}' is not set.")]
     MissingField(String),
 
     /// 値制約違反
     ///
     /// フィールドの値が許可された値の範囲や列挙値に含まれていない場合。
-    #[error("フィールド '{field}' の値 '{value}' が無効です: {expected}")]
+    #[error("Field '{field}' has invalid value '{value}': {expected}")]
     InvalidValue {
         /// フィールド名
         field: String,
@@ -64,21 +64,21 @@ pub enum ParseError {
     /// `thinking` フィールドに `"none"`, `"low"`, `"medium"`,
     /// `"high"`, `"xhigh"`, `"max"` 以外の値が指定された場合
     /// （旧値 `off` / `minimal` もここに含まれる）。
-    #[error("thinking の値 '{0}' は無効です。'none', 'low', 'medium', 'high', 'xhigh', 'max' のいずれかを指定してください")]
+    #[error("Invalid thinking value '{0}'. Use one of 'none', 'low', 'medium', 'high', 'xhigh', 'max'.")]
     InvalidThinkingLevel(String),
 
     /// 警告（バリデーション警告用）
     ///
     /// ブロックの実行自体は可能だが、注意を促すべき状態
     /// （例: `enable: false`）。
-    #[error("警告: {0}")]
+    #[error("Warning: {0}")]
     Warning(String),
 
     /// テンプレートファイルの読み込みエラー
     ///
     /// `templates` に指定された `.agent-link/template/*.md` が存在しない、
     /// 読み取り権限がない、または I/O エラーが発生した場合。
-    #[error("テンプレート '{name}' の読み込みに失敗: {message}")]
+    #[error("Failed to load template '{name}': {message}")]
     TemplateError {
         /// テンプレートファイル名（例: "tmp1.md"）
         name: String,

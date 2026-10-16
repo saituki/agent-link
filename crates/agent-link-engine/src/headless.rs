@@ -153,7 +153,7 @@ pub(crate) fn read_cwd(dir: &Path) -> Option<String> {
 /// `state.json` を一時ファイル → rename で書く。
 pub(crate) fn write_state(dir: &Path, state: &HeadlessState) -> std::io::Result<()> {
     let text = serde_json::to_string_pretty(state)
-        .map_err(|e| std::io::Error::other(format!("JSON 直列化失敗: {}", e)))?;
+        .map_err(|e| std::io::Error::other(format!("JSON serialization failed: {}", e)))?;
     let tmp = dir.join(".state.json.tmp");
     let dst = dir.join("state.json");
     std::fs::write(&tmp, text)?;
@@ -179,7 +179,7 @@ pub(crate) fn pane_info(id: &str, cwd: Option<&str>, status: &str) -> PaneInfo {
 /// pane が消えたときのエラー。
 pub(crate) fn pane_gone(id: &str) -> HerdrError {
     HerdrError::ApiError {
-        message: format!("pane が見つかりません: {}", id),
+        message: format!("pane not found: {}", id),
     }
 }
 

@@ -91,12 +91,12 @@ pub struct SessionStatsData {
 /// 先頭付近に出す 1〜2 行（子がいない場合は 1 行）を返す。
 ///
 /// ```text
-/// 費用  $0.42（入力 120k・出力 8.1k・キャッシュ 300k）
-/// 子を含めた合計  $1.35（子 3 件、うち費用不明 1 件）
+/// Cost  $0.42 (input 120k, output 8.1k, cache 300k)
+/// Total with children  $1.35 (3 children, 1 with unknown cost)
 /// ```
 ///
 /// - `own` が `None`（usage 未保存）の場合は
-///   `費用  記録なし（agent-link usage backfill で作れます）` の 1 行。
+///   `Cost  not recorded (create it with agent-link usage backfill)` の 1 行。
 /// - 子がある場合のみ「子を含めた合計」の行を追加する。
 /// - 子の費用不明件数は「usage 行が無い子」も含める（どちらも費用不明のため）。
 /// - 費用・トークンの書式は [`crate::fmt::format_cost`] / [`crate::fmt::format_tokens`]。
@@ -104,14 +104,14 @@ pub fn usage_lines(summary: &agent_link_engine::usage::UsageSummary) -> Vec<Stri
     let mut lines = Vec::new();
     match &summary.own {
         Some(t) => lines.push(format!(
-            "費用  {}（入力 {}・出力 {}・キャッシュ {}）",
+            "Cost  {} (input {}, output {}, cache {})",
             format_cost(t.cost),
             format_tokens(t.input),
             format_tokens(t.output),
             format_tokens(t.cache)
         )),
         None => lines.push(
-            "費用  記録なし（agent-link usage backfill で作れます）".to_string(),
+            "Cost  not recorded (create it with agent-link usage backfill)".to_string(),
         ),
     }
     if !summary.children.is_empty() {
@@ -122,15 +122,15 @@ pub fn usage_lines(summary: &agent_link_engine::usage::UsageSummary) -> Vec<Stri
             .count();
         let detail = if unknown > 0 {
             format!(
-                "（子 {} 件、うち費用不明 {} 件）",
+                "({} children, {} with unknown cost)",
                 summary.children.len(),
                 unknown
             )
         } else {
-            format!("（子 {} 件）", summary.children.len())
+            format!("({} children)", summary.children.len())
         };
         lines.push(format!(
-            "子を含めた合計  {}{}",
+            "Total with children  {} {}",
             format_cost(summary.total.cost),
             detail
         ));
@@ -696,7 +696,7 @@ mod usage_lines_tests {
         assert_eq!(lines.len(), 1);
         assert_eq!(
             lines[0],
-            "費用  $0.42（入力 120k・出力 8.1k・キャッシュ 300k）"
+            "Cost  $0.42 (input 120k, output 8.1k, cache 300k)"
         );
     }
 
@@ -712,7 +712,7 @@ mod usage_lines_tests {
         let lines = usage_lines(&s);
         assert_eq!(
             lines,
-            vec!["費用  記録なし（agent-link usage backfill で作れます）".to_string()]
+            vec!["Cost  not recorded (create it with agent-link usage backfill)".to_string()]
         );
     }
 
@@ -728,7 +728,7 @@ mod usage_lines_tests {
         };
         let lines = usage_lines(&s);
         assert_eq!(lines.len(), 1);
-        assert!(lines[0].starts_with("費用  費用不明（"), "{}", lines[0]);
+        assert!(lines[0].starts_with("Cost  cost unknown ("), "{}", lines[0]);
     }
 
     /// 子あり → 2 行目に「子を含めた合計」と費用不明件数。
@@ -750,7 +750,7 @@ mod usage_lines_tests {
         assert_eq!(lines.len(), 2);
         assert_eq!(
             lines[1],
-            "子を含めた合計  $1.35（子 2 件、うち費用不明 1 件）"
+            "Total with children  $1.35 (2 children, 1 with unknown cost)"
         );
     }
 

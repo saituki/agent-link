@@ -89,7 +89,7 @@ pub fn load(store: &agent_link_engine::db::SaiStore, exec_id: i64) -> CacheViewS
     // 実行レコードを取得する。セッションは ~/.claude/projects/ から探す。
     if store.get_execution_by_id(exec_id).is_err() {
         return CacheViewState {
-            error: Some(format!("Stats: 実行レコードが見つかりません (ID{})", exec_id)),
+            error: Some(format!("Stats: run record not found (ID{})", exec_id)),
             ..Default::default()
         };
     }
@@ -101,7 +101,7 @@ pub fn load(store: &agent_link_engine::db::SaiStore, exec_id: i64) -> CacheViewS
     let Some(session_file) = session_file else {
         return CacheViewState {
             error: Some(format!(
-                "Stats: セッション jsonl が見つかりません (ID{})",
+                "Stats: session jsonl not found (ID{})",
                 exec_id
             )),
             ..Default::default()
@@ -117,7 +117,7 @@ pub fn load(store: &agent_link_engine::db::SaiStore, exec_id: i64) -> CacheViewS
         (Ok(metrics), Ok(counts)) => (metrics, counts),
         (Err(e), _) | (_, Err(e)) => {
             return CacheViewState {
-                error: Some(format!("Stats: cc 解析エラー: {}", e)),
+                error: Some(format!("Stats: cc parse error: {}", e)),
                 ..Default::default()
             }
         }

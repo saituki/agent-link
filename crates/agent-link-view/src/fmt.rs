@@ -4,12 +4,12 @@
 ///
 /// - `Some(x)` かつ `x >= 0.01` → `$0.42`（小数 2 桁）
 /// - `Some(x)` かつ `x < 0.01` → `<$0.01`（0 と見せて「安い」と誤解させない）
-/// - `None`（provider が費用を返していない）→ `費用不明`
+/// - `None`（provider が費用を返していない）→ `cost unknown`
 pub fn format_cost(cost: Option<f64>) -> String {
     match cost {
         Some(x) if x < 0.01 => "<$0.01".to_string(),
         Some(x) => format!("${:.2}", x),
-        None => "費用不明".to_string(),
+        None => "cost unknown".to_string(),
     }
 }
 
@@ -87,7 +87,7 @@ mod tests {
         assert_eq!(format_cost(Some(0.0)), "<$0.01");
         assert_eq!(format_cost(Some(0.009)), "<$0.01");
         // 不明は 0 と出さない
-        assert_eq!(format_cost(None), "費用不明");
+        assert_eq!(format_cost(None), "cost unknown");
     }
 
     #[test]
