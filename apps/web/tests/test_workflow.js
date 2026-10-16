@@ -164,7 +164,7 @@ function testCardMarks() {
   assert.strictEqual(wf.wfCardMarks({ status: "running" }).running, true);
   assert.strictEqual(wf.wfCardMarks({ status: "failed" }).failed, true);
   // running の取り残し
-  assert.deepStrictEqual(wf.wfCardMarks({ orphaned: true }).chips, [{ text: "要確認", cls: "warn" }]);
+  assert.deepStrictEqual(wf.wfCardMarks({ orphaned: true }).chips, [{ text: "orphaned", cls: "warn" }]);
 }
 
 function testCardModel() {
@@ -316,8 +316,8 @@ function testStateLabel() {
   assert.strictEqual(wf.wfStateOf({ status: "running" }), "running");
   assert.strictEqual(wf.wfStateOf(null), "");
   assert.strictEqual(wf.wfStateLabel("review"), "review");
-  assert.strictEqual(wf.wfStateLabel("completed"), "完了");
-  assert.strictEqual(wf.wfStateLabel("failed"), "失敗");
+  assert.strictEqual(wf.wfStateLabel("completed"), "completed");
+  assert.strictEqual(wf.wfStateLabel("failed"), "failed");
 }
 
 function testActions() {

@@ -86,16 +86,16 @@ function dfParseHash(hash) {
  */
 function dfValidName(kind, name) {
   const key = String(name == null ? "" : name);
-  if (!key) return { ok: false, message: "名前を入力してください" };
+  if (!key) return { ok: false, message: "Enter a name." };
   if (kind === "settings") {
     return key === DF_SETTINGS_NAME
       ? { ok: true, message: "" }
-      : { ok: false, message: `設定ファイルの名前は ${DF_SETTINGS_NAME} だけです` };
+      : { ok: false, message: `The settings file name must be ${DF_SETTINGS_NAME}.` };
   }
   if (!DF_NAME_RE.test(key)) {
     return {
       ok: false,
-      message: "名前は英字・数字ではじめて、英字・数字・-・_ だけで 64 文字までです",
+      message: "The name must start with a letter or digit and use only letters, digits, - and _ (up to 64 characters).",
     };
   }
   return { ok: true, message: "" };
@@ -109,23 +109,23 @@ function dfTemplate(kind, name, hasSaiBase) {
     "---",
     `name: ${name}`,
     `id: ${name}`,
-    "description: このブロックが何をするかを 1 文で",
+    "description: One sentence on what this block does",
   ];
   if (hasSaiBase) lines.push("templates: sai-base");
-  lines.push("---", "", "# 指示", "", "ここに、このブロックのエージェントへの指示を書く", "");
+  lines.push("---", "", "# Instructions", "", "Write the instructions for this block's agent here.", "");
   return lines.join("\n");
 }
 
 /** 種類と置き場の日本語。 */
 function dfKindLabel(kind) {
-  if (kind === "block") return "ブロック";
-  if (kind === "template") return "テンプレート";
-  if (kind === "settings") return "設定ファイル";
+  if (kind === "block") return "block";
+  if (kind === "template") return "template";
+  if (kind === "settings") return "settings";
   return String(kind || "");
 }
 
 function dfScopeLabel(scope) {
-  return scope === "global" ? "全プロジェクト共通（~/.agent-link）" : "このプロジェクト";
+  return scope === "global" ? "All projects (~/.agent-link)" : "This project";
 }
 
 /**
@@ -161,12 +161,12 @@ function dfTitle(item) {
 function dfRowChips(item) {
   const chips = [];
   if (!item) return chips;
-  if (item.exists === false) chips.push({ text: "まだありません（作れます）", cls: "muted" });
-  else if (item.scope === "global") chips.push({ text: "共通", cls: "ok" });
-  if (item.shadowed) chips.push({ text: "プロジェクト側が使われます", cls: "muted" });
-  if (item.error) chips.push({ text: "⚠ 読めません", cls: "danger" });
+  if (item.exists === false) chips.push({ text: "Not created yet (you can create it)", cls: "muted" });
+  else if (item.scope === "global") chips.push({ text: "Shared", cls: "ok" });
+  if (item.shadowed) chips.push({ text: "The project copy is used", cls: "muted" });
+  if (item.error) chips.push({ text: "⚠ Cannot read", cls: "danger" });
   const used = Array.isArray(item.used_by) ? item.used_by : [];
-  if (used.length > 0) chips.push({ text: `${used.length} 個の block が使っています`, cls: "muted" });
+  if (used.length > 0) chips.push({ text: `Used by ${used.length} block${used.length === 1 ? "" : "s"}`, cls: "muted" });
   return chips;
 }
 
@@ -174,7 +174,7 @@ function dfRowChips(item) {
 function dfUsedByText(usedBy) {
   const list = Array.isArray(usedBy) ? usedBy.filter((x) => x != null && x !== "") : [];
   if (list.length === 0) return "";
-  return `使っている block: ${list.join("、")}`;
+  return `Used by: ${list.join(", ")}`;
 }
 
 // ============================================================================
@@ -286,15 +286,15 @@ function dfRenderList() {
     err.hidden = !dfError;
   }
   if (dfData === null) {
-    body.appendChild(dfNote("読み込み中…"));
+    body.appendChild(dfNote("Loading…"));
     return;
   }
   const items = dfData && Array.isArray(dfData.items) ? dfData.items : [];
   if (items.length === 0) {
     body.appendChild(saiEmpty({
       icon: "⚙️",
-      title: "定義がありません",
-      body: "「＋ 新しく作る」からブロックを作れます。",
+      title: "No definitions",
+      body: "Create a block with \"+ New\".",
     }));
     return;
   }
@@ -304,7 +304,7 @@ function dfRenderList() {
   const add = document.createElement("button");
   add.className = "sai-btn primary";
   add.type = "button";
-  add.textContent = "＋ 新しく作る";
+  add.textContent = "+ New";
   add.addEventListener("click", () => dfOpenCreate());
   top.appendChild(add);
   body.appendChild(top);
@@ -412,7 +412,7 @@ function dfRenderEdit() {
   if (cur.scope === "global") {
     const warn = document.createElement("div");
     warn.className = "df-global-warn";
-    warn.textContent = "全プロジェクト共通の定義です。変えると、すべてのプロジェクトに効きます。";
+    warn.textContent = "This definition is shared by all projects. Changes affect every project.";
     root.appendChild(warn);
   }
 
@@ -441,7 +441,7 @@ function dfRenderEdit() {
   if (!wide) {
     const seg = document.createElement("div");
     seg.className = "dash-seg df-seg";
-    for (const [key, label] of [["edit", "Edit"], ["preview", "プレビュー"]]) {
+    for (const [key, label] of [["edit", "Edit"], ["preview", "Preview"]]) {
       const b = document.createElement("button");
       b.type = "button";
       b.textContent = label;
@@ -531,7 +531,7 @@ function dfDrawPreview(box) {
     } catch (e) {
       const bad = document.createElement("p");
       bad.className = "df-bad";
-      bad.textContent = `JSON として読めません: ${(e && e.message) || ""}`;
+      bad.textContent = `Cannot parse as JSON: ${(e && e.message) || ""}`;
       box.appendChild(bad);
     }
     const pre = document.createElement("pre");
@@ -541,7 +541,7 @@ function dfDrawPreview(box) {
     return;
   }
   if (!dfDraft) {
-    box.appendChild(dfNote("（本文がありません）"));
+    box.appendChild(dfNote("(No content)"));
     return;
   }
   const html = renderMarkdown(dfDraft, { toolbar: true });
@@ -585,9 +585,9 @@ function dfDirty() {
 function dfLeave(hash) {
   if (dfDirty()) {
     saiConfirm({
-      title: "保存していない変更があります",
-      body: "捨てて戻りますか？",
-      ok: "捨てる",
+      title: "You have unsaved changes",
+      body: "Discard them and leave?",
+      ok: "Discard",
       danger: true,
     }).then((ok) => {
       if (!ok) return;
@@ -624,10 +624,10 @@ async function dfSave() {
     dfText = typeof (out && out.text) === "string" ? out.text : dfDraft;
     dfDraft = dfText;
     dfWarnings = (out && Array.isArray(out.warnings)) ? out.warnings : [];
-    saiToast("保存しました", "ok");
+    saiToast("Saved.", "ok");
   } catch (e) {
     // 本文はそのまま残す（保存されていない）
-    dfSaveError = (e && e.message) || "保存できませんでした";
+    dfSaveError = (e && e.message) || "Could not save.";
   } finally {
     dfBusy = false;
     dfRenderEdit();
@@ -639,22 +639,22 @@ async function dfDelete() {
   if (!cur || dfBusy) return;
   const used = dfCurUsedBy();
   const body = used.length > 0
-    ? `次の block が使っています: ${used.join("、")}。消すとそれらは実行できなくなります。`
-    : `${dfKindLabel(cur.kind)}「${cur.name}」を消します。元には戻せません。`;
+    ? `Used by: ${used.join(", ")}. Deleting it will stop those blocks from running.`
+    : `Delete the ${dfKindLabel(cur.kind)} "${cur.name}"? This cannot be undone.`;
   const ok = await saiConfirm({
-    title: "消しますか？",
+    title: "Delete?",
     body,
-    ok: "消す",
+    ok: "Delete",
     danger: true,
   });
   if (!ok) return;
   dfBusy = true;
   try {
     await saiApi(dfItemApi(dfName, cur.kind, cur.scope, cur.name), { method: "DELETE" });
-    saiToast("消しました", "ok");
+    saiToast("Deleted.", "ok");
   } catch (e) {
     dfBusy = false;
-    saiToast((e && e.message) || "消せませんでした", "error");
+    saiToast((e && e.message) || "Could not delete.", "error");
     return;
   }
   dfBusy = false;
@@ -678,7 +678,7 @@ function dfOpenCreate() {
 
   const kindBox = document.createElement("div");
   kindBox.className = "df-choices";
-  for (const [key, label] of [["block", "ブロック"], ["template", "テンプレート"]]) {
+  for (const [key, label] of [["block", "Block"], ["template", "Template"]]) {
     const b = document.createElement("button");
     b.className = "wf-tool" + (key === state.kind ? " active" : "");
     b.type = "button";
@@ -691,11 +691,11 @@ function dfOpenCreate() {
     });
     kindBox.appendChild(b);
   }
-  body.appendChild(dfFieldLabel("種類", kindBox));
+  body.appendChild(dfFieldLabel("Kind", kindBox));
 
   const scopeBox = document.createElement("div");
   scopeBox.className = "df-choices";
-  for (const [key, label] of [["project", "このプロジェクト"], ["global", "全プロジェクト共通"]]) {
+  for (const [key, label] of [["project", "This project"], ["global", "All projects"]]) {
     const b = document.createElement("button");
     b.className = "wf-tool" + (key === state.scope ? " active" : "");
     b.type = "button";
@@ -707,7 +707,7 @@ function dfOpenCreate() {
     });
     scopeBox.appendChild(b);
   }
-  body.appendChild(dfFieldLabel("置き場", scopeBox));
+  body.appendChild(dfFieldLabel("Location", scopeBox));
 
   const nameInput = document.createElement("input");
   nameInput.type = "text";
@@ -723,11 +723,11 @@ function dfOpenCreate() {
   nameMsg.className = "df-name-msg";
   const nameField = document.createElement("div");
   nameField.append(nameInput, nameMsg);
-  body.appendChild(dfFieldLabel("名前（英数字・-・_ の 64 文字まで）", nameField));
+  body.appendChild(dfFieldLabel("Name (letters, digits, - and _; up to 64 characters)", nameField));
 
   const fromBox = document.createElement("div");
   fromBox.className = "df-choices";
-  for (const [key, label] of [["empty", "空のひな形"], ["copy", "今ある定義を写す"]]) {
+  for (const [key, label] of [["empty", "Empty template"], ["copy", "Copy an existing definition"]]) {
     const b = document.createElement("button");
     b.className = "wf-tool" + (key === state.from ? " active" : "");
     b.type = "button";
@@ -740,7 +740,7 @@ function dfOpenCreate() {
     });
     fromBox.appendChild(b);
   }
-  body.appendChild(dfFieldLabel("元にする物", fromBox));
+  body.appendChild(dfFieldLabel("Start from", fromBox));
 
   // 写す元の一覧（今ある block / template）
   const copySelect = document.createElement("select");
@@ -751,14 +751,14 @@ function dfOpenCreate() {
     if (it.exists === false) continue;
     const opt = document.createElement("option");
     opt.value = `${it.kind}/${it.scope}/${it.name}`;
-    opt.textContent = `${dfTitle(it) || it.name}（${dfScopeLabel(it.scope)}）`;
+    opt.textContent = `${dfTitle(it) || it.name} (${dfScopeLabel(it.scope)})`;
     copySelect.appendChild(opt);
   }
   copySelect.addEventListener("change", () => { state.source = copySelect.value; });
   const copyField = document.createElement("div");
   copyField.appendChild(copySelect);
   copyField.hidden = true;
-  body.appendChild(dfFieldLabel("写す元", copyField));
+  body.appendChild(dfFieldLabel("Copy from", copyField));
 
   const err = document.createElement("p");
   err.className = "df-box df-box--bad";
@@ -780,7 +780,7 @@ function dfOpenCreate() {
   row.append(cancel, make);
   body.appendChild(row);
 
-  const sheet = saiSheet({ title: "新しく作る", body });
+  const sheet = saiSheet({ title: "New definition", body });
   nameInput.focus();
 }
 
@@ -812,12 +812,12 @@ async function dfCreate(state, errBox, button, sheet) {
         const out = await saiApi(dfItemApi(dfName, src[0], src[1], src[2]));
         if (out && typeof out.text === "string") text = out.text;
       } catch (e) {
-        errBox.textContent = `写す元を読み込めませんでした: ${(e && e.message) || ""}`;
+        errBox.textContent = `Could not load the source: ${(e && e.message) || ""}`;
         errBox.hidden = false;
         return;
       }
     } else {
-      errBox.textContent = "写す元を選んでください";
+      errBox.textContent = "Choose a source to copy.";
       errBox.hidden = false;
       return;
     }
@@ -828,9 +828,9 @@ async function dfCreate(state, errBox, button, sheet) {
       method: "PUT",
       body: { text, create: true },
     });
-    saiToast("作りました", "ok");
+    saiToast("Created.", "ok");
   } catch (e) {
-    errBox.textContent = (e && e.message) || "作れませんでした";
+    errBox.textContent = (e && e.message) || "Could not create.";
     errBox.hidden = false;
     button.disabled = false;
     return;
@@ -862,7 +862,7 @@ async function dfLoadList() {
     dfError = "";
   } catch (e) {
     if (dfName !== name) return;
-    dfError = (e && e.message) || "読み込めませんでした";
+    dfError = (e && e.message) || "Could not load.";
     dfData = { items: [] };
   }
   dfRenderList();
@@ -880,7 +880,7 @@ async function dfLoadOne() {
   } catch (e) {
     dfText = "";
     dfWarnings = [];
-    dfError = (e && e.message) || "読み込めませんでした";
+    dfError = (e && e.message) || "Could not load.";
   }
   dfDraft = dfText;
 }
@@ -967,9 +967,9 @@ if (typeof window !== "undefined") {
       return;
     }
     saiConfirm({
-      title: "保存していない変更があります",
-      body: "捨てて戻りますか？",
-      ok: "捨てる",
+      title: "You have unsaved changes",
+      body: "Discard them and leave?",
+      ok: "Discard",
       danger: true,
     }).then((ok) => {
       if (ok) {

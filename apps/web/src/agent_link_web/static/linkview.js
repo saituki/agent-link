@@ -47,7 +47,7 @@ const LV_MODES = [
   ["list", "List"],
   ["defs", "Settings"],
   // 専用の画面（プロジェクトごとの命令・共有契約 C-F7）
-  ["sessions", "会話検索"],
+  ["sessions", "Session search"],
 ];
 // 最後に見ていた Project の画面をプロジェクトごとに覚える（localStorage・計画 14 §6・C-F7）
 const LV_MODE_KEY = "agent_link_web_link_mode";
@@ -548,7 +548,7 @@ function lvRenderMsg() {
 async function lvFetchJson(path) {
   const res = await apiFetch(path);
   const body = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(body.detail || "読み込めませんでした");
+  if (!res.ok) throw new Error(body.detail || "Could not load.");
   return body;
 }
 
@@ -564,7 +564,7 @@ async function lvLoadTree(seq) {
     return true;
   } catch (e) {
     if (seq != null && seq !== lvSeq) return false;
-    lvTreeError = (e && e.message) || "ツリーを読み込めませんでした";
+    lvTreeError = (e && e.message) || "Could not load the tree.";
     if (!Array.isArray(lvTree)) lvTree = [];
     window.SaiShell.fail();
     return false;
@@ -646,7 +646,7 @@ async function openList(params) {
     if (body) {
       body.innerHTML = "";
       body.appendChild(
-        el("p", "st-note", "左のツリーから実行を選ぶと中身が出ます")
+        el("p", "st-note", "Choose a run in the tree on the left to see its contents.")
       );
     }
     return;
@@ -720,14 +720,14 @@ function lvRenderActions() {
       // エージェントが起こすカードは人が動かさない（理由を出す・U1）。
       const note = document.createElement("span");
       note.className = "lv-run-note";
-      note.appendChild(document.createTextNode("エージェントが起こす "));
+      note.appendChild(document.createTextNode("Started by an agent "));
       // 用語集に `agent` の項目があれば札を付け、無ければ付けない（U12）。
       if (
         typeof saiTerm === "function" &&
         typeof saiTermText === "function" &&
         saiTermText("agent")
       ) {
-        note.appendChild(saiTerm("agent", "エージェントが起こす"));
+        note.appendChild(saiTerm("agent", "Started by an agent"));
       }
       box.appendChild(note);
     } else {
@@ -761,10 +761,10 @@ async function lvSchedule() {
     current = lvScheduledAt(md.text || "");
   } catch { /* 読めなくても決められる */ }
   const at = await saiPrompt({
-    title: "実行予定時刻",
-    body: "この時刻になると Mac の常駐が実行します。空にすると予約を取り消します。",
+    title: "Scheduled time",
+    body: "The daemon on the Mac runs this card at this time. Leave empty to cancel the schedule.",
     value: current,
-    placeholder: "例: 2026-10-01 09:00",
+    placeholder: "e.g. 2026-10-01 09:00",
     ok: "Schedule",
   });
   if (at === null) return;
@@ -777,12 +777,12 @@ async function lvSchedule() {
       body: JSON.stringify({ at: at.trim() }),
     });
     const out = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(out.detail || "予約できませんでした");
+    if (!res.ok) throw new Error(out.detail || "Could not schedule.");
     window.SaiShell.ok();
-    lvSetMsg(out.scheduled_at ? `${out.scheduled_at} に実行します` : "予約を取り消しました", false);
+    lvSetMsg(out.scheduled_at ? `Scheduled for ${out.scheduled_at}.` : "Schedule cancelled.", false);
   } catch (e) {
     window.SaiShell.fail();
-    lvSetMsg((e && e.message) || "予約できませんでした", true);
+    lvSetMsg((e && e.message) || "Could not schedule.", true);
   } finally {
     lvBusy = false;
     lvRenderActions();
@@ -795,7 +795,7 @@ async function lvDelete() {
   const label = (lvRun && lvRun.label) || `ID${lvRunId}`;
   const ok = await saiConfirm({
     title: "Delete",
-    body: `${label} を消します。子の実行と成果物のフォルダも消え、元に戻せません。`,
+    body: `Delete ${label}? Its subtask runs and output folders are deleted too. This cannot be undone.`,
     ok: "Delete",
     danger: true,
   });
@@ -808,13 +808,13 @@ async function lvDelete() {
       { method: "DELETE" }
     );
     const out = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(out.detail || "消せませんでした");
+    if (!res.ok) throw new Error(out.detail || "Could not delete.");
     window.SaiShell.ok();
-    saiToast(`${label} を消しました`);
+    saiToast(`Deleted ${label}.`);
     location.hash = listHash(lvName, null, null);
   } catch (e) {
     window.SaiShell.fail();
-    lvSetMsg((e && e.message) || "消せませんでした", true);
+    lvSetMsg((e && e.message) || "Could not delete.", true);
   } finally {
     lvBusy = false;
     lvRenderActions();
@@ -825,7 +825,7 @@ async function lvDelete() {
 async function lvAdvance(adv) {
   if (lvBusy || lvRunId == null || !adv) return;
   const label = (lvRun && lvRun.label) || `ID${lvRunId}`;
-  if (!confirm(`${label} を ${adv.to} へ移します。よろしいですか？`)) return;
+  if (!confirm(`Move ${label} to ${adv.to}?`)) return;
   lvBusy = true;
   lvRenderActions();
   try {
@@ -834,15 +834,15 @@ async function lvAdvance(adv) {
       { method: "POST" }
     );
     const out = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(out.detail || "移せませんでした");
+    if (!res.ok) throw new Error(out.detail || "Could not move.");
     window.SaiShell.ok();
-    lvSetMsg(`ID${lvRunId} を Workflow（${out.to || adv.to}）へ移しました`, false);
+    lvSetMsg(`Moved ID${lvRunId} to Workflow (${out.to || adv.to}).`, false);
     await lvLoadTree(lvSeq); // 置き場所が変わったのでツリーを取り直す
     lvRun = findRun(lvTree, lvRunId);
     lvRenderHead();
   } catch (e) {
     window.SaiShell.fail();
-    lvSetMsg((e && e.message) || "移せませんでした", true);
+    lvSetMsg((e && e.message) || "Could not move.", true);
   } finally {
     lvBusy = false;
     lvRenderActions();
@@ -853,7 +853,7 @@ async function lvRunTodo() {
   if (lvBusy || lvRunId == null) return;
   const label = (lvRun && lvRun.label) || `ID${lvRunId}`;
   // 確認は既存の ▶ 実行と同じ動き（実行はエージェントを動かすため必ず聞く・計画 15）
-  if (!confirm(`このカードを実行しますか？\n\n${label}`)) return;
+  if (!confirm(`Run this card?\n\n${label}`)) return;
   lvBusy = true;
   lvRenderActions();
   try {
@@ -862,15 +862,15 @@ async function lvRunTodo() {
       { method: "POST" }
     );
     const out = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(out.detail || "送れませんでした");
+    if (!res.ok) throw new Error(out.detail || "Could not send.");
     window.SaiShell.ok();
-    lvSetMsg(out.message || "実行を要求しました", false);
+    lvSetMsg(out.message || "Run requested.", false);
     await lvLoadTree(lvSeq); // todo から動いたはずなのでツリーを取り直す
     lvRenderHead();
   } catch (e) {
     window.SaiShell.fail();
     // 404「未実行のカードが見つかりません」も 502（常駐停止など）もここに 1 行で出る
-    lvSetMsg((e && e.message) || "送れませんでした", true);
+    lvSetMsg((e && e.message) || "Could not send.", true);
   } finally {
     lvBusy = false;
     lvRenderActions();
@@ -885,7 +885,7 @@ async function lvLoadContent(seq) {
   lvEditing = false;
   lvSaving = false;
   lvSetMsg("");
-  body.innerHTML = "<p class='st-note'>読み込み中…</p>";
+  body.innerHTML = "<p class='st-note'>Loading…</p>";
   const base = `/api/projects/${encodeURIComponent(lvName)}/runs/${lvRunId}`;
   try {
     if (lvView === "log") {
@@ -908,7 +908,7 @@ async function lvLoadContent(seq) {
   } catch (e) {
     if (seq !== lvSeq) return;
     window.SaiShell.fail();
-    const msg = (e && e.message) || "読み込めませんでした";
+    const msg = (e && e.message) || "Could not load.";
     lvSetMsg(msg, true); // 「まだありません」（404）もここに 1 行で出る
     body.innerHTML = "";
     body.appendChild(el("p", "st-note", msg));
@@ -925,7 +925,7 @@ async function lvLoadSummary(seq, base) {
     ["log", "stats", "history"].map((v) =>
       lvFetchJson(`${base}/view/${v}`).then(
         (d) => ({ d }),
-        (e) => ({ err: (e && e.message) || "読み込めませんでした" })
+        (e) => ({ err: (e && e.message) || "Could not load." })
       )
     )
   );
@@ -973,7 +973,7 @@ function lvRenderLog(data) {
   const body = lvBody();
   const sections = logSections(data);
   if (sections.length === 0) {
-    body.appendChild(el("p", "st-note", "表示できる項目がありません"));
+    body.appendChild(el("p", "st-note", "Nothing to show."));
     return;
   }
   for (const s of sections) {
@@ -1003,7 +1003,7 @@ function lvRenderLog(data) {
 // Summary の表（2〜5 の部品）。カードを作る小さな関数に分けて使い回す。
 const LV_DETAILS = [
   ["table", "Per-message table"],
-  ["timeline", "タイムライン"],
+  ["timeline", "Timeline"],
 ];
 
 // 2. 大きな数字（入力 / 出力 / 読 / 書 / 費用 / ヒット率）
@@ -1072,7 +1072,7 @@ function lvChartCard(data) {
   const series = statsSeries(data, lvChartMode);
   const values = series.flatMap((s) => s.values);
   if (values.length === 0) {
-    chart.appendChild(el("p", "st-note", "データがありません"));
+    chart.appendChild(el("p", "st-note", "No data."));
   } else {
     chart.appendChild(lvLineSvg(series));
     const legend = el("div", "lv-legend");
@@ -1097,7 +1097,7 @@ function lvChartCard(data) {
 /** Per-message table（表は横にはみ出す分だけスクロール・計画 14 §1.4）。 */
 function lvTableBody(data) {
   const msgs = Array.isArray(data.messages) ? data.messages : [];
-  if (msgs.length === 0) return el("p", "st-note", "データがありません");
+  if (msgs.length === 0) return el("p", "st-note", "No data.");
   const wrap = el("div", "lv-scroll-x");
   const table = el("table", "lv-table");
   const head = el("tr");
@@ -1264,8 +1264,8 @@ function lvLineSvg(series) {
   }
   svg.setAttribute(
     "aria-label",
-    `${series.map((s) => s.name).join("・")}の推移（${n} 通）。` +
-      (at > 0 ? `最大 ${saiAxisValue(dataMax, unit)}（${at} 通目）。` : "")
+    `Trend of ${series.map((s) => s.name).join(", ")} (${n} messages). ` +
+      (at > 0 ? `Max ${saiAxisValue(dataMax, unit)} (message ${at}).` : "")
   );
   return svg;
 }
@@ -1280,9 +1280,9 @@ function lvHistHeadEl(data) {
 
 function lvTypeCard(data) {
   const slices = typeSlices(data.type_tokens);
-  const card = lvCard("種類別トークン");
+  const card = lvCard("Tokens by type");
   if (slices.length === 0) {
-    card.appendChild(el("p", "st-note", "データがありません"));
+    card.appendChild(el("p", "st-note", "No data."));
     return card;
   }
   const R = 38;
@@ -1296,9 +1296,9 @@ function lvTypeCard(data) {
     class: "st-donut",
     role: "img",
     "aria-label":
-      `種類別トークンの割合のドーナツ。合計 ${formatTokens(total)} トークン` +
-      `。最も多いのは${biggest.label} ${formatTokens(biggest.value)}` +
-      `（${Math.round(biggest.ratio * 100)}%）`,
+      `Donut chart of the token share by type. Total ${formatTokens(total)} tokens` +
+      `. Largest: ${biggest.label} ${formatTokens(biggest.value)}` +
+      ` (${Math.round(biggest.ratio * 100)}%)`,
   });
   let start = 0;
   slices.forEach((s, i) => {
@@ -1321,7 +1321,7 @@ function lvTypeCard(data) {
   wrap.appendChild(svg);
   const center = el("div", "st-donut-center");
   center.appendChild(el("strong", "st-donut-total", formatTokens(total)));
-  center.appendChild(el("span", "st-donut-cap", "合計"));
+  center.appendChild(el("span", "st-donut-cap", "Total"));
   wrap.appendChild(center);
   card.appendChild(wrap);
 
@@ -1346,9 +1346,9 @@ function lvTypeCard(data) {
 function lvTimelineBody(data) {
   const events = Array.isArray(data.events) ? data.events : [];
   const box = el("div", null);
-  box.appendChild(el("div", "lv-sub", `タイムライン（${events.length}）`));
+  box.appendChild(el("div", "lv-sub", `Timeline (${events.length})`));
   if (events.length === 0) {
-    box.appendChild(el("p", "st-note", "データがありません"));
+    box.appendChild(el("p", "st-note", "No data."));
   } else {
     for (const ev of events) box.appendChild(lvTimelineRow(ev));
   }
@@ -1366,11 +1366,11 @@ function lvTimelineRow(ev) {
   if (LV_TYPES.includes(type)) chip.style.background = LV_TYPE_COLORS[idx];
   row.appendChild(chip);
   row.appendChild(el("span", "lv-tl-name", info.name));
-  if (info.failed) row.appendChild(el("span", "lv-tl-fail", "失敗"));
+  if (info.failed) row.appendChild(el("span", "lv-tl-fail", "failed"));
   row.appendChild(el("span", "lv-tl-tokens", formatTokens(lvNum(ev && ev.tokens))));
 
   // 全文の釦: 番号が無いときは 1 段目に、あるときは 2 段目（番号のチップと並べる）
-  const openBtn = info.canOpen ? el("button", "lv-tl-open", "全文") : null;
+  const openBtn = info.canOpen ? el("button", "lv-tl-open", "Full text") : null;
   if (openBtn) {
     openBtn.type = "button";
     openBtn.addEventListener("click", () => void lvOpenCall(ev));
@@ -1398,33 +1398,33 @@ function lvTimelineRow(ev) {
 
 /** `cli`（C11）の集計のカード: 命令の表・失敗の分類。 */
 function lvCliCard(cli) {
-  const card = lvCard("CLI の呼び出し");
+  const card = lvCard("CLI calls");
   if (cli.calls.length === 0) {
-    card.appendChild(el("p", "st-note", "CLI の呼び出しはありません"));
+    card.appendChild(el("p", "st-note", "No CLI calls."));
   } else {
     const table = el("table", "lv-cli-table");
     const head = el("tr");
-    for (const t of ["命令", "回数", "失敗"]) head.appendChild(el("th", "", t));
+    for (const t of ["Command", "Count", "Failed"]) head.appendChild(el("th", "", t));
     table.appendChild(head);
     for (const c of cli.calls) {
       const tr = el("tr");
       tr.appendChild(el("td", "lv-cli-cmd", c.command));
       tr.appendChild(el("td", "lv-cli-num", String(c.count)));
       tr.appendChild(
-        el("td", c.errors > 0 ? "lv-cli-num lv-fail" : "lv-cli-num", c.errors > 0 ? `${c.errors} 件` : "0")
+        el("td", c.errors > 0 ? "lv-cli-num lv-fail" : "lv-cli-num", c.errors > 0 ? String(c.errors) : "0")
       );
       table.appendChild(tr);
     }
     card.appendChild(table);
   }
-  card.appendChild(el("div", "lv-cli-sub", "失敗の分類"));
+  card.appendChild(el("div", "lv-cli-sub", "Failure classes"));
   if (cli.failures.length === 0) {
-    card.appendChild(el("p", "st-note", "失敗はありません"));
+    card.appendChild(el("p", "st-note", "No failures."));
   } else {
     const legend = el("div", "lv-legend");
     for (const f of cli.failures) {
       const row = el("div", "lv-leg");
-      row.append(el("span", "lv-leg-name", f.label), el("span", "lv-leg-num", `${f.count} 件`));
+      row.append(el("span", "lv-leg-name", f.label), el("span", "lv-leg-num", String(f.count)));
       legend.appendChild(row);
     }
     card.appendChild(legend);
@@ -1435,20 +1435,20 @@ function lvCliCard(cli) {
 /** 呼び出しの全文を小窓で開く。押したときだけ取る（History の JSON を小さく保つ・U14）。 */
 async function lvOpenCall(ev) {
   const body = el("div", "lv-call");
-  body.appendChild(el("p", "st-note", "読み込み中…"));
-  saiSheet({ title: lvCallName(ev) || "呼び出し", body });
+  body.appendChild(el("p", "st-note", "Loading…"));
+  saiSheet({ title: lvCallName(ev) || "Call", body });
   const base = `/api/projects/${encodeURIComponent(lvName)}/runs/${lvRunId}`;
   try {
     const d = await lvFetchJson(`${base}/history/calls/${encodeURIComponent(ev.call_id)}`);
     body.innerHTML = "";
-    body.appendChild(el("div", "lv-call-label", "入力"));
+    body.appendChild(el("div", "lv-call-label", "Input"));
     body.appendChild(el("pre", "lv-call-pre", lvPrettyInput(d.input)));
-    body.appendChild(el("div", "lv-call-label", d.is_error === true ? "結果（失敗）" : "結果"));
+    body.appendChild(el("div", "lv-call-label", d.is_error === true ? "Result (failed)" : "Result"));
     body.appendChild(el("pre", "lv-call-pre", String(d.result || "")));
-    if (d.truncated === true) body.appendChild(el("p", "st-note", "（2 万字で切りました）"));
+    if (d.truncated === true) body.appendChild(el("p", "st-note", "(Truncated at 20,000 characters.)"));
   } catch (e) {
     body.innerHTML = "";
-    body.appendChild(el("p", "st-note", (e && e.message) || "読み込めませんでした"));
+    body.appendChild(el("p", "st-note", (e && e.message) || "Could not load."));
   }
 }
 
@@ -1473,10 +1473,10 @@ function lvIdChips(ids, max) {
 }
 
 const LV_FAILURE_LABELS = {
-  input: "入力の誤り（2）",
-  not_found: "見つからない（3）",
-  conflict: "状態の衝突（4）",
-  other: "その他",
+  input: "Invalid input (2)",
+  not_found: "Not found (3)",
+  conflict: "State conflict (4)",
+  other: "Other",
 };
 
 /** 失敗の分類の名前（`cli.failures[].class`）。表に無い分類は、分類の文字をそのまま出す。 */
@@ -1531,7 +1531,7 @@ function lvPrettyInput(text) {
 function lvClock(iso) {
   const d = new Date(String(iso || ""));
   if (isNaN(d)) return "";
-  return d.toLocaleTimeString("ja-JP", {
+  return d.toLocaleTimeString("en-US", {
     hour: "2-digit",
     minute: "2-digit",
     second: "2-digit",
@@ -1566,7 +1566,7 @@ function lvDrawMd() {
     ta.addEventListener("input", () => { lvDraft = ta.value; });
     body.appendChild(ta);
     const row = el("div", "lv-edit-row");
-    const save = el("button", "paper-btn", lvSaving ? "保存中…" : "Save");
+    const save = el("button", "paper-btn", lvSaving ? "Saving…" : "Save");
     save.disabled = lvSaving;
     save.addEventListener("click", () => void lvSaveMd());
     const cancel = el("button", "paper-btn", "Cancel");
@@ -1582,7 +1582,7 @@ function lvDrawMd() {
   }
   if (lvCanEdit(lvView, lvRun)) {
     const row = el("div", "lv-edit-row");
-    const edit = el("button", "paper-btn", lvMdText ? "Edit" : "書く");
+    const edit = el("button", "paper-btn", lvMdText ? "Edit" : "Write");
     edit.addEventListener("click", () => {
       lvEditing = true;
       lvDraft = lvMdText || "";
@@ -1597,7 +1597,7 @@ function lvDrawMd() {
     md.innerHTML = renderMarkdown(lvMdText, { toolbar: true });
     body.appendChild(md);
   } else {
-    body.appendChild(el("p", "st-note", "まだありません"));
+    body.appendChild(el("p", "st-note", "None yet."));
   }
 }
 
@@ -1618,17 +1618,17 @@ async function lvSaveMd() {
       }
     );
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.detail || "保存できませんでした");
+    if (!res.ok) throw new Error(data.detail || "Could not save.");
     if (seq !== lvSeq) return; // その間に別の表示を開いた
     lvSaving = false;
     lvEditing = false;
-    lvSetMsg("保存しました");
+    lvSetMsg("Saved.");
     lvRenderMd(data);
   } catch (e) {
     if (seq !== lvSeq) return;
     // 書きかけは消さずに残す（直してもう一度押せる）
     lvSaving = false;
-    lvSetMsg((e && e.message) || "保存できませんでした", true);
+    lvSetMsg((e && e.message) || "Could not save.", true);
     lvDrawMd();
   }
 }
@@ -1640,10 +1640,10 @@ function lvWaggleName(item) {
 
 /** ＋: この文書を task_text に貼った状態で task.md の作成フォームを開く。 */
 function lvWaggleAdd(item) {
-  const b = el("button", "lv-waggle-add", "＋");
+  const b = el("button", "lv-waggle-add", "+");
   b.type = "button";
-  b.setAttribute("aria-label", "この文書で task.md を作る");
-  b.title = "この文書で task.md を作る";
+  b.setAttribute("aria-label", "Create a task.md from this document");
+  b.title = "Create a task.md from this document";
   b.addEventListener("click", (e) => {
     e.stopPropagation();
     if (typeof cfOpen === "function") void cfOpen({ ref: item.ref });
@@ -1707,9 +1707,9 @@ async function lvLoadOutputs(seq, base) {
 
   const wcard = lvCard("waggle");
   if (todo) {
-    wcard.appendChild(el("p", "st-note", "実行の後に成果物が出ます"));
+    wcard.appendChild(el("p", "st-note", "Outputs appear after the run."));
   } else if (items.length === 0) {
-    wcard.appendChild(el("p", "st-note", "成果物はありません"));
+    wcard.appendChild(el("p", "st-note", "No outputs."));
   } else {
     for (const item of items) {
       const line = el("div", "lv-waggle-line");
@@ -1772,7 +1772,7 @@ function lvRenderDrawer() {
   const rows = flattenTree(lvTree || [], lvFolds === null ? defaultOpenIds(lvTree) : lvFolds);
   if (rows.length === 0) {
     nav.appendChild(
-      el("p", "lv-drawer-note", lvTreeError || (lvTree ? "実行がありません" : "読み込み中…"))
+      el("p", "lv-drawer-note", lvTreeError || (lvTree ? "No runs." : "Loading…"))
     );
     return;
   }
@@ -1822,7 +1822,7 @@ function lvRenderDrawer() {
       // エージェントが起こす todo には短い印を出す（一覧で分かるように・U1）。
       if (r.lane === "todo" && isAgentRun(r)) {
         const mark = el("span", "lv-run-item-mark", "AI");
-        mark.title = "エージェントが起こす";
+        mark.title = "Started by an agent";
         b.appendChild(mark);
       }
       b.addEventListener("click", () => {
@@ -1852,10 +1852,10 @@ function lvToggleFold(id) {
 function lvSideHead() {
   const row = el("div", "lv-side-head");
   row.appendChild(el("span", "lv-side-label", "Run"));
-  const add = el("button", "lv-side-btn", "＋");
+  const add = el("button", "lv-side-btn", "+");
   add.type = "button";
-  add.setAttribute("aria-label", "タスクを作成");
-  add.title = "task.md を作る";
+  add.setAttribute("aria-label", "New card");
+  add.title = "Create a task.md";
   add.addEventListener("click", () => {
     // 作成フォームは cardform.js のグローバル関数
     if (typeof cfOpen === "function") void cfOpen();
@@ -1863,7 +1863,7 @@ function lvSideHead() {
   const reload = el("button", "lv-side-btn", "↻");
   reload.type = "button";
   reload.setAttribute("aria-label", "Reload");
-  reload.title = "ツリーを読み直す";
+  reload.title = "Reload the tree";
   reload.addEventListener("click", () => { void lvReload(); });
   row.append(add, reload);
   return row;

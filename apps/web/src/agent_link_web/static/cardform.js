@@ -82,7 +82,7 @@ function cfNext(state) {
       return null;
     default:
       // 確認画面は「作成」ボタンで送る（次へは無い）
-      return "これ以上進めません";
+      return "Cannot go further.";
   }
 }
 
@@ -93,7 +93,7 @@ function cfCanSkip(state) {
 
 /** スキップ（その項目は agent-link の既定値に任せる）。止めれば理由を返す。 */
 function cfSkip(state) {
-  if (!cfCanSkip(state)) return "スキップできません";
+  if (!cfCanSkip(state)) return "Cannot skip this step.";
   switch (state.step) {
     case "block":
       state.block = "";
@@ -112,7 +112,7 @@ function cfSkip(state) {
       state.step = "confirm";
       return null;
     default:
-      return "スキップできません";
+      return "Cannot skip this step.";
   }
 }
 
@@ -275,7 +275,7 @@ function cfSetError(text) {
 async function cfFetchJson(path) {
   const res = await apiFetch(path);
   const body = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(body.detail || "読み込めませんでした");
+  if (!res.ok) throw new Error(body.detail || "Could not load.");
   return body;
 }
 
@@ -304,7 +304,7 @@ async function cfOpen(opts) {
   if (sheet) sheet.hidden = false;
   const body = document.getElementById("cf-body");
   if (body) body.innerHTML = "";
-  if (body && !cfOptions) body.appendChild(cfNote("読み込み中…"));
+  if (body && !cfOptions) body.appendChild(cfNote("Loading…"));
 
   if (!cfOptions) {
     try {
@@ -314,7 +314,7 @@ async function cfOpen(opts) {
       window.SaiShell.ok();
     } catch (e) {
       window.SaiShell.fail();
-      cfRenderFatal((e && e.message) || "選択肢を読み込めませんでした");
+      cfRenderFatal((e && e.message) || "Could not load the options.");
       return;
     }
   }
@@ -354,7 +354,7 @@ function cfRenderFatal(message) {
   const step = document.getElementById("cf-step");
   if (step) step.textContent = "";
   const title = document.getElementById("cf-name");
-  if (title) title.textContent = "作成フォーム";
+  if (title) title.textContent = "New card";
   cfSetError(message);
   // 進めない・戻れない状態なので，下の 3 つは隠して × だけ残す
   for (const id of ["cf-back", "cf-skip", "cf-next", "cf-restart"]) {
@@ -406,7 +406,7 @@ function cfRenderBody() {
         }
       )
     );
-    body.appendChild(cfNote("指示書を選びます（スキップすると agent-link の既定に任せます）"));
+    body.appendChild(cfNote("Choose an instruction sheet (skip to use the agent-link default)."));
     return;
   }
 
@@ -423,7 +423,7 @@ function cfRenderBody() {
         }
       )
     );
-    if (models.length === 0) body.appendChild(cfNote("選べるモデルがありません"));
+    if (models.length === 0) body.appendChild(cfNote("No models available."));
     return;
   }
 
@@ -440,19 +440,19 @@ function cfRenderBody() {
         }
       )
     );
-    body.appendChild(cfNote("スキップすると settings.json / ブロックの既定に任せます"));
+    body.appendChild(cfNote("Skip to use the default from settings.json or the block."));
     return;
   }
 
   if (info.id === "task_text") {
     body.appendChild(
-      cfNote("何をしてほしいかを書きます（🎤 で音声入力もできます・空でスキップ）")
+      cfNote("Write what you want done (voice input via 🎤 is available; leave empty to skip).")
     );
     const ta = document.createElement("textarea");
     ta.className = "cf-textarea";
     ta.rows = 8;
     ta.value = state.task_text || "";
-    ta.placeholder = "task_text を入力";
+    ta.placeholder = "Enter task_text";
     ta.addEventListener("input", () => {
       state.task_text = ta.value;
       cfSaveDraft(cfName, state);
@@ -463,7 +463,7 @@ function cfRenderBody() {
     const mic = document.createElement("button");
     mic.className = "cf-mic";
     mic.id = "cf-mic";
-    mic.setAttribute("aria-label", "音声入力");
+    mic.setAttribute("aria-label", "Voice input");
     mic.textContent = "🎤";
     mic.addEventListener("click", () => {
       ta.focus();
@@ -483,10 +483,10 @@ function cfRenderBody() {
   // 確認: 選んだ内容の一覧と「作成」
   const payload = cfBuildPayload(state);
   const rows = [
-    ["ブロック", payload.block || "（スキップ）"],
-    ["モデル", payload.model || "（スキップ）"],
-    ["thinking", payload.thinking || "（スキップ）"],
-    ["task_text", (payload.task_text || "").slice(0, 200) || "（空）"],
+    ["Block", payload.block || "(skipped)"],
+    ["Model", payload.model || "(skipped)"],
+    ["thinking", payload.thinking || "(skipped)"],
+    ["task_text", (payload.task_text || "").slice(0, 200) || "(empty)"],
   ];
   for (const [label, value] of rows) {
     const row = el("div", "lv-kv");
@@ -502,17 +502,17 @@ function cfRenderBody() {
  */
 function cfDocsBox(state, ta) {
   const box = el("div", "cf-docs");
-  box.appendChild(el("div", "cf-run-label", "最近の文書（押すと task_text に貼ります・複数可）"));
+  box.appendChild(el("div", "cf-run-label", "Recent documents (tap to paste into task_text; multiple allowed)"));
   const list = el("div", "cf-choices");
   box.appendChild(list);
   const draw = () => {
     list.innerHTML = "";
     if (!Array.isArray(cfDocs)) {
-      list.appendChild(cfNote("読み込み中…"));
+      list.appendChild(cfNote("Loading…"));
       return;
     }
     if (cfDocs.length === 0) {
-      list.appendChild(cfNote("文書がありません"));
+      list.appendChild(cfNote("No documents."));
       return;
     }
     for (const d of cfDocs) {
@@ -572,7 +572,7 @@ function cfRender() {
   const next = document.getElementById("cf-next");
   if (next) {
     next.hidden = false;
-    next.textContent = info.id === "confirm" ? "作成" : "Next";
+    next.textContent = info.id === "confirm" ? "Create" : "Next";
     next.disabled = cfBusy;
   }
   const restart = document.getElementById("cf-restart");
@@ -628,7 +628,7 @@ async function cfCreate() {
       }
     );
     const out = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(out.detail || "作成できませんでした");
+    if (!res.ok) throw new Error(out.detail || "Could not create the card.");
     window.SaiShell.ok();
     cfClearDraft(cfName);
     cfState = null;
@@ -640,7 +640,7 @@ async function cfCreate() {
     }
   } catch (e) {
     window.SaiShell.fail();
-    cfSetError((e && e.message) || "作成できませんでした");
+    cfSetError((e && e.message) || "Could not create the card.");
   } finally {
     cfBusy = false;
     if (cfState) cfRender();

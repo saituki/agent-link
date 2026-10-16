@@ -227,33 +227,33 @@ async function sessOpen(params) {
 
 function sessForm() {
   const form = sessEl("div", "sess-form");
-  form.appendChild(sessInput("sess-word", "検索語（カンマ区切りで AND）", "例: attention, loss"));
+  form.appendChild(sessInput("sess-word", "Search words (comma-separated, AND)", "e.g. attention, loss"));
   const grid = sessEl("div", "sess-grid");
-  grid.appendChild(sessInput("sess-id", "run の番号", "例: 10-20"));
-  grid.appendChild(sessInput("sess-block", "block の名前", "例: worker"));
-  grid.appendChild(sessInput("sess-date", "日付", "例: 2026/09/01-2026/09/30"));
+  grid.appendChild(sessInput("sess-id", "Run ID", "e.g. 10-20"));
+  grid.appendChild(sessInput("sess-block", "Block name", "e.g. worker"));
+  grid.appendChild(sessInput("sess-date", "Date", "e.g. 2026/09/01-2026/09/30"));
   form.appendChild(grid);
 
   const statusRow = sessEl("div", "sess-check-row");
-  statusRow.appendChild(sessEl("span", "sess-label", "状態"));
+  statusRow.appendChild(sessEl("span", "sess-label", "Status"));
   sessChecks(statusRow, SESS_STATUSES, "sessStatus");
   form.appendChild(statusRow);
 
   const typeRow = sessEl("div", "sess-check-row");
-  typeRow.appendChild(sessEl("span", "sess-label", "種類"));
+  typeRow.appendChild(sessEl("span", "sess-label", "Type"));
   sessChecks(typeRow, SESS_TYPES, "sessType");
   form.appendChild(typeRow);
 
   const docRow = sessEl("div", "sess-check-row");
-  docRow.appendChild(sessEl("span", "sess-label", "文書"));
+  docRow.appendChild(sessEl("span", "sess-label", "Documents"));
   sessChecks(docRow, SESS_DOC_TYPES, "sessDoc");
   form.append(
     docRow,
-    sessEl("p", "sess-note", "文書には 検索語・run の番号・block（完全一致）・日付 だけが効きます（状態は効きません）")
+    sessEl("p", "sess-note", "Only search words, run ID, block (exact match) and date apply to documents. Status does not.")
   );
 
   const row = sessEl("div", "sess-run-row");
-  const go = sessEl("button", "sai-btn primary", "検索");
+  const go = sessEl("button", "sai-btn primary", "Search");
   go.type = "button";
   go.addEventListener("click", () => { void sessSearch(); });
   row.appendChild(go);
@@ -288,19 +288,19 @@ async function sessSearch() {
   const sessQuery = plan.sessions ? sessBuildQuery(values) : "";
   const docQuery = plan.docs.length ? sessDocQuery(values, plan.docs) : null;
   if (plan.sessions && !sessQuery) {
-    saiToast("検索の条件を 1 つ以上入れてください", "error");
+    saiToast("Enter at least one search condition.", "error");
     return;
   }
   if (!plan.sessions && !plan.docs.length) {
-    saiToast("文書を探すには検索語を入れてください", "error");
+    saiToast("Enter a search word to search documents.", "error");
     return;
   }
   if (plan.docs.length && !docQuery) {
-    saiToast("文書の検索の run の番号か日付の形が違います", "error");
+    saiToast("The run ID or date format for the document search is invalid.", "error");
     return;
   }
   const results = document.querySelector(".sess-results");
-  if (results) results.textContent = "検索中…";
+  if (results) results.textContent = "Searching…";
   const name = encodeURIComponent(sessName);
   sessBusy = true;
   try {
@@ -312,8 +312,8 @@ async function sessSearch() {
       results.innerHTML = "";
       const sessOut = s.status === "fulfilled" ? s.value : null;
       const docOut = d.status === "fulfilled" ? d.value : null;
-      if (s.status === "rejected") results.appendChild(sessEl("p", "sess-error", `会話: ${(s.reason && s.reason.message) || "検索できませんでした"}`));
-      if (d.status === "rejected") results.appendChild(sessEl("p", "sess-error", `文書: ${(d.reason && d.reason.message) || "検索できませんでした"}`));
+      if (s.status === "rejected") results.appendChild(sessEl("p", "sess-error", `Sessions: ${(s.reason && s.reason.message) || "Search failed."}`));
+      if (d.status === "rejected") results.appendChild(sessEl("p", "sess-error", `Documents: ${(d.reason && d.reason.message) || "Search failed."}`));
       const sessItems = (sessOut && sessOut.items) || [];
       const docItems = (docOut && docOut.items) || [];
       sessRenderResults(results, sessMerge(sessItems, docItems), {
@@ -334,13 +334,13 @@ function sessRenderResults(container, groups, info) {
   if (sessCount == null && docCount == null) return; // 両方とも失敗した（理由は上に出してある）
   const total = (sessCount || 0) + (docCount || 0);
   if (!total) {
-    container.appendChild(sessEl("p", "lib-empty", "見つかりませんでした"));
+    container.appendChild(sessEl("p", "lib-empty", "No results found."));
     return;
   }
   const parts = [];
-  if (sessCount != null) parts.push(`会話 ${sessCount} 件${sessTruncated ? "（先頭 200 件）" : ""}`);
-  if (docCount != null) parts.push(`文書 ${docCount} 件${docTruncated ? `（先頭 ${SESS_DOC_LIMIT} 件）` : ""}`);
-  container.appendChild(sessEl("p", "sess-count", parts.join("・")));
+  if (sessCount != null) parts.push(`Sessions: ${sessCount}${sessTruncated ? " (first 200)" : ""}`);
+  if (docCount != null) parts.push(`Documents: ${docCount}${docTruncated ? ` (first ${SESS_DOC_LIMIT})` : ""}`);
+  container.appendChild(sessEl("p", "sess-count", parts.join(" · ")));
   for (const group of groups) {
     const section = sessEl("section", "sess-run");
     const head = sessEl("div", "sess-run-head");
@@ -348,7 +348,7 @@ function sessRenderResults(container, groups, info) {
     a.href = `#/run/${encodeURIComponent(sessName)}/${encodeURIComponent(group.blockId)}`;
     a.textContent = `run ${group.blockId}`;
     head.appendChild(a);
-    head.appendChild(sessEl("span", "sess-run-count", `${group.items.length + group.docs.length} 件`));
+    head.appendChild(sessEl("span", "sess-run-count", `${group.items.length + group.docs.length} hits`));
     section.appendChild(head);
     for (const item of group.items) {
       const row = sessEl("div", "sess-hit");

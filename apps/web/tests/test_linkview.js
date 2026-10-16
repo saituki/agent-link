@@ -99,7 +99,7 @@ function testHash() {
   );
   assert.deepStrictEqual(
     lv.LV_MODES.map((m) => m[1]),
-    ["Dashboard", "Workflow", "List", "Settings", "会話検索"]
+    ["Dashboard", "Workflow", "List", "Settings", "Session search"]
   );
 
   // 読み取る
@@ -606,7 +606,7 @@ function testHistoryCli() {
     ids: { seen: 40, used: 6, unused: 34 },
   });
   assert.deepStrictEqual(s.calls, [{ command: "agent-link doc read", count: 3, errors: 1 }]);
-  assert.deepStrictEqual(s.failures.map((f) => f.label), ["見つからない（3）", "入力の誤り（2）"]);
+  assert.deepStrictEqual(s.failures.map((f) => f.label), ["Not found (3)", "Invalid input (2)"]);
   assert.deepStrictEqual(s.failures.map((f) => f.count), [1, 2]);
   assert.deepStrictEqual(s.ids, { seen: 40, used: 6, unused: 34 });
   // 中身が空でも壊れない（失敗は無い・命令は無い）
@@ -614,7 +614,7 @@ function testHistoryCli() {
   assert.deepStrictEqual(empty.calls, []);
   assert.deepStrictEqual(empty.failures, []);
   assert.deepStrictEqual(empty.ids, { seen: 0, used: 0, unused: 0 });
-  assert.strictEqual(lv.lvFailureLabel("input"), "入力の誤り（2）");
+  assert.strictEqual(lv.lvFailureLabel("input"), "Invalid input (2)");
   assert.strictEqual(lv.lvFailureLabel("new_class"), "new_class");
 }
 
