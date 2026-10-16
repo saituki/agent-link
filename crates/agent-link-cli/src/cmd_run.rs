@@ -118,14 +118,14 @@ pub(crate) fn run(cmd: RunCmd) -> Result<(), CmdError> {
             ))?;
             print_json(&v)
         }
-        RunCmd::Rm { run_id, yes } => {
+        RunCmd::Rm { run_id, yes, json: _ } => {
             // 確認の入力を待たない。`--yes` が無ければ終了コード 2。
             if !yes {
                 return Err(CmdError::input(
                     "Pass --yes to delete a run. The command does not wait for confirmation.",
                 ));
             }
-            crate::cli::handle_block_rm(run_id, true).map_err(other_error)
+            print_phone(PhoneCmd::Rm { run_id })
         }
         RunCmd::Export { run, dry_run } => {
             crate::cli::handle_phone_export(run, dry_run).map_err(other_error)

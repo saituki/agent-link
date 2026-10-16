@@ -488,6 +488,8 @@ pub enum RunCmd {
         /// 確認をスキップする（無ければ終了コード 2）
         #[arg(long, default_value_t = false)]
         yes: bool,
+        #[arg(long, default_value_t = false)]
+        json: bool,
     },
 
     /// 現在のプロジェクトの実行を Web 向け JSON に書き出す（文字）
@@ -1228,7 +1230,7 @@ pub fn handle_block_preview(
 ) -> Result<(), Box<dyn std::error::Error>> {
     if !definition_file.exists() {
         eprintln!(
-            "Error: File '{}' not found.",
+            "File '{}' not found.",
             definition_file.display()
         );
         std::process::exit(EXIT_NOT_FOUND);
@@ -1388,7 +1390,7 @@ pub fn handle_block_def_show(name: &str, json: bool) -> Result<(), Box<dyn std::
     }
     if !path.exists() {
         eprintln!(
-            "Error: Block definition {} not found. Specify the ID or the display name.",
+            "Block definition {} not found. Specify the ID or the display name.",
             name
         );
         std::process::exit(EXIT_NOT_FOUND);
@@ -1560,7 +1562,7 @@ pub fn handle_block_show(run_id: i64, json: bool) -> Result<(), Box<dyn std::err
     let exec = match store.get_execution_by_id(run_id) {
         Ok(e) => e,
         Err(DbError::NotFound(_)) => {
-            eprintln!("Error: Run {} not found.", run_id);
+            eprintln!("Run {} not found.", run_id);
             std::process::exit(EXIT_NOT_FOUND);
         }
         Err(e) => {
@@ -1712,66 +1714,6 @@ pub fn handle_block_show(run_id: i64, json: bool) -> Result<(), Box<dyn std::err
         }
     }
     println!("{}", "─".repeat(55));
-
-    Ok(())
-}
-
-// ============================================================================
-// ブロック削除ハンドラ
-// ============================================================================
-
-/// 指定された実行IDの実行記録を削除する。
-/// ブロック定義は削除しない。
-pub fn handle_block_rm(exec_id: i64, yes: bool) -> Result<(), Box<dyn std::error::Error>> {
-    let store = open_db()?;
-
-    // 実行レコードを取得
-    let exec = match store.get_execution_by_id(exec_id) {
-        Ok(e) => e,
-        Err(_) => {
-            eprintln!("Error: Run {} not found.", exec_id);
-            std::process::exit(EXIT_NOT_FOUND);
-        }
-    };
-
-    let block_name = store
-        .get_block_by_id(exec.block_id)
-        .map(|b| b.name)
-        .unwrap_or_else(|_| format!("block#{}", exec.block_id));
-
-    // R602: 確認必須（--yes でスキップ可）。削除対象を明示する。
-    if !yes {
-        let run_dir = agent_link_engine::run_dir::find_run_dir(exec_id)
-            .map(|(_, p)| p.display().to_string())
-            .unwrap_or_else(|| "(no run folder)".to_string());
-        eprintln!(
-            "Delete run #{} '{}' ({})?\n  DB rows and run folder: {}\nProceed? [y/N]",
-            exec_id, block_name, exec.status, run_dir
-        );
-        let mut line = String::new();
-        std::io::stdin().read_line(&mut line)?;
-        if line.trim().to_lowercase() != "y" {
-            eprintln!("Deletion cancelled.");
-            return Ok(());
-        }
-    }
-
-    // 依存レコード（子実行・接続・タスク）と run フォルダ（子の分も）をまとめて削除
-    let summary = agent_link_engine::run_dir::delete_run(&store, exec_id)?;
-
-    println!(
-        "🗑 実行 #{} '{}' ({}) を削除しました。",
-        exec_id, block_name, exec.status
-    );
-    if summary.executions > 1 {
-        println!("   サブ実行: {} 件", summary.executions - 1);
-    }
-    if summary.connections > 0 {
-        println!("   接続: {} 件", summary.connections);
-    }
-    if summary.tasks > 0 {
-        println!("   タスク: {} 件", summary.tasks);
-    }
 
     Ok(())
 }
@@ -2059,6 +2001,16 @@ pub fn handle_init(name: Option<String>, update: bool) -> Result<(), Box<dyn std
     use agent_link_engine::assets::AssetOutcome;
     use agent_link_engine::init::init_project;
 
+    // `--name` の形は、何かを作る前に検査する（登録簿を読む Web が名前でプロジェクトを引く）
+    if let Some(n) = name.as_deref().filter(|n| !n.is_empty()) {
+        if !is_valid_project_name(n) {
+            eprintln!(
+                "Invalid project name: {n}. Use 1-64 letters, digits, \"_\", \".\" or \"-\", starting with a letter or digit."
+            );
+            std::process::exit(crate::cmd_common::EXIT_INPUT);
+        }
+    }
+
     // プロジェクトルート（AGENT_LINK_PROJECT_ROOT またはカレントディレクトリ）
     let project_root = agent_link_engine::project::project_root();
 
@@ -2093,9 +2045,6 @@ pub fn handle_init(name: Option<String>, update: bool) -> Result<(), Box<dyn std
     if unchanged > 0 {
         println!("   配布: そのまま {unchanged} 件");
     }
-    println!(
-        "   次: .mcp.json・.claude/ を git commit してください（worktree の cc が読むため）"
-    );
 
     // 2. 登録簿（`~/.agent-link/registry.json`）への登録（apps/web がプロジェクトを名前で引くため）
     let project_name = match name {
@@ -2105,6 +2054,11 @@ pub fn handle_init(name: Option<String>, update: bool) -> Result<(), Box<dyn std
             .map(|s| s.to_string_lossy().to_string())
             .unwrap_or_else(|| "unnamed".to_string()),
     };
+    // 登録できなければ、標準エラーの最後の行に理由を出して終了コード 1
+    let register_failed = |reason: String| -> ! {
+        eprintln!("Failed to register the project: {reason}");
+        std::process::exit(1);
+    };
     match agent_link_engine::project::sai_home().map(|h| h.join("registry.json")) {
         Some(registry) => match agent_link_engine::phone_export::register_project(&registry, &project_name, &project_root) {
             Ok(agent_link_engine::phone_export::RegistryAdd::Added) => {
@@ -2113,12 +2067,20 @@ pub fn handle_init(name: Option<String>, update: bool) -> Result<(), Box<dyn std
             Ok(agent_link_engine::phone_export::RegistryAdd::AlreadyRegistered(existing)) => {
                 println!("✅ 登録簿には既に登録されています: {existing}");
             }
-            Err(e) => println!("⚠ 登録簿に登録できませんでした: {e}"),
+            Err(e) => register_failed(e),
         },
-        None => println!("⚠ HOME が分からないため、登録簿に登録できませんでした"),
+        None => register_failed("HOME is not set.".to_string()),
     }
 
     Ok(())
+}
+
+/// プロジェクト名の形（Web の住所・登録簿が受ける形。`/` や空白を含めない）。
+fn is_valid_project_name(name: &str) -> bool {
+    let mut chars = name.chars();
+    name.len() <= 64
+        && chars.next().is_some_and(|c| c.is_ascii_alphanumeric())
+        && chars.all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '-'))
 }
 
 // ============================================================================

@@ -101,7 +101,7 @@ pub(crate) fn classify_agent_error(msg: &str) -> i32 {
         EXIT_CONFLICT
     } else if has(&[
         "必須", "パース", "不正", "JSON", "配列", "空", "指定してください",
-        "required", "must", "invalid", "parse", "array", "empty", "specify", "at least",
+        "required", "is not set", "needs", "must", "invalid", "parse", "array", "empty", "specify", "at least",
     ]) {
         EXIT_INPUT
     } else {

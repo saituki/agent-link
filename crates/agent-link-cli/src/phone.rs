@@ -1356,9 +1356,9 @@ fn rm(run_id: i64) -> PhoneResult<Value> {
     let store = open_store()?;
     let exec = store
         .get_execution_by_id(run_id)
-        .map_err(|_| PhoneError::not_found(EXEC_NOT_FOUND))?;
+        .map_err(|_| PhoneError::not_found(format!("Run {} not found.", run_id)))?;
     if matches!(exec.status.as_str(), "running" | "pending") {
-        return Err(PhoneError::usage("A running run cannot be deleted. Stop it first."));
+        return Err(PhoneError::conflict("A running run cannot be deleted. Stop it first."));
     }
     let summary =
         agent_link_engine::run_dir::delete_run(&store, run_id).map_err(PhoneError::internal)?;

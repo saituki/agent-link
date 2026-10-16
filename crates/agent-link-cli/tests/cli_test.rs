@@ -202,9 +202,152 @@ fn setup_execution(dir: &std::path::Path, block_name: &str) -> i64 {
     let block_id = store
         .insert_block(&block)
         .expect("ブロックを挿入できること");
-    store
+    // 消せる状態（実行中・待機中は `run rm` が 4 で断る）にしておく
+    let id = store
         .create_execution(block_id, None)
-        .expect("実行レコードを作成できること")
+        .expect("実行レコードを作成できること");
+    store
+        .update_execution_status(id, "completed")
+        .expect("状態を更新できること");
+    id
+}
+
+/// 一時プロジェクトで CLI を走らせる（`AGENT_LINK_PARENT_RUN_ID` は外す）。
+fn run_cli(dir: &std::path::Path, args: &[&str], stdin: Option<&str>) -> std::process::Output {
+    use std::io::Write;
+    use std::process::Stdio;
+    let mut child = Command::new(sai_binary())
+        .args(args)
+        .env("AGENT_LINK_PROJECT_ROOT", dir)
+        .env("AGENT_LINK_HOME", dir.join("home"))
+        .env_remove("AGENT_LINK_PARENT_RUN_ID")
+        .current_dir(dir)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("agent-link を起動できること");
+    if let Some(text) = stdin {
+        child.stdin.take().unwrap().write_all(text.as_bytes()).unwrap();
+    }
+    child.wait_with_output().unwrap()
+}
+
+fn last_stderr_line(out: &std::process::Output) -> String {
+    String::from_utf8_lossy(&out.stderr)
+        .lines()
+        .last()
+        .unwrap_or("")
+        .to_string()
+}
+
+/// `run rm --json` は JSON を返し、無い run は 3、実行中は 4（標準出力は空）。
+#[test]
+fn test_cli_run_rm_json_and_exit_codes() {
+    let dir = create_temp_dir();
+    let done = setup_execution(&dir, "rm-json");
+    let store = SaiStore::open(&dir.join(".agent-link/engine/agent-link.db")).unwrap();
+    let running = store.create_execution(1, None).unwrap();
+    store.update_execution_status(running, "running").unwrap();
+    drop(store);
+
+    let out = run_cli(&dir, &["run", "rm", &running.to_string(), "--yes", "--json"], None);
+    assert_eq!(out.status.code(), Some(4));
+    assert!(out.stdout.is_empty());
+    assert_eq!(last_stderr_line(&out), "A running run cannot be deleted. Stop it first.");
+
+    let out = run_cli(&dir, &["run", "rm", "999", "--yes", "--json"], None);
+    assert_eq!(out.status.code(), Some(3));
+    assert!(out.stdout.is_empty());
+    assert_eq!(last_stderr_line(&out), "Run 999 not found.");
+
+    let out = run_cli(&dir, &["run", "rm", &done.to_string(), "--yes", "--json"], None);
+    assert_eq!(out.status.code(), Some(0));
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v["run_id"], done);
+    assert_eq!(v["executions"], 1);
+
+    cleanup_temp_dir(&dir);
+}
+
+/// `run finalize`: 無い run は 3、実行中でない run は 1（標準出力は空）。
+#[test]
+fn test_cli_run_finalize_rejects_missing_and_finished() {
+    let dir = create_temp_dir();
+    let done = setup_execution(&dir, "finalize-done");
+
+    let out = run_cli(&dir, &["run", "finalize", "999", "--json"], None);
+    assert_eq!(out.status.code(), Some(3));
+    assert!(out.stdout.is_empty());
+    assert_eq!(last_stderr_line(&out), "Run 999 not found.");
+
+    let out = run_cli(&dir, &["run", "finalize", &done.to_string(), "--json"], None);
+    assert_eq!(out.status.code(), Some(1));
+    assert!(out.stdout.is_empty());
+    assert_eq!(
+        last_stderr_line(&out),
+        format!("Run {} is not running (status: completed).", done)
+    );
+
+    cleanup_temp_dir(&dir);
+}
+
+/// `task create` の検査失敗は 2・標準出力は空。run の外の `task list` は 2。
+#[test]
+fn test_cli_task_create_failure_and_outside_run() {
+    let dir = create_temp_dir();
+    let run = setup_execution(&dir, "task-parent");
+
+    let body = r#"[{"client_id":"a","subject":"s","task_text":"t","block_type":"no-such-block"}]"#;
+    let out = run_cli(
+        &dir,
+        &["task", "create", "--run-id", &run.to_string(), "--json"],
+        Some(body),
+    );
+    assert_eq!(out.status.code(), Some(2));
+    assert!(out.stdout.is_empty());
+    assert!(last_stderr_line(&out).starts_with("Input validation of task_create failed."));
+
+    let out = run_cli(&dir, &["task", "list", "--json"], None);
+    assert_eq!(out.status.code(), Some(2));
+    assert!(out.stdout.is_empty());
+    assert!(last_stderr_line(&out).contains("AGENT_LINK_PARENT_RUN_ID is not set"));
+
+    cleanup_temp_dir(&dir);
+}
+
+/// `init --name`: 形が悪ければ 2（何も作らない）、重複は 1。最後の案内に `.claude/` の commit が無い。
+#[test]
+fn test_cli_init_name_checks() {
+    let dir = create_temp_dir();
+    let other = create_temp_dir();
+
+    let out = run_cli(&dir, &["init", "--name", "bad/name"], None);
+    assert_eq!(out.status.code(), Some(2));
+    assert!(out.stdout.is_empty());
+    assert!(last_stderr_line(&out).starts_with("Invalid project name: bad/name."));
+    assert!(!dir.join(".agent-link").exists());
+
+    let home = dir.join("home");
+    let run_init = |root: &std::path::Path| {
+        Command::new(sai_binary())
+            .args(["init", "--name", "dup"])
+            .env("AGENT_LINK_PROJECT_ROOT", root)
+            .env("AGENT_LINK_HOME", &home)
+            .current_dir(root)
+            .output()
+            .unwrap()
+    };
+    let out = run_init(&dir);
+    assert_eq!(out.status.code(), Some(0));
+    assert!(!String::from_utf8_lossy(&out.stdout).contains("git commit"));
+
+    let out = run_init(&other);
+    assert_eq!(out.status.code(), Some(1));
+    assert!(last_stderr_line(&out).starts_with("Failed to register the project: Name dup is already used"));
+
+    cleanup_temp_dir(&dir);
+    cleanup_temp_dir(&other);
 }
 
 /// R603: `run rm` で実行を削除すると、対応する run フォルダも丸ごと削除されること。

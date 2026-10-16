@@ -135,7 +135,7 @@ iPhone / PC のブラウザ
 | `POST /api/projects/{name}/runs/{run_id:int}/start` | 新形式 todo の ▶ 実行（未実行カードが無ければ 404。`executer: agent` のカードと、常駐が止まっているときは 400「This card is started by an agent as a subtask run (executer: agent). …」「The daemon is stopped. Start it first.」） | `agent-link card run <run_id>` |
 | `POST /api/projects/{name}/runs/{run_id:int}/advance` | review → Workflow（日付フォルダ）への移動（その run が無ければ 404、review 以外は 400「Only a run in review can be moved.」） | `agent-link run advance <run_id>` |
 | `POST /api/projects/{name}/runs/{run_id:int}/schedule` | todo の実行予定時刻（`{"at": "YYYY-MM-DD HH:MM"}`・空で取り消し）。時刻になると常駐が `card run` と同じ流れで実行する | `agent-link card schedule <run_id> [--at "…"]` |
-| `DELETE /api/projects/{name}/runs/{run_id:int}` | List の項目を消す（子の実行と run フォルダも消える。実行中は 502） | `agent-link run rm <run_id> --yes` |
+| `DELETE /api/projects/{name}/runs/{run_id:int}` | List の項目を消す（子の実行と run フォルダも消える。実行中は 409） | `agent-link run rm <run_id> --yes` |
 | `GET /api/projects/{name}/card/docs` | 最近の文書（task_text に貼る `ref` 付き） | `agent-link card docs` |
 | `GET /api/projects/{name}/card/options` | 作成フォームの選択肢 | `agent-link card options` |
 | `POST /api/projects/{name}/card` | カード（task.md）の作成。body は `block`・`model`・`thinking`・`description`・`task_text`（と `done_ids`）。Web は `executer` を渡さない（CLI の `card create` は `human` / `agent` を受ける） | `agent-link card create`（標準入力に JSON） |
