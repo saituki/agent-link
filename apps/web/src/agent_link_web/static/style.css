@@ -42,21 +42,9 @@
   --note-on-bg: #4a4326;
   --note-line: #a8871f;
 
-  /* --- 札のタグ（Workflow。TUI の block_node.rs と同じ並び） --- */
-  --tag-brst: #0e7490;
-  --tag-plan: #2563eb;
-  --tag-code: #15803d;
-  --tag-comp: #a21caf;
-  --tag-rfrs: #c81e1e;
-  --tag-other: #656b73;
-
   /* --- 線（Workflow の辺） --- */
   --edge-delegation: #0e7490;
-  --edge-task-output: #15803d;
   --edge-waggle: #a21caf;
-  --edge-commit: #7e22ce;
-  --edge-phase: #0f766e;
-  --edge-other: #656b73;
 
   /* --- グラフ（系列は赤と緑だけの組にしない） --- */
   --series-1: #1d4ed8;
@@ -110,18 +98,8 @@
     --note-bg: #4a4326;
     --note-on-bg: #f5efd6;
     --note-line: #b09a5c;
-    --tag-brst: #38bdf8;
-    --tag-plan: #60a5fa;
-    --tag-code: #4ade80;
-    --tag-comp: #e879f9;
-    --tag-rfrs: #f87171;
-    --tag-other: #a1a1a6;
     --edge-delegation: #38bdf8;
-    --edge-task-output: #4ade80;
     --edge-waggle: #e879f9;
-    --edge-commit: #c084fc;
-    --edge-phase: #5eead4;
-    --edge-other: #a1a1a6;
     --series-1: #6ea8fe;
     --series-2: #e3b341;
     --series-3: #c084fc;
@@ -1334,7 +1312,7 @@ code {
 .lv-run-state { font-size: 12px; color: var(--text-soft); }
 .lv-lane-running { color: var(--ok); }
 .lv-lane-review { color: var(--warn); }
-.lv-lane-done { color: var(--accent); }
+.lv-lane-workflow { color: var(--accent); }
 .lv-lane-todo { color: var(--text-soft); }
 
 /* 帯は横にスクロールできる（画面全体は横に動かない・14 §1.3） */
@@ -1546,7 +1524,7 @@ button.lv-tl-preview { cursor: pointer; }
 .lv-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--text-soft); }
 .lv-dot.lv-running { background: var(--ok); }
 .lv-dot.lv-review { background: var(--warn); }
-.lv-dot.lv-done { background: var(--accent); }
+.lv-dot.lv-workflow { background: var(--accent); }
 .lv-dot.lv-todo { background: var(--text-soft); }
 
 /* ================= task.md 作成フォーム（計画 15 §1.5） =================
@@ -2092,46 +2070,6 @@ button.lv-tl-preview { cursor: pointer; }
 .proj-bar .list-mode .dash-seg { overflow-x: auto; }
 .proj-bar .list-mode .dash-seg button {
   flex: 0 0 auto; padding: 6px 8px; white-space: nowrap; font-size: 12px;
-}
-
-.cmd-body { padding: 12px 16px 24px; display: flex; flex-direction: column; gap: 16px; }
-.cmd-side { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
-.cmd-cli-seg { width: auto; }
-.cmd-cli-seg button { padding: 6px 14px; }
-.cmd-filter {
-  padding: 8px; border: 1px solid var(--line); border-radius: 8px;
-  background: var(--bg); color: var(--text); font: inherit;
-}
-.cmd-list { display: flex; flex-direction: column; }
-.cmd-group { font-size: 12px; color: var(--text-soft); margin: 10px 0 4px; }
-.cmd-item {
-  text-align: left; background: none; border: none; border-bottom: 1px solid var(--line);
-  color: var(--text); font: inherit; padding: 8px 4px; cursor: pointer;
-}
-.cmd-item.active { color: var(--accent); font-weight: 600; }
-.cmd-main { min-width: 0; }
-.cmd-title { font-size: 16px; margin: 0 0 4px; }
-.cmd-about { color: var(--text-soft); font-size: 13px; margin: 0 0 10px; }
-.cmd-fields { display: flex; flex-direction: column; gap: 10px; }
-.cmd-field { display: flex; flex-direction: column; gap: 4px; }
-.cmd-label { font-size: 13px; font-weight: 600; }
-.cmd-input {
-  padding: 8px; border: 1px solid var(--line); border-radius: 8px;
-  background: var(--bg); color: var(--text); font: inherit;
-}
-.cmd-help { font-size: 12px; color: var(--text-soft); margin: 0; }
-.cmd-run-row { margin: 12px 0; }
-.cmd-result {
-  background: var(--bg-soft); border-radius: 8px; padding: 10px;
-  overflow: auto; max-height: 50vh; font-size: 13px;
-  white-space: pre-wrap; overflow-wrap: anywhere;
-}
-.cmd-result:empty { display: none; }
-
-@media (min-width: 900px) {
-  .cmd-body { flex-direction: row; align-items: flex-start; gap: 24px; }
-  .cmd-side { width: 300px; flex: none; max-height: calc(100vh - 120px); overflow: auto; }
-  .cmd-main { flex: 1; }
 }
 
 /* --- 会話の検索の画面（U10） --- */

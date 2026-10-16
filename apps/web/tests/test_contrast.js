@@ -42,13 +42,8 @@ function DIMMED(names, alpha) {
 TEXT(["--text", "--text-soft", "--accent", "--accent-mcp", "--ok", "--warn", "--danger", "--run"]);
 // 線と枠
 GRAPHICAL(["--line-strong", "--sel", "--focus"]);
-// 札のタグ 6 色
-GRAPHICAL(["--tag-brst", "--tag-plan", "--tag-code", "--tag-comp", "--tag-rfrs", "--tag-other"]);
 // Workflow の線の種類
-GRAPHICAL([
-  "--edge-delegation", "--edge-task-output", "--edge-waggle",
-  "--edge-commit", "--edge-phase", "--edge-other",
-]);
+GRAPHICAL(["--edge-delegation", "--edge-waggle"]);
 // グラフの系列
 GRAPHICAL(["--series-1", "--series-2", "--series-3", "--series-4", "--series-5", "--series-6"]);
 // グラフの文字（縦の目盛り）と、棒の底の線（0 の日を表す短い棒にも使う）
@@ -57,10 +52,7 @@ GRAPHICAL(["--line-strong"]);
 
 // Workflow 盤面（U02）。wfEdgeOpacity（workflow.js）の WF_EDGE_DIM と同じ濃さで、
 // 薄くしても線として 3:1 を保つことを検査する。
-DIMMED([
-  "--edge-delegation", "--edge-task-output", "--edge-waggle",
-  "--edge-commit", "--edge-phase", "--edge-other",
-], 0.8);
+DIMMED(["--edge-delegation", "--edge-waggle"], 0.8);
 
 // 地色をまたいだ組。[[手前, 後ろ, 下限, 濃さ], …] を足す。
 PAIRS.push(
@@ -89,11 +81,7 @@ PAIRS.push(
   ["--text-soft", "--bg-soft", 4.5, 1],
   // 盤面（--bg-soft）の上の線。選ばれてない線を WF_EDGE_DIM まで薄くしても 3:1
   ["--edge-delegation", "--bg-soft", 3, 0.8],
-  ["--edge-task-output", "--bg-soft", 3, 0.8],
   ["--edge-waggle", "--bg-soft", 3, 0.8],
-  ["--edge-commit", "--bg-soft", 3, 0.8],
-  ["--edge-phase", "--bg-soft", 3, 0.8],
-  ["--edge-other", "--bg-soft", 3, 0.8],
   // 枠。round の区切り線と札の枠は --line-strong、選んだ札の枠は --sel
   ["--line-strong", "--bg-soft", 3, 1],
   ["--line-strong", "--bg", 3, 1],
@@ -131,10 +119,8 @@ const HUE_PAIRS = [
 const REQUIRED = [
   // 盤面・札・文字・枠
   "--bg", "--bg-soft", "--text", "--text-soft", "--line", "--line-strong", "--sel",
-  // 札の帯と線
-  "--tag-brst", "--tag-plan", "--tag-code", "--tag-comp", "--tag-rfrs", "--tag-other",
-  "--edge-delegation", "--edge-task-output", "--edge-waggle", "--edge-commit",
-  "--edge-phase", "--edge-other",
+  // 線
+  "--edge-delegation", "--edge-waggle",
   // 状態
   "--ok", "--warn", "--danger", "--accent",
   // 付箋（本文ブロック・枠）
