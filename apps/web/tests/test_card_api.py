@@ -173,7 +173,7 @@ def test_create_calls_cli(cli: FakeCli) -> None:
     control.phone_card_options("demo")
     assert cli.last["args"] == ["agent-link", "card", "options"], cli.last["args"]
 
-    # 開発用 block は選択肢から外し、main・web-research は残す
+    # block は絞らず、CLI が返した順のまま全部出す
     cli.stdout = json.dumps(
         {
             "blocks": [
@@ -186,7 +186,7 @@ def test_create_calls_cli(cli: FakeCli) -> None:
         }
     )
     ids = [b["id"] for b in control.phone_card_options("demo")["blocks"]]
-    assert ids == ["main", "web-research"], ids
+    assert ids == ["main", "sub", "plan", "kantoku", "web-research"], ids
 
 
 def test_start_success(cli: FakeCli) -> None:

@@ -541,23 +541,10 @@ def phone_session_search(
     return {"items": items[:_SESSION_LIMIT], "truncated": truncated}
 
 
-# アプリ開発用の block は選択肢から隠す（ファイルは残す。子タスクが `sub` などを `block_type` で呼ぶことがあるため）。
-# 汎用の `main`・`web-research` は出す。
-DEV_BLOCKS = frozenset(
-    {"sub", "plan", "plan-kantoku", "kantoku", "worker", "bugfix", "review", "explore"}
-)
-
-
 def phone_card_options(name: str) -> dict:
-    """`agent-link card options`（ウィザードの選択肢・計画 15 §1.5）。開発用 block は除く。"""
+    """`agent-link card options`（ウィザードの選択肢・計画 15 §1.5）。block は絞らない。"""
     project = _phone_project(name)
-    data = _phone_json(["card", "options"], root=project["root"])
-    blocks = data.get("blocks") if isinstance(data, dict) else None
-    if isinstance(blocks, list):
-        data["blocks"] = [
-            b for b in blocks if not (isinstance(b, dict) and b.get("id") in DEV_BLOCKS)
-        ]
-    return data
+    return _phone_json(["card", "options"], root=project["root"])
 
 
 def _validate_card_payload(payload: dict) -> dict:
