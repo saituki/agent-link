@@ -115,7 +115,7 @@ def _home_questions() -> list[dict]:
             {
                 "id": row.get("id") or "",
                 "agent": row.get("agent") or "",
-                "title": _text(text) if text else "質問",
+                "title": _text(text) if text else "Question",
                 "created_at": row.get("created_at"),
                 "project": project_name,
                 "run_id": run_id,
@@ -176,7 +176,7 @@ def _error_text(e: Exception) -> str:
     """1 つの失敗の理由（HTTPException の detail が日本語なのでそれを優先する）。"""
     if isinstance(e, HTTPException):
         return _text(e.detail) or f"HTTP {e.status_code}"
-    return _text(e) or "原因不明のエラー"
+    return _text(e) or "Unknown error."
 
 
 def _build() -> dict:
@@ -376,7 +376,7 @@ def build_overview(period: str = "week") -> dict:
     """
     if period not in _OVERVIEW_PERIODS:
         raise HTTPException(
-            status_code=400, detail="period は week / month / all のいずれかにしてください"
+            status_code=400, detail="period must be one of week, month, all."
         )
     now = _now()
     hit = _overview_cache.get(period)

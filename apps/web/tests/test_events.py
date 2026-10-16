@@ -37,13 +37,13 @@ def test_task_notification_ok() -> None:
     assert len(events) == 1
     ev = events[0]
     assert ev["event_type"] == "task_notification"
-    assert ev["title"] == "バックグラウンド処理 完了"
+    assert ev["title"] == "Background task completed"
     assert ev["status"] == "ok"
     assert ev["summary"] == 'Monitor "watch src" stream ended'
-    assert ["状態", "completed"] in ev["fields"]
-    assert ["出力ファイル", "/private/tmp/claude-501/tasks/b5mg22evd.output"] in ev["fields"]
+    assert ["Status", "completed"] in ev["fields"]
+    assert ["Output file", "/private/tmp/claude-501/tasks/b5mg22evd.output"] in ev["fields"]
     # <usage> は1行に直す（03 §3）
-    assert "トークン 85,329 · ツール 14 回 · 1分42秒" in ev["detail"]
+    assert "Tokens 85,329 · Tool calls 14 · 1m 42s" in ev["detail"]
     assert "<usage>" not in ev["detail"]
     # 生のタグは detail に残さない
     assert "<status>" not in ev["detail"]
@@ -56,7 +56,7 @@ def test_task_notification_failed() -> None:
         text = TASK_NOTIFICATION.replace("<status>completed</status>", f"<status>{bad}</status>")
         _, events = sessions.analyze_special(text)
         assert len(events) == 1
-        assert events[0]["title"] == "バックグラウンド処理 失敗"
+        assert events[0]["title"] == "Background task failed"
         assert events[0]["status"] == "error"
 
 
@@ -88,7 +88,7 @@ def test_command_card() -> None:
     assert len(events) == 1  # 複数のタグでも1枚
     ev = events[0]
     assert ev["event_type"] == "command"
-    assert ev["title"] == "コマンド /caveman:caveman"
+    assert ev["title"] == "Command /caveman:caveman"
     assert ev["status"] == "info"
     assert ev["detail"] == "/caveman:caveman"
 
@@ -100,7 +100,7 @@ def test_command_card() -> None:
     )
     _, events2 = sessions.analyze_special(text2)
     assert len(events2) == 1
-    assert events2[0]["title"] == "コマンド /plugin list --enabled"
+    assert events2[0]["title"] == "Command /plugin list --enabled"
 
 
 def test_command_stdout() -> None:
@@ -111,7 +111,7 @@ def test_command_stdout() -> None:
     assert len(events) == 1
     ev = events[0]
     assert ev["event_type"] == "command_output"
-    assert ev["title"] == "コマンドの出力"
+    assert ev["title"] == "Command output"
     assert ev["status"] == "info"
     assert "Set model to" in ev["detail"]
 
@@ -171,7 +171,7 @@ def test_persisted_output() -> None:
     assert len(events) == 1
     ev = events[0]
     assert ev["event_type"] == "persisted_output"
-    assert ev["title"] == "出力を保存しました"
+    assert ev["title"] == "Output saved"
     assert ev["status"] == "info"
     assert ev["detail"].startswith("Output too large")
 
@@ -185,7 +185,7 @@ def test_usage_becomes_line() -> None:
     )
     plain, events = sessions.analyze_special(text)
     assert events == []
-    assert "トークン 12,345 · ツール 8 回 · 1分20秒" in plain
+    assert "Tokens 12,345 · Tool calls 8 · 1m 20s" in plain
     assert "<usage>" not in plain
     assert "結果です。" in plain
 
@@ -289,7 +289,7 @@ def test_tool_result_tags_cleaned() -> None:
     sessions._convert_claude_row(result_row, items, pending)
     tool = next(i for i in items if i["kind"] == "tool")
     assert "<usage>" not in tool["detail"]
-    assert "トークン 1,000 · ツール 3 回 · 45秒" in tool["detail"]
+    assert "Tokens 1,000 · Tool calls 3 · 45s" in tool["detail"]
     assert "子の結果です" in tool["detail"]
     assert all(i["kind"] != "event" for i in items)
 
@@ -297,8 +297,8 @@ def test_tool_result_tags_cleaned() -> None:
 _MCP_ARGS = {"query": "foo", "limit": 5, "opts": {"year": 2024, "tags": ["a", "b"]}, "memo": "a\nb"}
 _MCP_RESULT = '{"ok": true, "count": 2}'
 _MCP_DETAIL = (
-    "引数\nquery: foo\nlimit: 5\nopts:\n  year: 2024\n  tags:\n    - a\n    - b\n"
-    "memo:\n  a\n  b\n---\n戻り値\nok: true\ncount: 2"
+    "Arguments\nquery: foo\nlimit: 5\nopts:\n  year: 2024\n  tags:\n    - a\n    - b\n"
+    "memo:\n  a\n  b\n---\nResult\nok: true\ncount: 2"
 )
 
 
@@ -307,8 +307,8 @@ def test_tool_label_mcp() -> None:
     assert sessions._tool_label("mcp__donsetch__web_search", {}) == "web_search"
     assert sessions._tool_label("mcp__serena__find_symbol", {}) == "find_symbol"
     assert sessions._tool_label("mcp__a__b__c", {}) == "b__c"
-    assert sessions._tool_label("mcp", {}) == "mcp を実行した"
-    assert sessions._tool_label("Bash", {"command": "ls"}) == "ls を実行した"
+    assert sessions._tool_label("mcp", {}) == "Ran mcp"
+    assert sessions._tool_label("Bash", {"command": "ls"}) == "Ran ls"
 
 
 def test_mcp_detail_cc() -> None:
@@ -349,12 +349,12 @@ def test_mcp_detail_pi() -> None:
         sessions._convert_pi_row(row, items, pending)
     tools = [i for i in items if i["kind"] == "tool"]
     assert tools[0]["detail"] == _MCP_DETAIL, tools[0]["detail"]
-    assert tools[1]["detail"] == "戻り値\nただの文", tools[1]["detail"]
+    assert tools[1]["detail"] == "Result\nただの文", tools[1]["detail"]
 
 
 # sai の CLI を Bash で呼んだときの見出し（U17）
 _CLI_ARGV_CC = "agent-link doc write --filename a.md <<'EOF'\n本文\nEOF"
-_CLI_DETAIL_CC = "引数\n--filename a.md <<EOF\n本文\nEOF"
+_CLI_DETAIL_CC = "Arguments\n--filename a.md <<EOF\n本文\nEOF"
 
 
 def test_cli_call_cc() -> None:
@@ -374,7 +374,7 @@ def test_cli_call_cc() -> None:
     assert tool["tool"] == "Bash", "tool は生の名前のまま"
     assert tool["cli"] == "agent-link"
     assert tool["label"] == "agent-link doc write"
-    assert tool["detail"] == _CLI_DETAIL_CC + "\n---\n戻り値\nOK", tool["detail"]
+    assert tool["detail"] == _CLI_DETAIL_CC + "\n---\nResult\nOK", tool["detail"]
 
 
 def test_cli_call_pi() -> None:
@@ -389,7 +389,7 @@ def test_cli_call_pi() -> None:
     tool = next(i for i in items if i["kind"] == "tool")
     assert tool["cli"] == "agent-link-web"
     assert tool["label"] == "agent-link-web home"
-    assert tool["detail"] == "引数\n--json"
+    assert tool["detail"] == "Arguments\n--json"
 
 
 def test_cli_call_rules() -> None:

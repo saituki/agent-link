@@ -252,10 +252,10 @@ def test_md_kind_check_accepts_report_and_rejects_others(cli: FakeCli) -> None:
     assert cli.last["args"] == ["agent-link", "run", "md", "7", "--kind", "report"], cli.last["args"]
 
     e = expect(400, lambda: control.phone_md("demo", 7, "review"))
-    assert "task / message / report" in str(e.detail), e.detail
+    assert "task, message, report" in str(e.detail), e.detail
     # 保存できるのは task だけ（report は読み取り）
     e = expect(400, lambda: control.phone_md_save("demo", 7, "report", "x"))
-    assert "task だけ" in str(e.detail), e.detail
+    assert "Only task" in str(e.detail), e.detail
 
 
 def test_finalize_success(cli: FakeCli) -> None:

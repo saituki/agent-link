@@ -219,7 +219,7 @@ def test_summary_failure(base: Path) -> None:
     """summary が失敗しても一覧は止めない（running=0 / last_executed_at=None）。"""
     cli = FakeCli()
     cli.returncode = 1
-    cli.stderr = "agent-link が失敗しました"
+    cli.stderr = "agent-link failed."
     original = control.run_cli
     control.run_cli = cli
     control._summary_cache.clear()
@@ -367,7 +367,7 @@ def test_daemon(base: Path) -> None:
         # 出力が空なら既定の文言
         cli.stdout = ""
         res = control.daemon("alpha", "start")
-        assert res == {"ok": True, "message": "起動を要求しました"}, res
+        assert res == {"ok": True, "message": "Start requested."}, res
         assert cli.calls[-1]["args"] == [settings.sai_link_bin, "daemon", "start"], cli.calls[-1]
 
         # 失敗は 502 に stderr の最後の行（共有契約の読み替え）

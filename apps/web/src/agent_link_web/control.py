@@ -140,7 +140,7 @@ def find_project(name: str) -> dict:
     for p in list_projects():
         if p["name"] == name:
             return p
-    raise HTTPException(status_code=404, detail="プロジェクトが見つかりません")
+    raise HTTPException(status_code=404, detail="Project not found.")
 
 
 def export_runs(project: dict) -> None:
@@ -179,11 +179,11 @@ def dashboard(name: str, period: str) -> dict:
     """カード型 Dashboard（06 §3.3）．`recent` に description / linkable を足す。"""
     if period not in _PERIODS:
         raise HTTPException(
-            status_code=400, detail="period は week / month / all のいずれかにしてください"
+            status_code=400, detail="period must be one of week, month, all."
         )
     project = find_project(name)
     if not project.get("db_exists"):
-        raise HTTPException(status_code=404, detail="このプロジェクトにはまだ実行の記録がありません")
+        raise HTTPException(status_code=404, detail="This project has no run records yet.")
     export_runs(project)
     data = _phone_json(["project", "dashboard", "--period", period], root=project["root"])
     # recent の各行に description と linkable を足す（06 §3.3）。
@@ -211,10 +211,10 @@ def daemon(name: str, action: str) -> dict:
     - 実行の記録が無い（DB が無い）プロジェクトでも起動できる。
     """
     if action not in ("start", "stop"):
-        raise HTTPException(status_code=400, detail="action は start / stop を指定してください")
+        raise HTTPException(status_code=400, detail="action must be start or stop.")
     project = find_project(name)
     if not project.get("root_exists"):
-        raise HTTPException(status_code=404, detail="プロジェクトのフォルダが見つかりません")
+        raise HTTPException(status_code=404, detail="Project folder not found.")
     root = project["root"]
     proc = run_cli(
         [settings.sai_link_bin, "daemon", action],
@@ -225,7 +225,7 @@ def daemon(name: str, action: str) -> dict:
     )
     if proc.returncode == 0:
         lines = [ln for ln in (proc.stdout or "").splitlines() if ln.strip()]
-        fallback = "起動を要求しました" if action == "start" else "停止を要求しました"
+        fallback = "Start requested." if action == "start" else "Stop requested."
         return {"ok": True, "message": lines[-1].strip() if lines else fallback}
     # 失敗は JSON を返す命令と同じ読み替え（共有契約「Web が CLI を呼ぶ約束」）
     logger.warning(f"常駐の操作に失敗: {name} {action}")
@@ -280,16 +280,16 @@ def _phone_project(name: str) -> dict:
     """
     project = find_project(name)
     if not project.get("root_exists"):
-        raise HTTPException(status_code=404, detail="プロジェクトのフォルダが見つかりません")
+        raise HTTPException(status_code=404, detail="Project folder not found.")
     if not project.get("db_exists"):
-        raise HTTPException(status_code=404, detail="このプロジェクトにはまだ実行の記録がありません")
+        raise HTTPException(status_code=404, detail="This project has no run records yet.")
     return project
 
 
 def _check_run_id(run_id: int) -> None:
     """run_id は正の整数だけ（外から来る値なので必ず確かめる・計画 12 §3.3）。"""
     if not isinstance(run_id, int) or isinstance(run_id, bool) or run_id <= 0:
-        raise HTTPException(status_code=400, detail="run_id は 1 以上の整数にしてください")
+        raise HTTPException(status_code=400, detail="run_id must be an integer of 1 or more.")
 
 
 def phone_tree(name: str) -> dict:
@@ -304,7 +304,7 @@ def phone_run_view(name: str, run_id: int, view: str) -> dict:
     if view not in _PHONE_VIEWS:
         raise HTTPException(
             status_code=400,
-            detail="view は log / stats / history のいずれかにしてください",
+            detail="view must be one of log, stats, history.",
         )
     project = _phone_project(name)
     return _phone_json(["run", view, str(run_id)], root=project["root"])
@@ -317,7 +317,7 @@ def phone_run_call(name: str, run_id: int, call_id: str) -> dict:
     """
     _check_run_id(run_id)
     if not isinstance(call_id, str) or not _PHONE_CALL_ID_RE.fullmatch(call_id):
-        raise HTTPException(status_code=400, detail="call_id は英数字と - _ だけの 80 字までにしてください")
+        raise HTTPException(status_code=400, detail="call_id must be at most 80 characters of letters, digits, - and _.")
     project = _phone_project(name)
     return _phone_json(
         ["run", "history", str(run_id), "--call", call_id, "--json"], root=project["root"]
@@ -330,7 +330,7 @@ def phone_md(name: str, run_id: int, kind: str) -> dict:
     if kind not in _PHONE_MD_KINDS:
         raise HTTPException(
             status_code=400,
-            detail="kind は task / message / report / system のいずれかにしてください",
+            detail="kind must be one of task, message, report, system.",
         )
     project = _phone_project(name)
     return _phone_json(["run", "md", str(run_id), "--kind", kind], root=project["root"])
@@ -344,9 +344,9 @@ def phone_md_save(name: str, run_id: int, kind: str, text) -> dict:
     """
     _check_run_id(run_id)
     if kind not in _PHONE_MD_WRITABLE:
-        raise HTTPException(status_code=400, detail="保存できるのは task だけです")
+        raise HTTPException(status_code=400, detail="Only task can be saved.")
     if not isinstance(text, str) or len(text.encode("utf-8")) > _TASK_TEXT_MAX:
-        raise HTTPException(status_code=400, detail="本文は 100KB までの文字にしてください")
+        raise HTTPException(status_code=400, detail="The text must be a string of at most 100KB.")
     project = _phone_project(name)
     return _phone_json(
         ["run", "md", str(run_id), "--kind", kind, "--write"],
@@ -364,7 +364,7 @@ def phone_waggle(name: str, run_id: int, token: str | None = None) -> dict:
     _check_run_id(run_id)
     if token is not None:
         if not _PHONE_TOKEN_RE.match(token or ""):
-            raise HTTPException(status_code=400, detail="token の指定が正しくありません")
+            raise HTTPException(status_code=400, detail="token is invalid.")
         args = ["doc", "read", token, "--json"]
     else:
         args = ["doc", "list", "--run", str(run_id), "--json"]
@@ -392,7 +392,7 @@ def _search_day(label: str, value: str | None) -> str | None:
             raise ValueError(v)
         date.fromisoformat(v)
     except ValueError:
-        raise HTTPException(status_code=400, detail=f"{label}は YYYY-MM-DD の形にしてください") from None
+        raise HTTPException(status_code=400, detail=f"{label} must be in YYYY-MM-DD format.") from None
     return v
 
 
@@ -413,27 +413,27 @@ def phone_search(
     """
     word = (word or "").strip()
     if not word:
-        raise HTTPException(status_code=400, detail="検索語を入れてください")
+        raise HTTPException(status_code=400, detail="Enter a search word.")
     if len(word) > _SEARCH_WORD_MAX:
-        raise HTTPException(status_code=400, detail=f"検索語は {_SEARCH_WORD_MAX} 文字までです")
+        raise HTTPException(status_code=400, detail=f"The search word must be at most {_SEARCH_WORD_MAX} characters.")
     cats = [c.strip() for c in (category or "").split(",") if c.strip()]
     if any(c not in _SEARCH_CATEGORIES for c in cats):
-        raise HTTPException(status_code=400, detail="種類は task / message / waggle のいずれかにしてください")
+        raise HTTPException(status_code=400, detail="type must be one of task, message, waggle.")
     cats = [c for c in _SEARCH_CATEGORIES if c in cats] or list(_SEARCH_CATEGORIES)
-    since = _search_day("開始日", since)
-    until = _search_day("終了日", until)
+    since = _search_day("Start date", since)
+    until = _search_day("End date", until)
     if since and until and since > until:
-        raise HTTPException(status_code=400, detail="開始日は終了日より前にしてください")
+        raise HTTPException(status_code=400, detail="The start date must be before the end date.")
     block = (block or "").strip() or None
     if block is not None and not _SEARCH_BLOCK_RE.match(block):
-        raise HTTPException(status_code=400, detail="block の指定が正しくありません")
-    for label, n in (("run_id の下限", from_id), ("run_id の上限", to_id)):
+        raise HTTPException(status_code=400, detail="block is invalid.")
+    for label, n in (("The run_id lower bound", from_id), ("The run_id upper bound", to_id)):
         if n is not None and (isinstance(n, bool) or not isinstance(n, int) or n <= 0):
-            raise HTTPException(status_code=400, detail=f"{label}は 1 以上の整数にしてください")
+            raise HTTPException(status_code=400, detail=f"{label} must be an integer of 1 or more.")
     if from_id is not None and to_id is not None and from_id > to_id:
-        raise HTTPException(status_code=400, detail="run_id の下限は上限以下にしてください")
+        raise HTTPException(status_code=400, detail="The run_id lower bound must not exceed the upper bound.")
     if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= _SEARCH_LIMIT_MAX:
-        raise HTTPException(status_code=400, detail=f"件数は 1〜{_SEARCH_LIMIT_MAX} にしてください")
+        raise HTTPException(status_code=400, detail=f"The limit must be between 1 and {_SEARCH_LIMIT_MAX}.")
 
     args = ["doc", "search", "--word", word, "--category", ",".join(cats), "--limit", str(limit)]
     for flag, value in (
@@ -472,7 +472,7 @@ def _session_subset(label: str, value: str | None, allowed: tuple) -> str | None
         return None
     picked = [x.strip() for x in text.split(",") if x.strip()]
     if not picked or any(x not in allowed for x in picked):
-        raise HTTPException(status_code=400, detail=f"{label}の指定が正しくありません")
+        raise HTTPException(status_code=400, detail=f"{label} is invalid.")
     return ",".join(x for x in allowed if x in picked)
 
 
@@ -502,22 +502,22 @@ def phone_session_search(
     status = norm(status)
     sess_type = norm(sess_type)
     if not any((word, run_id, block, on_date, status, sess_type)):
-        raise HTTPException(status_code=400, detail="検索の条件を 1 つ以上入れてください")
+        raise HTTPException(status_code=400, detail="Enter at least one search condition.")
 
     if word is not None:
         if "\n" in word or "\r" in word:
-            raise HTTPException(status_code=400, detail="検索語に改行は入れられません")
+            raise HTTPException(status_code=400, detail="The search word must not contain a line break.")
         if len(word) > _SESSION_WORD_MAX:
-            raise HTTPException(status_code=400, detail=f"検索語は {_SESSION_WORD_MAX} 字までです")
-    for label, value in (("run の番号", run_id),):
+            raise HTTPException(status_code=400, detail=f"The search word must be at most {_SESSION_WORD_MAX} characters.")
+    for label, value in (("The run number", run_id),):
         if value is not None and not _SESSION_RANGE_RE.match(value):
-            raise HTTPException(status_code=400, detail=f"{label}は N または N-M の形にしてください")
+            raise HTTPException(status_code=400, detail=f"{label} must be in N or N-M format.")
     if block is not None and not _SESSION_BLOCK_RE.match(block):
-        raise HTTPException(status_code=400, detail="block の指定が正しくありません")
+        raise HTTPException(status_code=400, detail="block is invalid.")
     if on_date is not None and not _SESSION_DATE_RE.match(on_date):
-        raise HTTPException(status_code=400, detail="日付は YYYY/MM/DD または YYYY/MM/DD-YYYY/MM/DD の形にしてください")
-    status = _session_subset("状態", status, _SESSION_STATUSES)
-    sess_type = _session_subset("種類", sess_type, _SESSION_TYPES)
+        raise HTTPException(status_code=400, detail="The date must be in YYYY/MM/DD or YYYY/MM/DD-YYYY/MM/DD format.")
+    status = _session_subset("Status", status, _SESSION_STATUSES)
+    sess_type = _session_subset("Type", sess_type, _SESSION_TYPES)
 
     args = ["session", "search"]
     for flag, value in (
@@ -572,7 +572,7 @@ def _validate_card_payload(payload: dict) -> dict:
     受け取っても検査も送りもしない。古い画面がしばらく送ってくるかもしれないが、断らない。
     """
     if not isinstance(payload, dict):
-        raise HTTPException(status_code=400, detail="送る値が正しくありません")
+        raise HTTPException(status_code=400, detail="The submitted value is invalid.")
 
     def text(key: str) -> str:
         v = payload.get(key, "")
@@ -580,7 +580,7 @@ def _validate_card_payload(payload: dict) -> dict:
             return ""
         if not isinstance(v, str):
             raise HTTPException(
-                status_code=400, detail=f"{key} は文字列で送ってください"
+                status_code=400, detail=f"{key} must be a string."
             )
         return v
 
@@ -590,43 +590,43 @@ def _validate_card_payload(payload: dict) -> dict:
         done = []
     if not isinstance(done, list) or len(done) > 64:
         raise HTTPException(
-            status_code=400, detail="done_ids は整数の配列で送ってください"
+            status_code=400, detail="done_ids must be an array of integers."
         )
     done_ids: list[int] = []
     for v in done:
         if not isinstance(v, int) or isinstance(v, bool) or v <= 0:
             raise HTTPException(
-                status_code=400, detail="done_ids は 1 以上の整数で送ってください"
+                status_code=400, detail="done_ids must be integers of 1 or more."
             )
         done_ids.append(v)
 
     block = text("block")
     if block and not _PHONE_TOKEN_RE.match(block):
-        raise HTTPException(status_code=400, detail="block の指定が正しくありません")
+        raise HTTPException(status_code=400, detail="block is invalid.")
 
     thinking = text("thinking")
     if thinking and thinking not in _CARD_THINKING:
         raise HTTPException(
             status_code=400,
-            detail="thinking は none / low / medium / high / xhigh / max のいずれか（空でスキップ）",
+            detail="thinking must be one of none, low, medium, high, xhigh, max (empty to skip).",
         )
 
     model = text("model")
     if model and not _CARD_NAME_RE.match(model):
-        raise HTTPException(status_code=400, detail="model の指定が正しくありません")
+        raise HTTPException(status_code=400, detail="model is invalid.")
 
     # 一覧に出す説明（200 文字までの 1 行）。空なら agent-link が決める
     description = text("description")
     if len(description) > 200 or "\n" in description or "\r" in description:
         raise HTTPException(
-            status_code=400, detail="description は 200 文字までの 1 行にしてください"
+            status_code=400, detail="description must be a single line of at most 200 characters."
         )
 
     # file_token 入力（古い画面が送る `inputs`）は受け取っても使わない（入力は task_text に統一）
 
     task_text = text("task_text")
     if len(task_text.encode("utf-8")) > _TASK_TEXT_MAX:
-        raise HTTPException(status_code=400, detail="task_text は 100KB までです")
+        raise HTTPException(status_code=400, detail="task_text must be at most 100KB.")
 
     return {
         "done_ids": done_ids,
@@ -758,7 +758,7 @@ def phone_card_schedule(name: str, run_id: int, at: str) -> dict:
     args = ["card", "schedule", str(run_id)]
     if at:
         if not _SCHEDULE_RE.match(at):
-            raise HTTPException(status_code=400, detail="時刻の形が正しくありません")
+            raise HTTPException(status_code=400, detail="The time format is invalid.")
         args += ["--at", at.replace("T", " ")]
     project = _phone_project(name)
     return _phone_json(args, root=project["root"])
@@ -788,7 +788,7 @@ def _phone_def_project(name: str) -> dict:
     """
     project = find_project(name)
     if not project.get("root_exists"):
-        raise HTTPException(status_code=404, detail="プロジェクトのフォルダが見つかりません")
+        raise HTTPException(status_code=404, detail="Project folder not found.")
     return project
 
 
@@ -815,30 +815,30 @@ def _validate_def(kind, scope, def_name) -> None:
     """定義の指定（kind / scope / 名前）を確かめる（違反は 400・U3 §変更内容 1）。"""
     if kind not in _DEF_KINDS:
         raise HTTPException(
-            status_code=400, detail="kind は block / template / settings のいずれかです"
+            status_code=400, detail="kind must be one of block, template, settings."
         )
     if scope not in _DEF_SCOPES:
         raise HTTPException(
-            status_code=400, detail="scope は project / global のいずれかです"
+            status_code=400, detail="scope must be project or global."
         )
     if kind == "settings":
         if def_name != _DEF_SETTINGS_NAME:
             raise HTTPException(
-                status_code=400, detail="settings の名前は settings だけです"
+                status_code=400, detail="The name for settings must be settings."
             )
         return
     if not isinstance(def_name, str) or not _DEF_NAME_RE.match(def_name):
         raise HTTPException(
-            status_code=400, detail="名前は英数字と - _ の 64 文字までにしてください"
+            status_code=400, detail="The name must be at most 64 characters of letters, digits, - and _."
         )
 
 
 def _validate_def_text(text) -> str:
     """定義の本文を確かめる（文字列で 256KB まで・違反は 400）。"""
     if not isinstance(text, str):
-        raise HTTPException(status_code=400, detail="本文は文字列で送ってください")
+        raise HTTPException(status_code=400, detail="The text must be a string.")
     if len(text.encode("utf-8")) > _DEF_TEXT_MAX:
-        raise HTTPException(status_code=400, detail="本文は 256KB までの文字にしてください")
+        raise HTTPException(status_code=400, detail="The text must be a string of at most 256KB.")
     return text
 
 
@@ -880,7 +880,7 @@ def phone_def_write(
     _validate_def(kind, scope, def_name)
     body = _validate_def_text(text)
     if create is not None and not isinstance(create, bool):
-        raise HTTPException(status_code=400, detail="create は真偽値で送ってください")
+        raise HTTPException(status_code=400, detail="create must be a boolean.")
     args = ["write", "--kind", kind, "--scope", scope, "--name", def_name]
     if create:
         args.append("--create")
@@ -892,7 +892,7 @@ def phone_def_delete(name: str, kind: str, scope: str, def_name: str) -> dict:
     """定義の削除（`agent-link def delete`・U3 §変更内容 1）。settings は消せない（400）。"""
     _validate_def(kind, scope, def_name)
     if kind == "settings":
-        raise HTTPException(status_code=400, detail="settings は消せません")
+        raise HTTPException(status_code=400, detail="settings cannot be deleted.")
     project = _phone_def_project(name)
     return _phone_def_json(
         ["delete", "--kind", kind, "--scope", scope, "--name", def_name],

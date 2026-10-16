@@ -88,7 +88,7 @@ def test_cc_question_answer_records_without_keys() -> None:
         # 回答済みに再度答えることはできない
         ok, reason = questions.answer_question(qid, [{"choice_index": 1}])
         assert ok is False
-        assert "回答済み" in reason
+        assert "already answered" in reason
 
 
 def test_answer_requires_all_questions() -> None:
@@ -98,7 +98,7 @@ def test_answer_requires_all_questions() -> None:
         qid = make_question("pi", n=2)["id"]
         ok, reason = questions.answer_question(qid, [{"choice_index": 0}, {}])
         assert ok is False
-        assert "未回答" in reason
+        assert "unanswered" in reason
         assert state_of(qid) == "open"
 
 
@@ -223,7 +223,7 @@ def test_withdraw_changes_only_open() -> None:
         assert store.mark_withdrawn(qid, "別の文") is False
         assert store.get_question(qid)["answer"] == {"text": "次は表を作って"}
         ok, reason = questions.answer_question(qid, [{"choice_index": 0}])
-        assert ok is False and "回答済み" in reason, reason
+        assert ok is False and "already answered" in reason, reason
         # 画面に出す状態に withdrawn が入る（open の一覧からは外れる）
         assert [q["state"] for q in store.list_questions_for_session("sess-1")] == ["withdrawn"]
         assert store.list_open_questions() == []

@@ -129,7 +129,7 @@ def detail_of_body(body: str, status: int) -> str:
                 if isinstance(item, dict) and item.get("msg")
             ]
             if msgs:
-                return "・".join(msgs)
+                return "; ".join(msgs)
     return fallback
 
 
@@ -162,7 +162,7 @@ def request_raw(method: str, path: str, payload: object | None = None):
         raise HttpFailure(exc.code, detail_of_body(body, exc.code)) from None
     except (urllib.error.URLError, TimeoutError, OSError):
         raise UnreachableError(
-            f"Web の窓口（{base_url()}）につながりません。動いているか確かめてください"
+            f"Cannot reach the Web server ({base_url()}). Check that it is running."
         ) from None
 
 
@@ -176,7 +176,7 @@ def request_json(method: str, path: str, payload: object | None = None) -> objec
         return json.loads(text)
     except json.JSONDecodeError:
         raise CliError(
-            f"HTTP {status} 応答が JSON ではありません: {text.strip()[:200]}"
+            f"HTTP {status}: the response is not JSON: {text.strip()[:200]}"
         ) from None
 
 
@@ -230,7 +230,7 @@ def cmd_question(args: argparse.Namespace) -> object:
     """質問 1 件の全文（問いと選択肢を番号付きで返す）。"""
     data = request_json("GET", f"/api/questions/{urllib.parse.quote(args.qid)}")
     if not isinstance(data, dict):
-        raise CliError("質問の返り方が違います")
+        raise CliError("Unexpected question response.")
     raw = data.get("questions")
     questions = []
     for i, item in enumerate(raw if isinstance(raw, list) else []):
@@ -285,10 +285,10 @@ def parse_answer_items(rest: list[str]) -> list[dict]:
             continue
         if flag not in ("--choice", "--choices", "--text"):
             raise UsageError(
-                f"答えの指定が違います: {flag}（--choice / --choices / --text を使う）"
+                f"Invalid answer option: {flag}. Use --choice, --choices or --text."
             )
         if i + 1 >= len(rest):
-            raise UsageError(f"{flag} には値が必要です")
+            raise UsageError(f"{flag} requires a value.")
         value = rest[i + 1]
         if flag == "--text":
             items.append({"text": value})
@@ -296,9 +296,9 @@ def parse_answer_items(rest: list[str]) -> list[dict]:
             try:
                 numbers = [int(x) for x in value.split(",") if x.strip() != ""]
             except ValueError:
-                raise UsageError(f"{flag} には番号を書きます: {value}") from None
+                raise UsageError(f"{flag} requires a number: {value}") from None
             if not numbers:
-                raise UsageError(f"{flag} には番号を書きます: {value}")
+                raise UsageError(f"{flag} requires a number: {value}")
             if flag == "--choice":
                 items.append({"choice_index": numbers[0]})
             else:
@@ -311,14 +311,14 @@ def cmd_answer(args: argparse.Namespace) -> object:
     """質問に答える（問いの順に 1 つずつ並べる）。"""
     items = parse_answer_items(args.rest)
     if not items:
-        raise UsageError("答えがありません（--choice / --choices / --text を 1 つ以上書く）")
+        raise UsageError("No answer given. Pass at least one of --choice, --choices, --text.")
     # 問いの数と並べた数が合わなければ送らない（サーバが中途半端に記録するのを防ぐ）
     full = cmd_question(argparse.Namespace(qid=args.qid))
     questions = full["questions"] if isinstance(full, dict) else []
     if len(items) != len(questions):
         raise UsageError(
-            f"問いは {len(questions)} 個ですが、答えは {len(items)} 個です。"
-            " 問いの順に 1 つずつ並べてください"
+            f"The question has {len(questions)} items but {len(items)} answers were given."
+            " Give one answer per item, in order."
         )
     return request_json(
         "POST", f"/api/questions/{urllib.parse.quote(args.qid)}/answer", {"answers": items}
@@ -330,7 +330,7 @@ def cmd_send(args: argparse.Namespace) -> object:
     try:
         run_id = int(args.run_id)
     except ValueError:
-        raise UsageError(f"run_id は番号で書いてください: {args.run_id}") from None
+        raise UsageError(f"run_id must be a number: {args.run_id}") from None
     path = f"/api/runs/{urllib.parse.quote(args.project)}/{run_id}/send"
     return request_json("POST", path, {"text": args.text})
 
@@ -348,21 +348,21 @@ def read_data(value: str | None) -> object | None:
     try:
         return json.loads(raw)
     except json.JSONDecodeError:
-        raise UsageError("--data は JSON で書いてください") from None
+        raise UsageError("--data must be JSON.") from None
 
 
 def cmd_api(args: argparse.Namespace) -> object:
     """Web のすべての HTTP API をそのまま呼ぶ。"""
     method = args.method.upper()
     if method not in METHODS:
-        raise UsageError(f"METHOD は {' / '.join(METHODS)} のどれかです: {args.method}")
+        raise UsageError(f"METHOD must be one of {', '.join(METHODS)}: {args.method}")
     path = args.path
     # 別の宛先へ送らないため、`/` で始まる path だけを受ける
     if not path.startswith("/") or "://" in path:
-        raise UsageError(f"path は / で始まる形で書いてください: {path}")
+        raise UsageError(f"path must start with /: {path}")
     # 空白・制御文字は URL に入れられない（http.client が InvalidURL で落ちる）
     if any(c.isspace() or not c.isprintable() for c in path):
-        raise UsageError(f"path に空白・制御文字は使えません: {path!r}")
+        raise UsageError(f"path must not contain whitespace or control characters: {path!r}")
     payload = read_data(args.data)
     status, body, ctype = request_raw(method, path, payload)
     text = body.decode("utf-8", errors="replace")
@@ -374,7 +374,7 @@ def cmd_api(args: argparse.Namespace) -> object:
         pass
     if ctype.split(";")[0].strip().lower().startswith("text/"):
         return RawText(text)
-    raise CliError(f"この API の応答（{ctype or '不明'}）は CLI では扱えません")
+    raise CliError(f"The CLI cannot handle this API response ({ctype or 'unknown'}).")
 
 
 # ---------------------------------------------------------------------------
@@ -390,7 +390,7 @@ def cmd_serve(args: argparse.Namespace) -> object:
             port = int(os.getenv("AGENT_LINK_WEB_PORT", "8200"))
         except ValueError:
             raise UsageError(
-                f"AGENT_LINK_WEB_PORT が番号ではありません: {os.getenv('AGENT_LINK_WEB_PORT')}"
+                f"AGENT_LINK_WEB_PORT is not a number: {os.getenv('AGENT_LINK_WEB_PORT')}"
             ) from None
     os.execv(
         sys.executable,
@@ -418,7 +418,7 @@ def _add_json(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--json",
         action="store_true",
-        help="出力はいつも JSON（付けても変わらない）",
+        help="Output is always JSON (this flag changes nothing).",
     )
 
 
@@ -426,61 +426,61 @@ def build_parser() -> argparse.ArgumentParser:
     """命令の形。"""
     parser = argparse.ArgumentParser(
         prog="agent-link-web",
-        description="Web の窓口（apps/web）の CLI",
+        description="CLI for the Web app (apps/web)",
     )
     _add_json(parser)
     sub = parser.add_subparsers(dest="command", required=True)
 
-    p = sub.add_parser("serve", help="Web の窓口のサーバを起動する")
-    p.add_argument("--host", default="127.0.0.1", help="待ち受ける住所（既定 127.0.0.1）")
-    p.add_argument("--port", type=int, default=None, help="待ち受ける番号（既定 AGENT_LINK_WEB_PORT）")
+    p = sub.add_parser("serve", help="Start the Web server")
+    p.add_argument("--host", default="127.0.0.1", help="Host to listen on (default 127.0.0.1)")
+    p.add_argument("--port", type=int, default=None, help="Port to listen on (default AGENT_LINK_WEB_PORT)")
     _add_json(p)
     p.set_defaults(func=cmd_serve)
 
-    p = sub.add_parser("projects", help="プロジェクトの一覧")
+    p = sub.add_parser("projects", help="List projects")
     _add_json(p)
     p.set_defaults(func=cmd_projects)
 
-    p = sub.add_parser("home", help="ホームの集計")
+    p = sub.add_parser("home", help="Home summary")
     _add_json(p)
     p.set_defaults(func=cmd_home)
 
-    p = sub.add_parser("questions", help="答えを待っている質問の一覧")
-    p.add_argument("--run", help="この run の質問だけ（run_id）")
-    p.add_argument("--project", help="このプロジェクトの質問だけ")
+    p = sub.add_parser("questions", help="List questions waiting for an answer")
+    p.add_argument("--run", help="Only questions of this run (run_id)")
+    p.add_argument("--project", help="Only questions of this project")
     _add_json(p)
     p.set_defaults(func=cmd_questions)
 
-    p = sub.add_parser("question", help="質問 1 件の全文（選択肢に番号が付く）")
+    p = sub.add_parser("question", help="Full text of one question (options are numbered)")
     p.add_argument("qid")
     _add_json(p)
     p.set_defaults(func=cmd_question)
 
-    p = sub.add_parser("answer", help="質問に答える（問いの順に 1 つずつ並べる）")
+    p = sub.add_parser("answer", help="Answer a question (one answer per item, in order)")
     p.add_argument("qid")
     p.add_argument(
         "rest",
         nargs=argparse.REMAINDER,
-        help="--choice <番号> / --choices <番号,番号> / --text <文> を問いの順に並べる",
+        help="Give --choice <number> / --choices <number,number> / --text <text> in question order",
     )
     _add_json(p)
     p.set_defaults(func=cmd_answer)
 
-    p = sub.add_parser("send", help="実行中の root の run に文を送る")
+    p = sub.add_parser("send", help="Send a message to a running root run")
     p.add_argument("project")
     p.add_argument("run_id")
     p.add_argument("text")
     _add_json(p)
     p.set_defaults(func=cmd_send)
 
-    p = sub.add_parser("usage", help="使用量（Claude Code の枠と費用）")
+    p = sub.add_parser("usage", help="Usage (Claude Code limits and cost)")
     _add_json(p)
     p.set_defaults(func=cmd_usage)
 
-    p = sub.add_parser("api", help="Web のすべての HTTP API をそのまま呼ぶ")
+    p = sub.add_parser("api", help="Call any Web HTTP API as is")
     p.add_argument("method", help="GET / POST / PUT / DELETE / PATCH")
-    p.add_argument("path", help="/ で始まる住所")
-    p.add_argument("--data", help="本文の JSON（`-` なら標準入力）")
+    p.add_argument("path", help="Path starting with /")
+    p.add_argument("--data", help="JSON body (`-` reads standard input)")
     _add_json(p)
     p.set_defaults(func=cmd_api)
 
@@ -493,7 +493,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         data = args.func(args)
     except UsageError as exc:
-        print(f"引数が違います: {exc}", file=sys.stderr)
+        print(f"Invalid arguments: {exc}", file=sys.stderr)
         return 2
     except CliError as exc:
         # 失敗の理由は標準エラーの最後の 1 行に書く（標準出力には何も書かない）
