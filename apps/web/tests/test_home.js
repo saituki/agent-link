@@ -90,9 +90,9 @@ function testSectionOrder() {
   const byKey = {};
   for (const s of H.hmSections(SAMPLE)) byKey[s.key] = s;
   assert.strictEqual(byKey.wait.title, "Questions");
-  assert.strictEqual(byKey.running.title, "動いています");
-  assert.strictEqual(byKey.daemon.title, "止まっている常駐");
-  assert.strictEqual(byKey.errors.title, "読めなかったプロジェクト");
+  assert.strictEqual(byKey.running.title, "Running");
+  assert.strictEqual(byKey.daemon.title, "Stopped daemons");
+  assert.strictEqual(byKey.errors.title, "Projects that could not be read");
 }
 
 // 0 件のカードは出さない
@@ -129,7 +129,7 @@ function testWaitRows() {
   assert.strictEqual(H.hmWaitWhere({ project: "p", run_id: null }), "p");
   assert.strictEqual(H.hmWaitWhere({ project: null }), "");
   // 名の無い質問にも何か文言を出す
-  assert.strictEqual(H.hmWaitTitle({}), "（題のない質問）");
+  assert.strictEqual(H.hmWaitTitle({}), "(untitled question)");
   assert.strictEqual(H.hmWaitTitle({ title: "T" }), "T");
   // プロジェクト名に読点や斜線があっても正しく URL になる
   assert.strictEqual(H.hmWaitHash({ project: "a/b, c", run_id: 1 }), `#/run/${encodeURIComponent("a/b, c")}/1`);
@@ -159,7 +159,7 @@ function testScheduledItems() {
 function testRunning() {
   const sec = H.hmSections(SAMPLE).find((s) => s.key === "running");
   assert.strictEqual(sec.items[0].title, "agent-link-web");
-  assert.strictEqual(sec.items[0].sub, "2 件 実行中");
+  assert.strictEqual(sec.items[0].sub, "2 running");
   assert.strictEqual(sec.items[0].hash, "#/project/agent-link-web/workflow");
 }
 
@@ -168,8 +168,8 @@ function testDaemon() {
   const sec = H.hmSections(SAMPLE).find((s) => s.key === "daemon");
   assert.strictEqual(sec.items.length, 1);
   assert.strictEqual(sec.items[0].title, "sai-old");
-  assert.ok(sec.items[0].sub.includes("常駐が止まっています"));
-  assert.ok(sec.items[0].sub.includes("起動してください"));
+  assert.ok(sec.items[0].sub.includes("The daemon is stopped"));
+  assert.ok(sec.items[0].sub.includes("Start it to run cards"));
   assert.strictEqual(sec.items[0].hash, "#/project/sai-old", "Dashboard（常駐の起動ボタンがある）");
   assert.strictEqual(sec.term, "daemon");
 }
@@ -177,10 +177,10 @@ function testDaemon() {
 // 「何分前」
 function testAgo() {
   const now = Date.parse("2026-09-26T12:00:00Z");
-  assert.strictEqual(H.hmAgo("2026-09-26 11:59:30", now), "たった今");
-  assert.strictEqual(H.hmAgo("2026-09-26 11:58:00", now), "2分前");
-  assert.strictEqual(H.hmAgo("2026-09-26 09:00:00", now), "3時間前");
-  assert.strictEqual(H.hmAgo("2026-09-23 12:00:00", now), "3日前");
+  assert.strictEqual(H.hmAgo("2026-09-26 11:59:30", now), "just now");
+  assert.strictEqual(H.hmAgo("2026-09-26 11:58:00", now), "2m ago");
+  assert.strictEqual(H.hmAgo("2026-09-26 09:00:00", now), "3h ago");
+  assert.strictEqual(H.hmAgo("2026-09-23 12:00:00", now), "3d ago");
   assert.strictEqual(H.hmAgo("2026-09-01 12:00:00", now), "9/1");
   assert.strictEqual(H.hmAgo("", now), "");
   assert.strictEqual(H.hmAgo(null, now), "");
@@ -221,10 +221,10 @@ function testOverviewCards() {
   const zero = H.hmOverviewCards(null);
   assert.deepStrictEqual(zero.map((c) => c.value), ["0", "0%", "0", "$0.00"]);
   // 補足（プロジェクト数・期間・読めなかった件数）
-  assert.strictEqual(H.hmOverviewNote(OVERVIEW), "2 プロジェクトの合計・2026-09-21〜2026-09-27");
+  assert.strictEqual(H.hmOverviewNote(OVERVIEW), "Total of 2 projects · 2026-09-21 – 2026-09-27");
   assert.strictEqual(
     H.hmOverviewNote({ projects: 0, since: null, until: null, errors: ["a: 失敗"] }),
-    "0 プロジェクトの合計・一部のプロジェクトを読めませんでした（1）"
+    "Total of 0 projects · Could not read some projects (1)"
   );
 }
 
@@ -375,7 +375,7 @@ function testAxisLabels() {
     { date: "2026-09-22" },
     { date: "2026-09-23" },
   ];
-  assert.deepStrictEqual(H.hmAxisLabels("week", week), ["月", "火", "水"]);
+  assert.deepStrictEqual(H.hmAxisLabels("week", week), ["Mon", "Tue", "Wed"]);
   assert.deepStrictEqual(H.hmAxisLabels("month", week), ["", "", ""], "1・5・10…の日はだけ出す");
   assert.deepStrictEqual(
     H.hmAxisLabels("month", [{ date: "2026-09-01" }, { date: "2026-09-05" }, { date: "2026-09-10" }]),

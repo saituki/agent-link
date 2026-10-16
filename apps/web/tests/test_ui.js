@@ -55,7 +55,7 @@ function testTerms() {
     assert.ok(x.label && x.text, `${x.key} に表示名と説明があること`);
   }
   // research-tree の用語は今の語（軸・A）で書く。旧い語（top_Q から・Answer の O）は残さない
-  assert.strictEqual(U.AGENT_LINK_TERMS.sci_top_q.label, "軸");
+  assert.strictEqual(U.AGENT_LINK_TERMS.sci_top_q.label, "Axis");
   assert.ok(U.AGENT_LINK_TERMS.sci_rel.text.includes("condition"), "sci_rel の説明が condition に触れること");
   assert.ok(!("sci_bottom_q" in U.AGENT_LINK_TERMS), "旧い用語 sci_bottom_q は無いこと（Q の全面廃止）");
   assert.ok(!/Q/.test(U.AGENT_LINK_TERMS.sci_top_q.text + U.AGENT_LINK_TERMS.sci_guide.text), "軸と GUIDE の説明に Q が無いこと");
@@ -67,12 +67,13 @@ function testTerms() {
 // 用語の説明が日本語の文として読めること（1〜3 文・必ず句点がある）
 function testTermTextsAreSentences() {
   for (const { key, text } of U.saiTermList()) {
-    assert.ok(/[。？！]/.test(text), `${key} の説明が文になっていること: ${text}`);
+    assert.ok(/[.?!]/.test(text), `${key} の説明が文になっていること: ${text}`);
     // 日本語（かな・漢字）と、実際に使う英単語・記号と空白だけ
     // （？ は文の句点として上の検査にも使っている。research-tree の「［？］」の記号にも使う、〜 は範囲の記号として許す）
     const stripped = text.replace(/[一-鿿぀-ゟ゠-ヿA-Za-z0-9\s.,:;!?/()（）「」【】［］→·…#@'"=\-_*`+%$&^~|<>{}\[\]。、？！〜～]/g, "");
     assert.strictEqual(stripped, "", `${key} の説明に読みでない文字があること: ${text}`);
-    assert.ok(text.length <= 140, `${key} の説明が長すぎないこと`);
+    assert.ok(text.length <= 260, `${key} の説明が長すぎないこと`);
+    assert.ok(!/[぀-ヿ一-鿿]/.test(text + U.AGENT_LINK_TERMS[key].label), `${key} の札に日本語が無いこと`);
   }
 }
 

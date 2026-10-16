@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="ja">
+<html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
@@ -10,12 +10,12 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="default" />
   <meta name="theme-color" content="#ffffff" />
   <!-- 画面ファイルの版（サフィックスの数字）は sw.js の CACHE の版と揃えて上げる（iPhone に古いファイルを使わせないため） -->
-  <link rel="stylesheet" href="/style.css?v=134" />
+  <link rel="stylesheet" href="/style.css?v=135" />
   <!-- md の色・ホーム・Workflow・設定の見た目（U4〜U6）。style.css の後に読む -->
-  <link rel="stylesheet" href="/markdown.css?v=134" />
-  <link rel="stylesheet" href="/home.css?v=134" />
-  <link rel="stylesheet" href="/workflow.css?v=134" />
-  <link rel="stylesheet" href="/defs.css?v=134" />
+  <link rel="stylesheet" href="/markdown.css?v=135" />
+  <link rel="stylesheet" href="/home.css?v=135" />
+  <link rel="stylesheet" href="/workflow.css?v=135" />
+  <link rel="stylesheet" href="/defs.css?v=135" />
 </head>
 <body>
   <!-- 日付一覧画面（#/） -->
@@ -23,14 +23,14 @@
     <header class="appbar">
       <!-- 見出しはタブ名に合わせる（05 §4） -->
       <h1>Chats</h1>
-      <button id="newchat-button" aria-label="新しいチャット">＋</button>
-      <button id="version-button" aria-label="版を見る">ⓘ</button>
-      <button id="notify-button" aria-label="通知を受け取る">🔔</button>
+      <button id="newchat-button" aria-label="New chat">＋</button>
+      <button id="version-button" aria-label="Show version">ⓘ</button>
+      <button id="notify-button" aria-label="Turn on notifications">🔔</button>
       <button id="search-toggle" aria-label="Search">🔍</button>
     </header>
-    <div id="offline-bar-days" class="offline-bar" hidden>接続できていません</div>
+    <div id="offline-bar-days" class="offline-bar" hidden>Cannot connect</div>
     <div id="search-row" class="search-row" hidden>
-      <input type="search" id="search-input" placeholder="説明・ブロック・プロジェクトで絞り込み" />
+      <input type="search" id="search-input" placeholder="Filter by description, block, or project" />
     </div>
     <main id="days-list" class="groups"></main>
   </section>
@@ -41,7 +41,7 @@
       <button id="day-back" aria-label="Back">‹</button>
       <h1 id="day-title">Date</h1>
     </header>
-    <div id="offline-bar-day" class="offline-bar" hidden>接続できていません</div>
+    <div id="offline-bar-day" class="offline-bar" hidden>Cannot connect</div>
     <!-- 広い画面では左に日付一覧・右にその日の実行（U4 §4）。
          狭い画面では左（sai-split-list）は隠して右だけを出す。 -->
     <div class="sai-split" id="day-split">
@@ -59,20 +59,20 @@
         <h1 id="run-title">Run</h1>
         <div id="run-desc" class="run-desc"></div>
       </div>
-      <span id="run-lamp" class="lamp" aria-label="状態"></span>
+      <span id="run-lamp" class="lamp" aria-label="Status"></span>
       <!-- ■ 終了（実行中のメインブロックだけ出す・計画書 A の D2） -->
-      <button id="finalize-button" aria-label="終了" hidden>■</button>
+      <button id="finalize-button" aria-label="End run" hidden>■</button>
       <!-- 統計画面へのボタン（中身は 04。住所だけは 03 で用意・03 §1-7） -->
       <button id="stats-button" aria-label="Stats">📊</button>
     </header>
-    <div id="offline-bar-run" class="offline-bar" hidden>接続できていません</div>
+    <div id="offline-bar-run" class="offline-bar" hidden>Cannot connect</div>
     <main id="chat-list" class="chat-list"></main>
-    <button id="new-arrival" class="new-arrival" hidden>新着 ↓</button>
+    <button id="new-arrival" class="new-arrival" hidden>New ↓</button>
     <footer class="inputbar">
-      <button id="mic-button" aria-label="音声入力">🎤</button>
-      <textarea id="chat-input" rows="1" placeholder="メッセージを入力"></textarea>
+      <button id="mic-button" aria-label="Voice input">🎤</button>
+      <textarea id="chat-input" rows="1" placeholder="Type a message"></textarea>
       <!-- 停止（working と blocked のときだけ出す・U03）。文字は ■ だけ（幅 390px で入力欄を狭くしすぎないため） -->
-      <button id="interrupt-button" class="stop-button" aria-label="停止" title="エージェントの今の作業を止める（会話は続く）" hidden>■</button>
+      <button id="interrupt-button" class="stop-button" aria-label="Stop" title="Stop the agent's current work (the chat continues)" hidden>■</button>
       <button id="send-button" aria-label="Send">➤</button>
     </footer>
   </section>
@@ -85,9 +85,9 @@
         <h1 id="stats-title">Stats</h1>
         <div id="stats-desc" class="run-desc"></div>
       </div>
-      <span id="stats-lamp" class="lamp" aria-label="状態"></span>
+      <span id="stats-lamp" class="lamp" aria-label="Status"></span>
     </header>
-    <div id="offline-bar-stats" class="offline-bar" hidden>接続できていません</div>
+    <div id="offline-bar-stats" class="offline-bar" hidden>Cannot connect</div>
     <main class="stats-body">
       <!-- 見出し（#58 sai2・description・プロジェクト・runner・モデル・時刻・状態） -->
       <div id="stats-head" class="st-head"></div>
@@ -101,7 +101,7 @@
     <header class="appbar">
       <h1>Project</h1>
     </header>
-    <div class="offline-bar" hidden>接続できていません</div>
+    <div class="offline-bar" hidden>Cannot connect</div>
     <main id="projects-list" class="groups"></main>
   </section>
 
@@ -113,9 +113,9 @@
       <h1 id="dash-title" class="proj-title">Project</h1>
       <!-- Dashboard / Workflow / List / 設定 の切り替え（中身は linkview.js の fillLinkSeg） -->
       <div class="list-mode" id="dash-mode-seg"></div>
-      <span id="dash-lamp" class="proj-lamp" aria-label="常駐の状態"></span>
+      <span id="dash-lamp" class="proj-lamp" aria-label="Daemon status"></span>
     </header>
-    <div class="offline-bar" hidden>接続できていません</div>
+    <div class="offline-bar" hidden>Cannot connect</div>
     <main id="dashboard-body" class="dash-body"></main>
   </section>
 
@@ -124,13 +124,13 @@
     <!-- 見出しは ☰（狭い画面だけ）‹ プロジェクト名 切り替え（4 画面共通・U01 §3） -->
     <header class="appbar proj-bar list-bar">
       <!-- ☰ で左から引き出しツリー（計画 14 §1.2） -->
-      <button id="list-menu" aria-label="ツリーを開く">☰</button>
+      <button id="list-menu" aria-label="Open tree">☰</button>
       <button id="list-back" class="proj-back" aria-label="Back to projects">‹</button>
       <h1 id="list-title" class="proj-title"></h1>
       <!-- Dashboard / Workflow / List / 設定 の切り替え（同じ見た目・中身は linkview.js が作る） -->
       <div class="list-mode" id="list-mode-seg"></div>
     </header>
-    <div class="offline-bar" hidden>接続できていません</div>
+    <div class="offline-bar" hidden>Cannot connect</div>
     <!-- 選んだ run の見出しと 7 つの表示の帯（run を選ぶまで隠す・計画 14 §1.3） -->
     <div class="lv-head" id="lv-head" hidden>
       <div class="lv-run-row">
@@ -148,7 +148,7 @@
     <!-- 引き出し式ツリー（暗い部分タップで閉じる・計画 14 §1.2） -->
     <div class="lv-drawer-wrap" id="lv-drawer-wrap" hidden>
       <div class="lv-drawer-mask" id="lv-drawer-mask"></div>
-      <nav class="lv-drawer" id="lv-drawer" aria-label="実行のツリー"></nav>
+      <nav class="lv-drawer" id="lv-drawer" aria-label="Run tree"></nav>
     </div>
   </section>
 
@@ -159,7 +159,7 @@
       <h1 id="sess-title" class="proj-title"></h1>
       <div class="list-mode" id="sess-mode-seg"></div>
     </header>
-    <div class="offline-bar" hidden>接続できていません</div>
+    <div class="offline-bar" hidden>Cannot connect</div>
     <main id="sess-body" class="sess-body"></main>
   </section>
 
@@ -176,12 +176,12 @@
   <!-- task.md 作成フォーム（下から出る一枚・計画 15 §1.5。中身は cardform.js） -->
   <div id="cardform-wrap" class="cf-wrap" hidden>
     <div class="cf-mask" id="cf-mask"></div>
-    <div class="cf-sheet" role="dialog" aria-modal="true" aria-label="task.md を作る">
+    <div class="cf-sheet" role="dialog" aria-modal="true" aria-label="Create task.md">
       <div class="cf-head">
         <div class="cf-head-text">
           <!-- 手順番号は 10 固定で，スキップすると番号が飛ぶ（TUI と同じ・計画 15 §1.5） -->
           <span class="cf-step" id="cf-step"></span>
-          <span class="cf-title" id="cf-name">task.md を作る</span>
+          <span class="cf-title" id="cf-name">Create task.md</span>
         </div>
         <div class="cf-head-actions">
           <!-- 書きかけを消して最初から（計画 15 §1.5） -->
@@ -238,35 +238,35 @@
   </div>
 
   <!-- md の整形表示（13 §1.4）。呼び出す画面部品より先に読み込む -->
-  <script src="/markdown.js?v=134"></script>
+  <script src="/markdown.js?v=135"></script>
   <!-- 共通部品（saiApi・saiToast など・U4）。markdown.js の直後、各画面の JS より先に読む -->
-  <script src="/ui.js?v=134"></script>
+  <script src="/ui.js?v=135"></script>
   <!-- stats.js を先に読み，app.js の route() が統計画面を開けるようにする -->
-  <script src="/stats.js?v=134"></script>
+  <script src="/stats.js?v=135"></script>
   <!-- Project タブの中身（06）。app.js より前に読み込む（stats.js の関数を共有するため） -->
-  <script src="/project.js?v=134"></script>
+  <script src="/project.js?v=135"></script>
   <!-- List 画面（Dashboard | List の切り替え・引き出しツリー・7 つの表示・計画 14）。 -->
   <!-- project.js より後に読み，app.js より前に読む（登録は window.SaiRoutes・計画 14 §6） -->
-  <script src="/linkview.js?v=134"></script>
+  <script src="/linkview.js?v=135"></script>
   <!-- task.md 作成フォーム（＋ で下から出る・計画 15）。app.js より前に読む
        （🎤 は app.js の attachVoiceInput を実行時に呼ぶ） -->
-  <script src="/cardform.js?v=134"></script>
+  <script src="/cardform.js?v=135"></script>
   <!-- 会話の検索（U10） -->
-  <script src="/sessionsearch.js?v=134"></script>
+  <script src="/sessionsearch.js?v=135"></script>
   <!-- 会話に行・回答済みカードを置く位置を決める関数（CP3 の直し）。app.js より前に読み込む -->
-  <script src="/chatorder.js?v=134"></script>
+  <script src="/chatorder.js?v=135"></script>
   <!-- 新しいチャット（U04 §5）。app.js より前に読み込む（#newchat-button に結び付ける） -->
-  <script src="/newchat.js?v=134"></script>
+  <script src="/newchat.js?v=135"></script>
   <!-- 質問カードの読み上げ・音声回答（U01・voiceask.js）。app.js より前に読み込む -->
-  <script src="/voiceask.js?v=134"></script>
+  <script src="/voiceask.js?v=135"></script>
   <!-- 配置・全体表示・拡大の純関数（canvaslayout.js）。workflow.js より先に読む -->
-  <script src="/canvaslayout.js?v=134"></script>
+  <script src="/canvaslayout.js?v=135"></script>
   <!-- ホーム画面（U4・home.js）。app.js より前に読み込む（画面の登録は window.SaiRoutes） -->
-  <script src="/home.js?v=134"></script>
+  <script src="/home.js?v=135"></script>
   <!-- Workflow 盤面（U5・workflow.js）。U4 では空のファイルを作っただけ。canvaslayout.js の関数を使うので canvaslayout.js より後 -->
-  <script src="/workflow.js?v=134"></script>
+  <script src="/workflow.js?v=135"></script>
   <!-- 設定画面（U5・defs.js）。U4 では空のファイルを作っただけ -->
-  <script src="/defs.js?v=134"></script>
-  <script src="/app.js?v=134"></script>
+  <script src="/defs.js?v=135"></script>
+  <script src="/app.js?v=135"></script>
 </body>
 </html>
