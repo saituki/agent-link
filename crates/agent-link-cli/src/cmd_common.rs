@@ -92,18 +92,17 @@ impl From<crate::phone::PhoneError> for CmdError {
 ///
 /// // ponytail: 文で分類。agent_api がエラーの型を持ったらそれに替える
 pub(crate) fn classify_agent_error(msg: &str) -> i32 {
-    if msg.contains("見つかりません") || msg.contains("存在しません") || msg.contains("解決に失敗") {
+    // 日本語（旧）と英語（U10 以降）の両方を見る。
+    let lower = msg.to_lowercase();
+    let has = |words: &[&str]| words.iter().any(|w| msg.contains(w) || lower.contains(w));
+    if has(&["見つかりません", "存在しません", "解決に失敗", "not found", "does not exist", "failed to resolve"]) {
         EXIT_MISSING
-    } else if msg.contains("実行中") || msg.contains("既に") {
+    } else if has(&["実行中", "既に", "already", "is running", "in progress"]) {
         EXIT_CONFLICT
-    } else if msg.contains("必須")
-        || msg.contains("パース")
-        || msg.contains("不正")
-        || msg.contains("JSON")
-        || msg.contains("配列")
-        || msg.contains("空")
-        || msg.contains("指定してください")
-    {
+    } else if has(&[
+        "必須", "パース", "不正", "JSON", "配列", "空", "指定してください",
+        "required", "must", "invalid", "parse", "array", "empty", "specify", "at least",
+    ]) {
         EXIT_INPUT
     } else {
         EXIT_OTHER
@@ -123,7 +122,7 @@ pub(crate) fn agent_result(
 /// JSON を 1 つ pretty で標準出力に出す。
 pub(crate) fn print_json(value: &serde_json::Value) -> Result<(), CmdError> {
     let text = serde_json::to_string_pretty(value)
-        .map_err(|e| CmdError::other(format!("JSON 変換に失敗しました: {}", e)))?;
+        .map_err(|e| CmdError::other(format!("Failed to serialize JSON: {}", e)))?;
     println!("{}", text);
     Ok(())
 }

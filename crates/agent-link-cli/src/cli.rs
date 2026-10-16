@@ -201,7 +201,7 @@ pub enum TaskCmd {
     /// 子タスクを複数まとめて待つ（1〜50 件）
     Wait {
         /// 待つ子タスクの ID（1 件以上）
-        #[arg(value_name = "タスクID", required = true)]
+        #[arg(value_name = "TASK_ID", required = true)]
         task_ids: Vec<i64>,
         /// 最大待機時間（ミリ秒）。0 で待たない
         #[arg(long)]
@@ -225,7 +225,7 @@ pub enum TaskCmd {
 
     /// サブタスクの詳細を表示する
     Show {
-        #[arg(value_name = "タスクID")]
+        #[arg(value_name = "TASK_ID")]
         task_id: i64,
         #[arg(long, default_value_t = false)]
         json: bool,
@@ -233,7 +233,7 @@ pub enum TaskCmd {
 
     /// タスクの pane 出力をキャプチャする
     Capture {
-        #[arg(value_name = "タスクID")]
+        #[arg(value_name = "TASK_ID")]
         task_id: i64,
         /// 読み取る行数
         #[arg(long)]
@@ -244,9 +244,9 @@ pub enum TaskCmd {
 
     /// 追加指示を送る
     Send {
-        #[arg(value_name = "タスクID")]
+        #[arg(value_name = "TASK_ID")]
         task_id: i64,
-        #[arg(long, value_name = "文")]
+        #[arg(long, value_name = "TEXT")]
         message: String,
         #[arg(long)]
         run_id: Option<i64>,
@@ -256,7 +256,7 @@ pub enum TaskCmd {
 
     /// 作業中の子タスクを止める（esc）
     Interrupt {
-        #[arg(value_name = "タスクID")]
+        #[arg(value_name = "TASK_ID")]
         task_id: i64,
         #[arg(long)]
         run_id: Option<i64>,
@@ -266,7 +266,7 @@ pub enum TaskCmd {
 
     /// 子タスクを消す
     Delete {
-        #[arg(value_name = "タスクID")]
+        #[arg(value_name = "TASK_ID")]
         task_id: i64,
         #[arg(long)]
         run_id: Option<i64>,
@@ -276,7 +276,7 @@ pub enum TaskCmd {
 
     /// 子タスクの完了を確定する
     Finalize {
-        #[arg(value_name = "タスクID")]
+        #[arg(value_name = "TASK_ID")]
         task_id: i64,
         #[arg(long)]
         run_id: Option<i64>,
@@ -286,7 +286,7 @@ pub enum TaskCmd {
 
     /// 失敗・削除した子タスクを再実行する
     Requeue {
-        #[arg(value_name = "タスクID")]
+        #[arg(value_name = "TASK_ID")]
         task_id: i64,
         #[arg(long)]
         run_id: Option<i64>,
@@ -308,7 +308,7 @@ pub enum TaskCmd {
         #[arg(long, value_name = "ID")]
         qid: String,
         /// 質問の見出し（1 行にする）
-        #[arg(long, value_name = "文")]
+        #[arg(long, value_name = "TEXT")]
         text: String,
         #[arg(long)]
         run_id: Option<i64>,
@@ -376,7 +376,7 @@ pub enum RunCmd {
 
     /// 特定の実行の詳細を表示する（文字。`--json` で 1 つの JSON）
     Show {
-        #[arg(value_name = "実行ID")]
+        #[arg(value_name = "RUN_ID")]
         run_id: i64,
         #[arg(long, default_value_t = false)]
         json: bool,
@@ -434,7 +434,7 @@ pub enum RunCmd {
         #[arg(value_name = "RUN_ID")]
         run_id: Option<i64>,
         /// 報告の本文（要点）
-        #[arg(long, value_name = "文")]
+        #[arg(long, value_name = "TEXT")]
         report: Option<String>,
         #[arg(long, default_value_t = false)]
         json: bool,
@@ -455,7 +455,7 @@ pub enum RunCmd {
         #[arg(value_name = "RUN_ID")]
         run_id: i64,
         /// 送る文（省略時は標準入力の全文）
-        #[arg(long, value_name = "文")]
+        #[arg(long, value_name = "TEXT")]
         text: Option<String>,
         #[arg(long, default_value_t = false)]
         json: bool,
@@ -507,7 +507,7 @@ pub enum DocCmd {
     /// 成果物を run フォルダへ保存する（本文は標準入力）
     Write {
         /// 保存ファイル名（run フォルダ直下）
-        #[arg(long, value_name = "ファイル名")]
+        #[arg(long, value_name = "FILENAME")]
         filename: String,
         /// 成果物の説明（waggle トークンのラベル）
         #[arg(long)]
@@ -521,7 +521,7 @@ pub enum DocCmd {
 
     /// waggle 文書の本文を読む
     Read {
-        #[arg(value_name = "トークン")]
+        #[arg(value_name = "TOKEN")]
         token: String,
         #[arg(long, default_value_t = false)]
         json: bool,
@@ -570,7 +570,7 @@ pub enum DefCmd {
     /// 定義ファイルの一覧（`--parent` で呼べる子の一覧）
     List {
         /// 親ブロック名（subblocks 制限の確認元）
-        #[arg(long, value_name = "ブロック名")]
+        #[arg(long, value_name = "BLOCK")]
         parent: Option<String>,
         #[arg(long, default_value_t = false)]
         json: bool,
@@ -583,7 +583,7 @@ pub enum DefCmd {
         /// 置き場（project / global。省略時は解決済みの block 定義）
         #[arg(long, value_parser = ["project", "global"])]
         scope: Option<String>,
-        #[arg(long, value_name = "名前")]
+        #[arg(long, value_name = "NAME")]
         name: String,
         #[arg(long, default_value_t = false)]
         json: bool,
@@ -595,7 +595,7 @@ pub enum DefCmd {
         kind: String,
         #[arg(long, value_parser = ["project", "global"])]
         scope: String,
-        #[arg(long, value_name = "名前")]
+        #[arg(long, value_name = "NAME")]
         name: String,
         /// 新規作成する（既に同名があるなら終了コード 4）
         #[arg(long, default_value_t = false)]
@@ -610,7 +610,7 @@ pub enum DefCmd {
         kind: String,
         #[arg(long, value_parser = ["project", "global"])]
         scope: String,
-        #[arg(long, value_name = "名前")]
+        #[arg(long, value_name = "NAME")]
         name: String,
         #[arg(long, default_value_t = false)]
         json: bool,
@@ -619,10 +619,10 @@ pub enum DefCmd {
     /// 実行時の pi 起動コマンドをプレビュー表示する（実行はしない・文字）
     Preview {
         /// ブロック定義ファイル（.md）のパス
-        #[arg(value_name = "定義ファイル")]
+        #[arg(value_name = "DEF_FILE")]
         definition_file: PathBuf,
         /// ブロックへのユーザー入力（テキスト）
-        #[arg(value_name = "ユーザー入力")]
+        #[arg(value_name = "USER_INPUT")]
         user_input: Option<String>,
         #[arg(long, default_value = "right", value_parser = ["right", "down"])]
         direction: String,
@@ -1000,7 +1000,7 @@ pub enum PhoneDefCmd {
         scope: String,
 
         /// 定義の名前（拡張子 `.md` は付けない。settings は必ず `settings`）
-        #[arg(long, value_name = "名前")]
+        #[arg(long, value_name = "NAME")]
         name: String,
     },
 
@@ -1018,7 +1018,7 @@ pub enum PhoneDefCmd {
         scope: String,
 
         /// 定義の名前（拡張子 `.md` は付けない。settings は必ず `settings`）
-        #[arg(long, value_name = "名前")]
+        #[arg(long, value_name = "NAME")]
         name: String,
 
         /// 新規作成する（既に同名があるなら終了コード 1）
@@ -1041,7 +1041,7 @@ pub enum PhoneDefCmd {
         scope: String,
 
         /// 定義の名前（拡張子 `.md` は付けない。settings は必ず `settings`）
-        #[arg(long, value_name = "名前")]
+        #[arg(long, value_name = "NAME")]
         name: String,
     },
 }
@@ -1073,7 +1073,7 @@ pub fn handle_user_block_non_interactive(
 ) -> Result<(), Box<dyn std::error::Error>> {
     // input-file は must（user-block の出力 = トークン化対象）
     let input_file = input_file.ok_or_else(|| {
-        "user-block には --input-file (-f) でトークン化するファイルを指定してください".to_string()
+        "user-block needs --input-file (-f) with the file to tokenize.".to_string()
     })?;
     handle_block_user_block(input_tokens, input_file, description)
 }
@@ -1088,14 +1088,14 @@ pub fn handle_block_user_block(
     // user-block ブロック名（block_metadata / トークン化ラベルに使用）
     const BLOCK_NAME: &str = "user-block";
     if !input_file.exists() {
-        return Err(format!("入力ファイルが存在しません: {}", input_file.display()).into());
+        return Err(format!("Input file {} does not exist.", input_file.display()).into());
     }
 
     // DB と waggle インテグレーターを開く
     let store = Arc::new(open_db()?);
     let db_path = agent_link_engine::project::db_path();
     let integrator = agent_link_engine::waggle_integration::WaggleIntegrator::open(&db_path)
-        .map_err(|e| format!("waggle DB 初期化失敗: {}", e))?;
+        .map_err(|e| format!("Failed to initialize the waggle DB: {}.", e))?;
 
     // ── 1. 同一判定: 既存 user-block 出力の内容（SHA-256）と比較 ──
     // トークンは非決定性（毎回ランダム）のため、トークン一致ではなく内容で判定する。
@@ -1146,7 +1146,7 @@ pub fn handle_block_user_block(
     // ── 2. 入力ファイルをトークン化 ──
     let tokenized = integrator
         .tokenize_file(input_file, BLOCK_NAME, Some(description))
-        .map_err(|e| format!("waggle トークン化に失敗 ({}): {}", input_file.display(), e))?;
+        .map_err(|e| format!("Failed to tokenize {} as a waggle token: {}.", input_file.display(), e))?;
     let output_tokens = vec![tokenized.token.as_str().to_string()];
     println!(
         "  tokenized: {} -> {}",
@@ -1156,7 +1156,7 @@ pub fn handle_block_user_block(
 
     // ── 3. block_metadata（user-block）を取得/作成 ──
     let block_id = match store.get_block_by_name(BLOCK_NAME) {
-        Ok(b) => b.id.ok_or("block_metadata id がありません")?,
+        Ok(b) => b.id.ok_or("block_metadata has no id.")?,
         Err(_) => {
             let meta = agent_link_engine::db::models::BlockMetadata::new(
                 BLOCK_NAME.to_string(),
@@ -1228,7 +1228,7 @@ pub fn handle_block_preview(
 ) -> Result<(), Box<dyn std::error::Error>> {
     if !definition_file.exists() {
         eprintln!(
-            "エラー: ファイル '{}' が見つかりません",
+            "Error: File '{}' not found.",
             definition_file.display()
         );
         std::process::exit(EXIT_NOT_FOUND);
@@ -1240,12 +1240,12 @@ pub fn handle_block_preview(
         agent_link_engine::pre_run::run_if_configured()
     {
         eprintln!(
-            "[agent-link] 警告: 実行直前の準備コマンドに失敗しました（前回のファイルのまま続けます）: {msg}"
+            "[agent-link] Warning: The pre-run command failed. Continuing with the previous files: {msg}"
         );
     }
 
     let parsed = parse_block_file(definition_file)
-        .map_err(|e| format!("ブロック定義のパースに失敗: {}", e))?;
+        .map_err(|e| format!("Failed to parse the block definition: {}.", e))?;
 
     // ユーザー入力（`task_text` のみ）
     let mut user_inputs_map: HashMap<String, String> = HashMap::new();
@@ -1388,14 +1388,14 @@ pub fn handle_block_def_show(name: &str, json: bool) -> Result<(), Box<dyn std::
     }
     if !path.exists() {
         eprintln!(
-            "エラー: ブロック定義が見つかりません: {} (ID または表示名で指定)",
+            "Error: Block definition {} not found. Specify the ID or the display name.",
             name
         );
         std::process::exit(EXIT_NOT_FOUND);
     }
 
     let parsed =
-        parse_block_file(&path).map_err(|e| format!("ブロック定義のパースに失敗: {}", e))?;
+        parse_block_file(&path).map_err(|e| format!("Failed to parse the block definition: {}.", e))?;
 
     if json {
         let entry = block_def_to_json(&parsed.config);
@@ -1433,7 +1433,7 @@ pub fn handle_block_list(limit: i64, json: bool) -> Result<(), Box<dyn std::erro
     // R303: 予約行（status='todo'）は既定で除外する（履歴・件数に含めない）。
     let fetched = store
         .list_recent_executions(limit)
-        .map_err(|e| format!("DB エラー (履歴取得): {}", e))?;
+        .map_err(|e| format!("DB error while loading the history: {}.", e))?;
     // 件数で切ったとき（新しい方から limit 件）は、表の後に 1 行足す（--json の形は変えない）
     let cut = limit > 0 && fetched.len() as i64 == limit;
     let records: Vec<_> = fetched.into_iter().filter(|e| e.status != "todo").collect();
@@ -1560,11 +1560,11 @@ pub fn handle_block_show(run_id: i64, json: bool) -> Result<(), Box<dyn std::err
     let exec = match store.get_execution_by_id(run_id) {
         Ok(e) => e,
         Err(DbError::NotFound(_)) => {
-            eprintln!("エラー: 実行ID '{}' は見つかりません", run_id);
+            eprintln!("Error: Run {} not found.", run_id);
             std::process::exit(EXIT_NOT_FOUND);
         }
         Err(e) => {
-            eprintln!("DB エラー: {}", e);
+            eprintln!("DB error: {}.", e);
             std::process::exit(EXIT_DB);
         }
     };
@@ -1729,7 +1729,7 @@ pub fn handle_block_rm(exec_id: i64, yes: bool) -> Result<(), Box<dyn std::error
     let exec = match store.get_execution_by_id(exec_id) {
         Ok(e) => e,
         Err(_) => {
-            eprintln!("エラー: 実行ID '{}' は見つかりません", exec_id);
+            eprintln!("Error: Run {} not found.", exec_id);
             std::process::exit(EXIT_NOT_FOUND);
         }
     };
@@ -1743,15 +1743,15 @@ pub fn handle_block_rm(exec_id: i64, yes: bool) -> Result<(), Box<dyn std::error
     if !yes {
         let run_dir = agent_link_engine::run_dir::find_run_dir(exec_id)
             .map(|(_, p)| p.display().to_string())
-            .unwrap_or_else(|| "（run フォルダなし）".to_string());
+            .unwrap_or_else(|| "(no run folder)".to_string());
         eprintln!(
-            "削除対象: 実行 #{} '{}' ({})\n  DB行＋run フォルダ: {}\n本当に削除しますか？ [y/N]",
+            "Delete run #{} '{}' ({})?\n  DB rows and run folder: {}\nProceed? [y/N]",
             exec_id, block_name, exec.status, run_dir
         );
         let mut line = String::new();
         std::io::stdin().read_line(&mut line)?;
         if line.trim().to_lowercase() != "y" {
-            eprintln!("削除を中止しました");
+            eprintln!("Deletion cancelled.");
             return Ok(());
         }
     }
@@ -1933,7 +1933,7 @@ pub fn handle_phone_export(
                 let exec = store.get_execution_by_id(run_id)?;
                 if !phone_export::should_export(&exec.status) {
                     eprintln!(
-                        "run {} は書き出し対象外です（status={}）",
+                        "Run {} is not exported (status={}).",
                         run_id, exec.status
                     );
                     return Ok(());
@@ -2023,7 +2023,7 @@ pub fn handle_waggle_resolve(token: &str) -> Result<(), Box<dyn std::error::Erro
         std::fs::create_dir_all(parent)?;
     }
     let integrator =
-        WaggleIntegrator::open(&db_path).map_err(|e| format!("waggle DB 初期化失敗: {}", e))?;
+        WaggleIntegrator::open(&db_path).map_err(|e| format!("Failed to initialize the waggle DB: {}.", e))?;
 
     match integrator.resolve_content(token) {
         Ok(content) => {
@@ -2206,11 +2206,11 @@ pub fn handle_daemon_stop(force: bool) -> Result<(), Box<dyn std::error::Error>>
                 let busy = daemon_busy_description();
                 if !busy.is_empty() {
                     eprintln!(
-                        "⚠ 実行中の作業があります。先に完了させてください: {}",
+                        "Work is in progress. Finish it first: {}",
                         busy.join(" / ")
                     );
-                    eprintln!("  強制停止は `agent-link daemon stop --force` を付けてください。");
-                    return Err("実行中の作業があるため停止しませんでした".into());
+                    eprintln!("Use `agent-link daemon stop --force` to stop it anyway.");
+                    return Err("The daemon was not stopped because work is in progress.".into());
                 }
             }
             // SIGTERM を送信（デーモン側で確定終了が走る）
@@ -2254,15 +2254,15 @@ fn daemon_busy_description() -> Vec<String> {
             };
             let running = ids("running_executions");
             if !running.is_empty() {
-                out.push(format!("実行中ブロック {:?}", running));
+                out.push(format!("running runs {:?}", running));
             }
             let active = ids("active_tasks");
             if !active.is_empty() {
-                out.push(format!("実行中タスク {:?}", active));
+                out.push(format!("running tasks {:?}", active));
             }
             let queued = ids("queued_tasks");
             if !queued.is_empty() {
-                out.push(format!("キュー待ちタスク {:?}", queued));
+                out.push(format!("queued tasks {:?}", queued));
             }
         }
     }
@@ -2270,13 +2270,13 @@ fn daemon_busy_description() -> Vec<String> {
         if let Ok(running) = store.list_running_executions() {
             if !running.is_empty() {
                 let ids: Vec<i64> = running.iter().filter_map(|e| e.id).collect();
-                out.push(format!("DB実行中 {:?}", ids));
+                out.push(format!("running in DB {:?}", ids));
             }
         }
         for st in ["in_progress", "queued"] {
             if let Ok(tasks) = store.list_tasks_by_status(&[st]) {
                 if !tasks.is_empty() {
-                    out.push(format!("タスク({}) {} 件", st, tasks.len()));
+                    out.push(format!("tasks ({}) {}", st, tasks.len()));
                 }
             }
         }
@@ -2356,8 +2356,8 @@ pub fn handle_daemon_status() -> Result<(), Box<dyn std::error::Error>> {
 /// `failed` + 理由付きで確定する。自動確定はしない。
 pub fn handle_daemon_recover(apply: bool) -> Result<(), Box<dyn std::error::Error>> {
     if daemon::is_running() {
-        eprintln!("⚠ デーモン稼働中は recover できません。先に `agent-link daemon stop` してください。");
-        return Err("デーモン稼働中のため recover しませんでした".into());
+        eprintln!("Cannot recover while the daemon is running. Run `agent-link daemon stop` first.");
+        return Err("Did not recover because the daemon is running.".into());
     }
     let store = open_db()?;
     let orphans = agent_link_engine::daemon::list_orphaned_runs(&store);
@@ -2390,7 +2390,7 @@ pub fn handle_daemon_recover(apply: bool) -> Result<(), Box<dyn std::error::Erro
         return Ok(());
     }
     for o in &orphans {
-        store.update_execution_error(o.run_id, "デーモン停止中の手動確定（daemon recover）", 1)?;
+        store.update_execution_error(o.run_id, "Manually finalized while the daemon was stopped (daemon recover).", 1)?;
         println!("  ✅ run {} を failed に確定しました", o.run_id);
     }
     Ok(())

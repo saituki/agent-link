@@ -36,7 +36,7 @@ pub(crate) fn run(cmd: DefCmd) -> Result<(), CmdError> {
                 // `--scope` を省けるのは解決済みの block 定義のときだけ
                 if kind != "block" {
                     return Err(CmdError::input(
-                        "--scope を省けるのは --kind block のときだけです",
+                        "--scope can be omitted only with --kind block.",
                     ));
                 }
                 let v = agent_result(agent_link_engine::agent_api::block_inspect(&name))?;

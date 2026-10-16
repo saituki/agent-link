@@ -195,7 +195,7 @@ pub fn handle(cmd: PhoneCmd) -> Result<(), Box<dyn std::error::Error>> {
 pub(crate) fn render(cmd: PhoneCmd) -> PhoneResult<String> {
     match run(cmd)? {
         PhoneOut::Value(v) => serde_json::to_string_pretty(&v)
-            .map_err(|e| PhoneError::internal(format!("JSON 変換に失敗: {}", e))),
+            .map_err(|e| PhoneError::internal(format!("Failed to serialize JSON: {}.", e))),
         PhoneOut::Text(s) => Ok(s),
     }
 }
@@ -204,7 +204,7 @@ pub(crate) fn render(cmd: PhoneCmd) -> PhoneResult<String> {
 pub(crate) fn run(cmd: PhoneCmd) -> PhoneResult<PhoneOut> {
     match cmd {
         PhoneCmd::Export { .. } => Err(PhoneError::usage(
-            "内部エラー: phone export は handle_phone_export が処理する",
+            "Internal error: handle_phone_export handles phone export.",
         )),
         PhoneCmd::Tree => val(tree()),
         PhoneCmd::Run { run_id, view } => val(run_view(run_id, &view)),
@@ -252,7 +252,7 @@ pub(crate) fn run(cmd: PhoneCmd) -> PhoneResult<PhoneOut> {
 
 /// プロジェクトの DB を開く（失敗は終了コード 4）。
 fn open_store() -> PhoneResult<SaiStore> {
-    crate::cli::open_db().map_err(|e| PhoneError::internal(format!("DB を開けません: {}", e)))
+    crate::cli::open_db().map_err(|e| PhoneError::internal(format!("Cannot open the DB: {}.", e)))
 }
 
 // ============================================================================
@@ -496,7 +496,7 @@ fn search(o: SearchOpts) -> PhoneResult<Value> {
         .map(|w| w.to_lowercase())
         .collect();
     if words.is_empty() {
-        return Err(PhoneError::usage("検索語を入れてください"));
+        return Err(PhoneError::usage("Enter a search term."));
     }
     let mut want = std::collections::HashSet::new();
     for c in o.category.split(',').map(str::trim).filter(|s| !s.is_empty()) {
@@ -506,21 +506,21 @@ fn search(o: SearchOpts) -> PhoneResult<Value> {
             }
             other => {
                 return Err(PhoneError::usage(format!(
-                    "不正な種類です: {}（task | message | waggle）",
+                    "Invalid kind: {} (task | message | waggle).",
                     other
                 )))
             }
         }
     }
     if want.is_empty() {
-        return Err(PhoneError::usage("種類を 1 つ以上選んでください"));
+        return Err(PhoneError::usage("Select at least one kind."));
     }
     let parse_day = |s: &Option<String>| -> PhoneResult<Option<NaiveDate>> {
         match s.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
             None => Ok(None),
             Some(v) => NaiveDate::parse_from_str(v, "%Y-%m-%d")
                 .map(Some)
-                .map_err(|_| PhoneError::usage(format!("日付は YYYY-MM-DD の形です: {}", v))),
+                .map_err(|_| PhoneError::usage(format!("The date must be YYYY-MM-DD: {}.", v))),
         }
     };
     let since = parse_day(&o.since)?;
@@ -760,14 +760,14 @@ fn run_view(run_id: i64, view: &str) -> PhoneResult<Value> {
         "log" => {
             // BlockDetail は serde 実装済み（項目名は snake_case のまま）
             let detail = block_log::build(&store, run_id).ok_or_else(|| {
-                PhoneError::not_found(format!("実行が見つかりません: ID{}", run_id))
+                PhoneError::not_found(format!("Run {} not found.", run_id))
             })?;
             serde_json::to_value(&detail).map_err(|e| PhoneError::internal(e.to_string()))
         }
         "stats" => {
             // run の存在は検証し、解析エラーは JSON の `error` として返す（TUI と同じ）
             store.get_execution_by_id(run_id).map_err(|_| {
-                PhoneError::not_found(format!("実行が見つかりません: ID{}", run_id))
+                PhoneError::not_found(format!("Run {} not found.", run_id))
             })?;
             let state = cache_stats::load(&store, run_id);
             serde_json::to_value(state.phone_json())
@@ -775,12 +775,12 @@ fn run_view(run_id: i64, view: &str) -> PhoneResult<Value> {
         }
         "history" => {
             let hist = block_history::build(&store, run_id).ok_or_else(|| {
-                PhoneError::not_found(format!("実行が見つかりません: ID{}", run_id))
+                PhoneError::not_found(format!("Run {} not found.", run_id))
             })?;
             serde_json::to_value(hist.phone_json()).map_err(|e| PhoneError::internal(e.to_string()))
         }
         other => Err(PhoneError::usage(format!(
-            "不正な view です: {}（log | stats | history）",
+            "Invalid view: {} (log | stats | history).",
             other
         ))),
     }
@@ -792,12 +792,12 @@ pub(crate) fn history_call(run_id: i64, call_id: &str) -> PhoneResult<Value> {
     let store = open_store()?;
     let exec = store
         .get_execution_by_id(run_id)
-        .map_err(|_| PhoneError::not_found(format!("実行が見つかりません: ID{}", run_id)))?;
+        .map_err(|_| PhoneError::not_found(format!("Run {} not found.", run_id)))?;
     let root = agent_link_engine::project::project_root();
     let found = agent_link_engine::phone_export::resolve_transcript(&exec, &root)
         .and_then(|path| agent_link_engine::session::history_call(&path, call_id));
     let call = found
-        .ok_or_else(|| PhoneError::not_found(format!("呼び出しが見つかりません: {}", call_id)))?;
+        .ok_or_else(|| PhoneError::not_found(format!("Call {} not found.", call_id)))?;
     serde_json::to_value(call).map_err(|e| PhoneError::internal(e.to_string()))
 }
 
@@ -818,7 +818,7 @@ fn md(run_id: i64, kind: &str) -> PhoneResult<Value> {
         "system" => phone_view::MdKind::System,
         other => {
             return Err(PhoneError::usage(format!(
-                "不正な kind です: {}（task | message | report | system）",
+                "Invalid kind: {} (task | message | report | system).",
                 other
             )))
         }
@@ -826,14 +826,14 @@ fn md(run_id: i64, kind: &str) -> PhoneResult<Value> {
     match phone_view::resolve_md_path(&store, run_id, md_kind) {
         phone_view::MdResolve::Found(path) => {
             let text = std::fs::read_to_string(&path)
-                .map_err(|e| PhoneError::internal(format!("md の読み込みに失敗: {}", e)))?;
+                .map_err(|e| PhoneError::internal(format!("Failed to read the md file: {}.", e)))?;
             Ok(json!({
                 "kind": md_kind.label(),
                 "name": md_kind.file_name(),
                 "text": text,
             }))
         }
-        phone_view::MdResolve::Missing(_) => Err(PhoneError::not_found("まだありません")),
+        phone_view::MdResolve::Missing(_) => Err(PhoneError::not_found("Not available yet.")),
         phone_view::MdResolve::Failed(msg) => Err(PhoneError::internal(msg)),
     }
 }
@@ -850,14 +850,14 @@ fn md_write(run_id: i64, kind: &str) -> PhoneResult<Value> {
     let mut text = String::new();
     std::io::stdin()
         .read_to_string(&mut text)
-        .map_err(|e| PhoneError::usage(format!("標準入力を読めません: {}", e)))?;
+        .map_err(|e| PhoneError::usage(format!("Cannot read standard input: {}.", e)))?;
     md_save(run_id, kind, &text)
 }
 
 /// [`md_write`] の本体（標準入力を読んだ後・テストから呼ぶ）。
 fn md_save(run_id: i64, kind: &str, text: &str) -> PhoneResult<Value> {
     if text.len() > MD_WRITE_MAX {
-        return Err(PhoneError::usage("本文が大きすぎます（100KB まで）"));
+        return Err(PhoneError::usage("The body is too large (100KB max)."));
     }
     let store = open_store()?;
     let path = match kind {
@@ -871,29 +871,29 @@ fn md_save(run_id: i64, kind: &str, text: &str) -> PhoneResult<Value> {
             }
             let task = resolve_target_card(&store, run_id, task)?;
             let card = agent_link_engine::kanban::parse_card(text).ok_or_else(|| {
-                PhoneError::usage("先頭の --- で囲まれた設定（frontmatter）が読めません")
+                PhoneError::usage("Cannot read the frontmatter enclosed by --- at the top.")
             })?;
             if card.frontmatter.run_id.trim() != run_id.to_string() {
                 return Err(PhoneError::usage(
-                    "frontmatter の run_id は変えられません（todo から消えてしまうため）",
+                    "Cannot change run_id in the frontmatter. The card would disappear from todo.",
                 ));
             }
             task
         }
-        "message" => return Err(PhoneError::usage("message は保存できません")),
+        "message" => return Err(PhoneError::usage("A message cannot be saved.")),
         other => {
             return Err(PhoneError::usage(format!(
-                "不正な kind です: {}（task）",
+                "Invalid kind: {} (task).",
                 other
             )))
         }
     };
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)
-            .map_err(|e| PhoneError::internal(format!("フォルダを作れません: {}", e)))?;
+            .map_err(|e| PhoneError::internal(format!("Cannot create the folder: {}.", e)))?;
     }
     std::fs::write(&path, text)
-        .map_err(|e| PhoneError::internal(format!("保存に失敗: {}", e)))?;
+        .map_err(|e| PhoneError::internal(format!("Failed to save: {}.", e)))?;
     md(run_id, kind)
 }
 
@@ -924,8 +924,8 @@ fn waggle(run_id: i64, token: Option<&str>) -> PhoneResult<Value> {
         }
         Some(token) => {
             let doc = phone_view::load_waggle_token(token).map_err(|msg| {
-                // integrator 起動失敗は DB 系（4）、解決・内容失敗は見つからない扱い（3）
-                if msg.contains("integrator 起動失敗") {
+                // integrator 起動失敗（engine の文は日本語・英語どちらでも "integrator" を含む）は DB 系（4）、解決・内容失敗は見つからない扱い（3）
+                if msg.contains("integrator") {
                     PhoneError::internal(msg)
                 } else {
                     PhoneError::not_found(msg)
@@ -968,11 +968,11 @@ fn card_options() -> PhoneResult<Value> {
 /// ブロックの存在確認だけ行い、`{"fields": []}` を返す（外部 sai-phone 互換）。
 fn card_inputs(block: &str) -> PhoneResult<Value> {
     if block.trim().is_empty() {
-        return Err(PhoneError::usage("block を指定してください"));
+        return Err(PhoneError::usage("Specify a block."));
     }
     if card_wizard::resolve_block_path(block.trim()).is_none() {
         return Err(PhoneError::not_found(format!(
-            "ブロックが見つかりません: {}",
+            "Block {} not found.",
             block
         )));
     }
@@ -1017,17 +1017,17 @@ fn card_schedule(run_id: i64, at: Option<&str>) -> PhoneResult<Value> {
     let at = at.map(str::trim).filter(|s| !s.is_empty());
     if let Some(v) = at {
         agent_link_engine::kanban::parse_scheduled_at(v).ok_or_else(|| {
-            PhoneError::usage("時刻は YYYY-MM-DD HH:MM の形で書いてください")
+            PhoneError::usage("The time must be in the form YYYY-MM-DD HH:MM.")
         })?;
     }
     let text = std::fs::read_to_string(&task)
-        .map_err(|e| PhoneError::internal(format!("task.md を読めません: {}", e)))?;
+        .map_err(|e| PhoneError::internal(format!("Cannot read task.md: {}.", e)))?;
     let mut card = agent_link_engine::kanban::parse_card(&text)
         .ok_or_else(|| PhoneError::not_found(TODO_NOT_FOUND))?;
     card.frontmatter
         .set_meta("scheduled_at".to_string(), at.unwrap_or("").to_string());
     std::fs::write(&task, agent_link_engine::kanban::render_card(&card))
-        .map_err(|e| PhoneError::internal(format!("task.md を書けません: {}", e)))?;
+        .map_err(|e| PhoneError::internal(format!("Cannot write task.md: {}.", e)))?;
     Ok(json!({ "run_id": run_id, "scheduled_at": at }))
 }
 
@@ -1041,9 +1041,9 @@ fn card_create() -> PhoneResult<Value> {
     let mut input = String::new();
     std::io::stdin()
         .read_to_string(&mut input)
-        .map_err(|e| PhoneError::usage(format!("標準入力の読み込みに失敗: {}", e)))?;
+        .map_err(|e| PhoneError::usage(format!("Failed to read standard input: {}.", e)))?;
     let parsed: CardCreateInput = serde_json::from_str(&input)
-        .map_err(|e| PhoneError::usage(format!("JSON の解析に失敗: {}", e)))?;
+        .map_err(|e| PhoneError::usage(format!("Failed to parse JSON: {}.", e)))?;
     card_create_from(parsed)
 }
 
@@ -1098,20 +1098,20 @@ fn card_create_from(parsed: CardCreateInput) -> PhoneResult<Value> {
         Some(v) => v.to_string(),
         None => {
             return Err(PhoneError::parse(format!(
-                "知らない起動者です: {}（human / agent）",
+                "Unknown starter: {} (human / agent).",
                 parsed.executer.trim()
             )))
         }
     };
 
     let path = card_wizard::create_card(&spec)
-        .map_err(|e| PhoneError::usage(format!("カード作成に失敗: {}", e)))?;
+        .map_err(|e| PhoneError::usage(format!("Failed to create the card: {}.", e)))?;
 
     // 作成済み task.md の frontmatter に起動者を足す（`executer` はメタ情報）。
     let text = std::fs::read_to_string(&path)
-        .map_err(|e| PhoneError::internal(format!("作成した task.md を読めません: {}", e)))?;
+        .map_err(|e| PhoneError::internal(format!("Cannot read the created task.md: {}.", e)))?;
     let mut card = agent_link_engine::kanban::parse_card(&text)
-        .ok_or_else(|| PhoneError::internal("作成した task.md の frontmatter を読めません"))?;
+        .ok_or_else(|| PhoneError::internal("Cannot read the frontmatter of the created task.md."))?;
     card.frontmatter
         .set_meta("executer".to_string(), executer.clone());
     // `meta`（任意の追加項目）を frontmatter に書く（改行は空白に置き換え済み）
@@ -1121,14 +1121,14 @@ fn card_create_from(parsed: CardCreateInput) -> PhoneResult<Value> {
     // 一覧に出す説明（1 行目だけ）を frontmatter に書く
     card.frontmatter.description = description;
     std::fs::write(&path, render_card_with_meta(&card, &meta))
-        .map_err(|e| PhoneError::internal(format!("作成した task.md を書けません: {}", e)))?;
+        .map_err(|e| PhoneError::internal(format!("Cannot write the created task.md: {}.", e)))?;
 
     // 作成済み task.md の frontmatter から確定した run_id を読む
     let text = std::fs::read_to_string(&path)
-        .map_err(|e| PhoneError::internal(format!("作成した task.md を読めません: {}", e)))?;
+        .map_err(|e| PhoneError::internal(format!("Cannot read the created task.md: {}.", e)))?;
     let run_id: i64 = agent_link_engine::kanban::parse_card(&text)
         .and_then(|c| c.frontmatter.run_id.trim().parse::<i64>().ok())
-        .ok_or_else(|| PhoneError::internal("task.md の run_id を読めません"))?;
+        .ok_or_else(|| PhoneError::internal("Cannot read run_id in task.md."))?;
 
     Ok(json!({
         "run_id": run_id,
@@ -1169,13 +1169,13 @@ fn validate_card_meta(meta: &HashMap<String, String>) -> PhoneResult<Vec<(String
     for (key, value) in meta {
         if !valid_meta_key(key) {
             return Err(PhoneError::parse(format!(
-                "meta のキーは小文字英数字と _ だけにしてください: {}",
+                "A meta key may contain only lowercase letters, digits and _: {}.",
                 key
             )));
         }
         if STANDARD_KEYS.contains(&key.as_str()) {
             return Err(PhoneError::parse(format!(
-                "meta に標準のキーは使えません: {}",
+                "The meta key {} is reserved.",
                 key
             )));
         }
@@ -1217,16 +1217,16 @@ fn valid_meta_key(key: &str) -> bool {
 }
 
 /// todo に未実行カードが無いときの stderr 文言（終了コード 3）。
-const TODO_NOT_FOUND: &str = "未実行のカードが見つかりません";
+const TODO_NOT_FOUND: &str = "No unstarted card found.";
 
 /// 常駐が止まっているときの stderr 文言（終了コード 1）。
-const DAEMON_STOPPED: &str = "常駐が止まっています。先に起動してください";
+const DAEMON_STOPPED: &str = "The daemon is stopped. Start it first.";
 
 /// 実行が見つからないときの stderr 文言（終了コード 3）。
-const EXEC_NOT_FOUND: &str = "実行が見つかりません";
+const EXEC_NOT_FOUND: &str = "Run not found.";
 
 /// `phone advance` で review / done 以外の置き場所だったときの stderr 文言（終了コード 1）。
-const ADVANCE_UNSUPPORTED: &str = "review の run だけ移動できます";
+const ADVANCE_UNSUPPORTED: &str = "Only a run in review can be moved.";
 
 /// `phone card run <run_id>`: todo の未実行カードに実行要求を送る（非対話）。
 ///
@@ -1234,7 +1234,7 @@ const ADVANCE_UNSUPPORTED: &str = "review の run だけ移動できます";
 ///   （同じ `todo_card_paths` を使うため送信済み・DB 紐付け済みは弾かれる）
 /// - 実行本体は `agent-link block run --kanban --card … --yes` と同じ
 ///   `kanban_run::run_card_request` を通す（二重実装しない・対話は出さない）
-/// - 成功: stdout に `{"run_id": N, "message": "実行を要求しました"}` / 終了コード 0
+/// - 成功: stdout に `{"run_id": N, "message": "Run requested."}` / 終了コード 0
 /// - 対象無し: 終了コード 3、常駐停止・実行失敗: 終了コード 1
 fn card_run(run_id: i64) -> PhoneResult<Value> {
     // 1. 対象カードの解決（無ければ終了コード 3）
@@ -1259,7 +1259,7 @@ fn card_run(run_id: i64) -> PhoneResult<Value> {
     )
     .map_err(|e| PhoneError::usage(e.to_string()))?;
 
-    Ok(json!({ "run_id": run_id, "message": "実行を要求しました" }))
+    Ok(json!({ "run_id": run_id, "message": "Run requested." }))
 }
 
 /// todo に出ている未実行カードかを検証し、カードパスを返す（無ければ終了コード 3）。
@@ -1267,7 +1267,7 @@ fn resolve_target_card(store: &SaiStore, run_id: i64, task: PathBuf) -> PhoneRes
     // ディレクトリ名と frontmatter の run_id が対象と一致するか
     // （不一致（A3）は todo に run_id が出ないため実行対象にしない）
     let text = std::fs::read_to_string(&task)
-        .map_err(|e| PhoneError::internal(format!("task.md を読めません: {}", e)))?;
+        .map_err(|e| PhoneError::internal(format!("Cannot read task.md: {}.", e)))?;
     let card = agent_link_engine::kanban::parse_card(&text)
         .ok_or_else(|| PhoneError::not_found(TODO_NOT_FOUND))?;
     let info_run_id = card_entries::todo_card_info(&task, &card).and_then(|i| i.run_id);
@@ -1291,7 +1291,7 @@ fn resolve_target_card(store: &SaiStore, run_id: i64, task: PathBuf) -> PhoneRes
 ///   子ブロックは `task_report` で完了させるため受け付けない
 /// - 完了要求は `agent_api::finalize` を通る（finalize_request を書き、デーモンが
 ///   DB 保存・成果物のまとめ・pane を閉じる。`pi` / `cc` 終了時の自動完了と同じ経路）
-/// - 成功: stdout に `{"run_id": N, "message": "終了を要求しました"}` / 終了コード 0
+/// - 成功: stdout に `{"run_id": N, "message": "Stop requested."}` / 終了コード 0
 /// - 実行が無い: 終了コード 3、実行中以外・子ブロック・常駐停止: 終了コード 1
 fn finalize(run_id: i64) -> PhoneResult<Value> {
     let store = open_store()?;
@@ -1304,14 +1304,14 @@ fn finalize(run_id: i64) -> PhoneResult<Value> {
     // 2. 実行中か（完了済み・未実行は二重確定になるため弾く）
     if exec.status != "running" {
         return Err(PhoneError::usage(format!(
-            "実行中ではありません（status={}）",
+            "The run is not running (status={}).",
             exec.status
         )));
     }
 
     // 3. メインブロックか（子ブロックは task_report で完了する）
     if exec.parent_run_id.is_some() {
-        return Err(PhoneError::usage("子ブロックは `agent-link task report` で完了します"));
+        return Err(PhoneError::usage("A subtask finishes with `agent-link task report`."));
     }
 
     // 4. 常駐確認（実行時と同じ判定。止まっていれば完了処理ができない）
@@ -1322,7 +1322,7 @@ fn finalize(run_id: i64) -> PhoneResult<Value> {
     // 5. 完了要求（デーモンが拾って完了処理する）
     agent_link_engine::agent_api::finalize(Some(run_id), None).map_err(PhoneError::usage)?;
 
-    Ok(json!({ "run_id": run_id, "message": "終了を要求しました" }))
+    Ok(json!({ "run_id": run_id, "message": "Stop requested." }))
 }
 
 /// `phone advance <run_id>`: review の実行を Workflow へ進める（review → 日付フォルダ）。
@@ -1358,7 +1358,7 @@ fn rm(run_id: i64) -> PhoneResult<Value> {
         .get_execution_by_id(run_id)
         .map_err(|_| PhoneError::not_found(EXEC_NOT_FOUND))?;
     if matches!(exec.status.as_str(), "running" | "pending") {
-        return Err(PhoneError::usage("実行中は消せません。先に終了してください"));
+        return Err(PhoneError::usage("A running run cannot be deleted. Stop it first."));
     }
     let summary =
         agent_link_engine::run_dir::delete_run(&store, run_id).map_err(PhoneError::internal)?;
@@ -1441,7 +1441,7 @@ impl std::str::FromStr for Period {
             "week" => Ok(Period::Week),
             "month" => Ok(Period::Month),
             "all" => Ok(Period::All),
-            other => Err(format!("不明な期間です: {other}（week / month / all）")),
+            other => Err(format!("Unknown period: {other} (week / month / all).")),
         }
     }
 }
@@ -2280,11 +2280,11 @@ mod tests {
         store.update_execution_status(subtask, "running").unwrap();
         drop(store);
 
-        // (2) 完了済みの run → 終了コード 1（実行中ではありません）
+        // (2) 完了済みの run → 終了コード 1（The run is not running）
         let err = finalize(completed).unwrap_err();
         assert_eq!(err.code, EXIT_USAGE);
         assert!(
-            err.msg.contains("実行中ではありません"),
+            err.msg.contains("is not running"),
             "実行中以外を弾く: {}",
             err.msg
         );
@@ -2292,7 +2292,7 @@ mod tests {
         // (3) 実行中の子ブロック → 終了コード 1（task_report で完了する）
         let err = finalize(subtask).unwrap_err();
         assert_eq!(err.code, EXIT_USAGE);
-        assert_eq!(err.msg, "子ブロックは `agent-link task report` で完了します");
+        assert_eq!(err.msg, "A subtask finishes with `agent-link task report`.");
 
         // (4) 実行中のメインブロック → 常駐停止で終了コード 1
         let err = finalize(running).unwrap_err();
@@ -2775,7 +2775,7 @@ mod tests {
         // 別の run には無い（終了コード 3 = 「まだありません」）
         let err = md(78, "report").unwrap_err();
         assert_eq!(err.code, EXIT_NOT_FOUND, "err={}", err.msg);
-        assert!(err.msg.contains("まだありません"), "err={}", err.msg);
+        assert!(err.msg.contains("Not available yet."), "err={}", err.msg);
 
         // 知らない kind は 400
         let err = md(77, "review").unwrap_err();

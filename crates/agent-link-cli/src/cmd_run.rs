@@ -80,13 +80,13 @@ pub(crate) fn run(cmd: RunCmd) -> Result<(), CmdError> {
                     use std::io::Read;
                     let mut buf = String::new();
                     std::io::stdin().read_to_string(&mut buf).map_err(|e| {
-                        CmdError::other(format!("標準入力の読み取りに失敗しました: {}", e))
+                        CmdError::other(format!("Failed to read standard input: {}.", e))
                     })?;
                     buf
                 }
             };
             if text.trim().is_empty() {
-                return Err(CmdError::input("送る文が空です"));
+                return Err(CmdError::input("The text to send is empty."));
             }
             let v = agent_result(agent_link_engine::agent_api::run_send(run_id, &text))?;
             print_json(&v)
@@ -104,11 +104,11 @@ pub(crate) fn run(cmd: RunCmd) -> Result<(), CmdError> {
         } => {
             if run_ids.is_empty() {
                 return Err(CmdError::input(
-                    "run wait には 1 件以上の run ID を指定してください",
+                    "run wait needs at least one run ID.",
                 ));
             }
             if run_ids.len() > 50 {
-                return Err(CmdError::input("run wait は 50 件までです"));
+                return Err(CmdError::input("run wait accepts at most 50 run IDs."));
             }
             let cancel = std::sync::atomic::AtomicBool::new(false);
             let v = agent_result(agent_link_engine::agent_api::run_wait(
@@ -122,7 +122,7 @@ pub(crate) fn run(cmd: RunCmd) -> Result<(), CmdError> {
             // 確認の入力を待たない。`--yes` が無ければ終了コード 2。
             if !yes {
                 return Err(CmdError::input(
-                    "実行を消すには --yes を付けてください（確認の入力を待ちません）",
+                    "Pass --yes to delete a run. The command does not wait for confirmation.",
                 ));
             }
             crate::cli::handle_block_rm(run_id, true).map_err(other_error)
@@ -144,14 +144,14 @@ pub(crate) fn run_workflow(subtasks: bool) -> Result<(), CmdError> {
 /// run フォルダが無い run は `dir` を `null` にする。
 fn run_list_json(limit: i64) -> Result<(), CmdError> {
     let store =
-        crate::cli::open_db().map_err(|e| CmdError::other(format!("DB を開けません: {}", e)))?;
+        crate::cli::open_db().map_err(|e| CmdError::other(format!("Cannot open the DB: {}.", e)))?;
     let execs = store
         .list_recent_executions(limit)
-        .map_err(|e| CmdError::other(format!("実行履歴の取得に失敗しました: {}", e)))?;
+        .map_err(|e| CmdError::other(format!("Failed to load the run history: {}.", e)))?;
     // N+1 を避ける（ブロック一覧を 1 回で取る）
     let blocks: HashMap<i64, agent_link_engine::db::BlockMetadata> = store
         .list_blocks()
-        .map_err(|e| CmdError::other(format!("ブロック一覧の取得に失敗しました: {}", e)))?
+        .map_err(|e| CmdError::other(format!("Failed to load the block list: {}.", e)))?
         .into_iter()
         .filter_map(|b| b.id.map(|id| (id, b)))
         .collect();
