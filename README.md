@@ -58,7 +58,16 @@ agent-link --help && agent-link-web --help
 agent-link schema --json | head -c 200    # 命令の一覧を JSON で出す
 ```
 
-**コードを直したあと**: Python のコードは Web の再起動が要ります。静的ファイル（`apps/web/src/agent_link_web/static/`）は再起動が要らず、`sw.js` の `CACHE` と `index.html` の `?v=` を上げると反映されます。`cargo build --release` で `agent-link` が入れ替わり、Web は次の呼び出しから新しい版を使います。
+Web を起こし直す関数も `~/.zshrc` に書いておくと楽です。PATH に `agent-link` が無いシェルから起こすと、Web が `agent-link not found` で繋がらなくなるので、PATH（上の 3）と一緒に書きます。
+
+```bash
+agent-link-web-restart() {
+  kill $(lsof -tiTCP:8400 -sTCP:LISTEN) 2>/dev/null
+  (cd ~/workdir/Sai/agent-link/apps/web && nohup bin/agent-link-web serve --port 8400 >/tmp/agent-link-web-8400.log 2>&1 &)
+}
+```
+
+**コードを直したあと**: Python のコードは Web の再起動（`agent-link-web-restart`）が要ります。静的ファイル（`apps/web/src/agent_link_web/static/`）は再起動が要らず、`sw.js` の `CACHE` と `index.html` の `?v=` を上げると反映されます。`cargo build --release` で `agent-link` が入れ替わり、Web は次の呼び出しから新しい版を使います。
 
 ## 最初の一歩
 
