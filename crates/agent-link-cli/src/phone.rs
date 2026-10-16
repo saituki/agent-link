@@ -1033,7 +1033,8 @@ fn card_schedule(run_id: i64, at: Option<&str>) -> PhoneResult<Value> {
 
 /// `phone card create`（stdin に JSON）: カードを作成し run_id とパスを返す。
 ///
-/// 受け取った値は TUI と同じ検査（`validate_card_spec`）にかける。
+/// 受け取った値は TUI と同じ検査（`validate_card_spec`。block は必須）にかけ、
+/// `doc_tokens` の文書が在るかも確かめる（無ければ 3）。
 /// 本文は `# task_text` 直下に task_text（TUI と同じ）。
 /// `doc_tokens` 指定時は TUI Step4 と同じく task_text 先頭に参照行を貼る
 /// （全経路共通の候補形式。実行時に本文展開される）。
@@ -1090,8 +1091,15 @@ fn card_create_from(parsed: CardCreateInput) -> PhoneResult<Value> {
         thinking: parsed.thinking,
         task_text,
     };
-    // TUI と同じ検査（thinking は一覧の値・block は存在するもの）
+    // TUI と同じ検査（block は必須で存在するもの・model・thinking は一覧の値）
     card_wizard::validate_card_spec(&spec).map_err(PhoneError::usage)?;
+    // `doc_tokens` の文書が在ること（無いと `card run` が必ず失敗する）。`doc read` と同じ読み出し。
+    for t in &parsed.doc_tokens {
+        let t = t.trim();
+        if !t.is_empty() && agent_link_engine::agent_api::sai_read(t).is_err() {
+            return Err(PhoneError::not_found(format!("Document not found: {}.", t)));
+        }
+    }
 
     // 起動者（空は人が起こす）。旧カードの値は `agent` に寄せる。知らない値は終了コード 2。
     let executer = match agent_link_engine::kanban::parse_executer(&parsed.executer) {
@@ -2121,6 +2129,13 @@ mod tests {
         assert_eq!(md_save(781, "message", "x").unwrap_err().code, EXIT_USAGE);
     }
 
+    /// `card create` の検査を通す最小の block（`<root>/.agent-link/blocks/t.md`）を書く。
+    fn write_test_block(root: &std::path::Path) {
+        let dir = root.join(".agent-link/blocks");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("t.md"), "---\nname: t\nid: t\n---\n本文\n").unwrap();
+    }
+
     /// U12: `card create` は `description` を frontmatter に書き、旧カードの値は `agent` にする。
     /// 知らない値は終了コード 2。
     #[test]
@@ -2134,9 +2149,11 @@ mod tests {
         std::fs::create_dir_all(db.parent().unwrap()).unwrap();
         let store = SaiStore::open(&db).unwrap();
         drop(store);
+        write_test_block(root);
 
         // 旧カードの値 `professor` は `agent` と書かれる
         let parsed = super::CardCreateInput {
+            block: "t".to_string(),
             task_text: "本文".to_string(),
             executer: "professor".to_string(),
             description: "一覧に出す説明\n2 行目は書かない".to_string(),
@@ -2152,12 +2169,44 @@ mod tests {
 
         // 知らない値は終了コード 2
         let bad = super::CardCreateInput {
+            block: "t".to_string(),
             executer: "robot".to_string(),
             ..Default::default()
         };
         let err = super::card_create_from(bad).unwrap_err();
         assert_eq!(err.code, EXIT_PARSE);
         assert!(err.msg.contains("human / agent"), "msg={}", err.msg);
+    }
+
+    /// `card create` は block 無し・知らない model（2）と、無い doc_tokens（3）を断り、カードを作らない。
+    #[test]
+    fn card_create_rejects_bad_block_model_and_token() {
+        let _env = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        let _guard = RootGuard::set(root);
+        let db = root.join(".agent-link/engine/agent-link.db");
+        std::fs::create_dir_all(db.parent().unwrap()).unwrap();
+        drop(SaiStore::open(&db).unwrap());
+        write_test_block(root);
+
+        let input = |block: &str, model: &str, tokens: &[&str]| super::CardCreateInput {
+            block: block.to_string(),
+            model: model.to_string(),
+            task_text: "x".to_string(),
+            doc_tokens: tokens.iter().map(|t| t.to_string()).collect(),
+            ..Default::default()
+        };
+        let err = super::card_create_from(input("", "", &[])).unwrap_err();
+        assert_eq!(err.code, EXIT_USAGE);
+        assert!(err.msg.starts_with("block is required. Choose one of:"), "{}", err.msg);
+        let err = super::card_create_from(input("t", "gpt", &[])).unwrap_err();
+        assert_eq!(err.code, EXIT_USAGE);
+        assert!(err.msg.starts_with("Invalid model: gpt."), "{}", err.msg);
+        let err = super::card_create_from(input("t", "", &["AAAAAAAA"])).unwrap_err();
+        assert_eq!(err.code, EXIT_NOT_FOUND);
+        assert_eq!(err.msg, "Document not found: AAAAAAAA.");
+        assert!(super::card_create_from(input("t", "opus", &[])).is_ok());
     }
 
     /// `card create` は廃止した `runner` / `provider` / `tag` / round 系の 2 項目が入力に入っていても
@@ -2171,9 +2220,10 @@ mod tests {
         let db = root.join(".agent-link/engine/agent-link.db");
         std::fs::create_dir_all(db.parent().unwrap()).unwrap();
         drop(SaiStore::open(&db).unwrap());
+        write_test_block(root);
 
         let parsed: super::CardCreateInput = serde_json::from_str(
-            r#"{"runner":"cc","provider":"x","tag":"y","global_round":"3","round":"1","task_text":"本文"}"#,
+            r#"{"block":"t","runner":"cc","provider":"x","tag":"y","global_round":"3","round":"1","task_text":"本文"}"#,
         )
         .expect("消した項目が入っていても読める");
         let out = super::card_create_from(parsed).unwrap();
@@ -2190,12 +2240,14 @@ mod tests {
 
         // `meta` では消した項目と同じ名前を引き続き使えない
         let bad = super::CardCreateInput {
+            block: "t".to_string(),
             meta: HashMap::from([("runner".to_string(), "cc".to_string())]),
             ..Default::default()
         };
         assert_eq!(super::card_create_from(bad).unwrap_err().code, EXIT_PARSE);
         for key in ["round", "global_round"] {
             let bad = super::CardCreateInput {
+                block: "t".to_string(),
                 meta: HashMap::from([(key.to_string(), "1".to_string())]),
                 ..Default::default()
             };

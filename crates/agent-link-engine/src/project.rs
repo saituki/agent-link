@@ -16,7 +16,7 @@
 //! 2. カレントディレクトリ（デーモン未使用時のフォールバック）
 //!
 //! [`project_root_checked`]（CLI の入口が使う。CLI 共通の約束 5）:
-//! 1. 環境変数 `AGENT_LINK_PROJECT_ROOT`（空でない値。フォルダが無ければエラー）
+//! 1. 環境変数 `AGENT_LINK_PROJECT_ROOT`（空でない値。フォルダ・`.agent-link/` が無ければエラー）
 //! 2. カレントディレクトリから上へたどり、`.agent-link/` を持つ最初のフォルダ
 //!
 //! 上へたどるとき、ホーム（`HOME`）とそれより上のフォルダは数えない。
@@ -69,7 +69,7 @@ pub fn project_root() -> PathBuf {
 ///
 /// 順序は CLI 共通の約束 5 のとおり。
 /// - 環境変数 `AGENT_LINK_PROJECT_ROOT`（空でない値）があればそれを使う。
-///   ただしフォルダが無ければエラーにする（上へたどらない）。
+///   ただしフォルダが無い・`.agent-link/` が無ければエラーにする（上へたどらない）。
 /// - 無ければカレントディレクトリから上へたどり、`.agent-link/` を持つ最初のフォルダ。
 ///   ホーム（`HOME`）とそれより上は数えない。
 /// - 見つからなければエラー（`.agent-link/` を勝手に作らない）。
@@ -77,13 +77,7 @@ pub fn project_root_checked() -> Result<PathBuf, String> {
     if let Some(p) = std::env::var_os("AGENT_LINK_PROJECT_ROOT") {
         let pb = PathBuf::from(p);
         if !pb.as_os_str().is_empty() {
-            if pb.is_dir() {
-                return Ok(pb);
-            }
-            return Err(format!(
-                "The AGENT_LINK_PROJECT_ROOT folder does not exist: {}",
-                pb.display()
-            ));
+            return check_env_root(pb);
         }
     }
     let cwd = std::env::current_dir()
@@ -95,6 +89,23 @@ pub fn project_root_checked() -> Result<PathBuf, String> {
         return Ok(root);
     }
     Err("Project not found. Run \"agent-link init\".".to_string())
+}
+
+/// `AGENT_LINK_PROJECT_ROOT` のフォルダが在り、`.agent-link/` を持つことを確かめる。
+fn check_env_root(pb: PathBuf) -> Result<PathBuf, String> {
+    if !pb.is_dir() {
+        return Err(format!(
+            "The AGENT_LINK_PROJECT_ROOT folder does not exist: {}",
+            pb.display()
+        ));
+    }
+    if !pb.join(PROJECT_DIR).is_dir() {
+        return Err(format!(
+            "The AGENT_LINK_PROJECT_ROOT folder has no .agent-link/: {}. Run \"agent-link init\".",
+            pb.display()
+        ));
+    }
+    Ok(pb)
 }
 
 /// `start` から上へたどり、`.agent-link/` を持つ最初のフォルダを返す。
@@ -254,5 +265,18 @@ mod tests {
         std::fs::create_dir_all(&home).unwrap();
         std::fs::create_dir_all(root.join(".agent-link")).unwrap();
         assert_eq!(find_project_root(&sub, Some(&home)), Some(root));
+    }
+
+    /// `AGENT_LINK_PROJECT_ROOT` のフォルダに `.agent-link/` が無ければ断る（フォルダも作らない）。
+    #[test]
+    fn env_root_without_agent_link_dir_is_rejected() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().to_path_buf();
+        let err = check_env_root(root.clone()).unwrap_err();
+        assert!(err.contains("has no .agent-link/"), "{err}");
+        assert!(!root.join(".agent-link").exists());
+        assert!(check_env_root(root.join("none")).unwrap_err().contains("does not exist"));
+        std::fs::create_dir_all(root.join(".agent-link")).unwrap();
+        assert_eq!(check_env_root(root.clone()), Ok(root));
     }
 }

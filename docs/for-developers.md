@@ -266,12 +266,12 @@ Web が `recent[]` に**追加で足す**項目: `description`（文字列）・
 
 | 項目 | 型 | 内容 |
 |---|---|---|
-| `block` | 文字列 | block の ID（`^[A-Za-z0-9][A-Za-z0-9_:.-]*$`） |
-| `model` / `thinking` | 文字列 | 空でスキップ。`thinking` は `none / low / medium / high / xhigh / max` |
+| `block` | 文字列 | **必須**。存在する block の ID（`^[A-Za-z0-9][A-Za-z0-9_:.-]*$`）。空・無い ID は**終了コード 2** |
+| `model` / `thinking` | 文字列 | 空でスキップ。`model` は `opus / sonnet / haiku`（CLI は `claude-*` も受ける）、`thinking` は `none / low / medium / high / xhigh / max`。ほかは**終了コード 2**（Web は 400） |
 | `description` | 文字列 | 一覧に出す 1 行（1 行目だけ・200 字まで） |
 | `task_text` | 文字列（100KB まで） | 依頼文。`waggle:<トークン>` で文書を埋め込める |
 | `executer` | 文字列 | `human`（既定）/ `agent`（旧 `professor` も `agent`）。知らない値は**終了コード 2**。Web の作成フォームは渡さない |
-| `doc_tokens` | 配列 | 貼る文書のトークン（`task_text` の先頭に `waggle:<トークン>` の行として貼られる） |
+| `doc_tokens` | 配列 | 貼る文書のトークン（`task_text` の先頭に `waggle:<トークン>` の行として貼られる）。無いトークンは**終了コード 3** |
 | `meta` | オブジェクト | frontmatter に足す任意の項目（キーは `^[a-z][a-z0-9_]*$`。`run_id`・`block` などの標準のキーと、廃止した `runner`・`provider`・`tag`・`round`・`global_round` は書けない＝終了コード 2） |
 
 廃止した `runner`・`provider`・`tag`・`global_round`・`round`・`done_ids` が入っていても、エラーにせず無視する。
