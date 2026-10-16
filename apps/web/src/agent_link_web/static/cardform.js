@@ -2,9 +2,8 @@
 //
 // List 画面右上の ＋ で下から出る。TUI のウィザード（agent-link-tui の card_wizard.rs）と
 // 同じ順に 1 画面ずつ進み、スキップ・戻る・番号の飛び方も同じ規則にする:
-//   1 runner → 2 ブロック → 3 モデル → 4 thinking
-//   → 5 ラウンド → 6 task_text（🎤 音声入力・最近の文書を貼れる）→ 7 確認 → 作成
-//   user / gl は 2 から 5 へ飛ぶ（runner が空なら cc 扱い）。
+//   1 Block → 2 Model → 3 Thinking
+//   → 4 task_text（🎤 音声入力・最近の文書を貼れる）→ 5 Confirm → 作成
 // 選択肢は `GET …/card/options`、作成は `POST …/card`
 // （値の検査はサーバー側でも行う・計画 15 §3.3）。
 // 入力ファイルの手順は無い（入力は task_text に統一した・U09）。
@@ -16,41 +15,33 @@
 
 // 手順の地図（番号は手順の数で決まる。スキップや自動で飛んだ画面は番号が飛ぶ・計画 15 §1.5）
 const CF_STEPS = [
-  { id: "runner", no: 1, title: "runner" },
-  { id: "block", no: 2, title: "ブロック" },
-  { id: "model", no: 3, title: "モデル" },
-  { id: "thinking", no: 4, title: "thinking" },
-  { id: "rounds", no: 5, title: "ラウンド" },
-  { id: "task_text", no: 6, title: "task_text" },
-  { id: "confirm", no: 7, title: "確認" },
+  { id: "block", no: 1, title: "Block" },
+  { id: "model", no: 2, title: "Model" },
+  { id: "thinking", no: 3, title: "Thinking" },
+  { id: "task_text", no: 4, title: "task_text" },
+  { id: "confirm", no: 5, title: "Confirm" },
 ];
-// 7 画面それぞれの見出しの下に出す説明（端末に慣れていない人向け・U5 §3）。
+// 5 画面それぞれの見出しの下に出す説明（端末に慣れていない人向け・U5 §3）。
 // 画面の流れ・スキップ・戻る・保存の動きは変えない（見出しの下に文言を足すだけ）。
 const CF_STEP_HINTS = {
-  runner: "このカードをどの AI に渡すかです。cc など、名前で選びます。",
-  block: "どんな順番で、どのファイルを見て、どう直せばよいかを書いた指示書です。",
-  model: "使うモデルの名前です。動かすエージェントによって出し方が違います。",
-  thinking: "考えの深さです。難しい仕事で深めにすると時間がかかりますが、精度が上がります。",
-  rounds: "同じ仕事を引き継ぎながら何回回すかです。回数を増やすほど長く続けます。",
-  task_text: "依頼文です。エージェントはこの文章に従って動きます。",
-  confirm: "作った依頼文（task.md）を最後に読みます。「保存」でファイルができます。",
+  block: "An instruction sheet that says which files to read, in what order, and how to fix them.",
+  model: "The name of the model to use.",
+  thinking: "How deeply the model thinks. Deeper is slower on hard tasks but more accurate.",
+  task_text: "The request text. The agent follows this text.",
+  confirm: "Read the finished request (task.md) one last time. \"Create\" writes the file.",
 };
 // 書きかけの置き場（プロジェクトごとに分ける・計画 15 §1.5）
 const CF_DRAFT_KEY = "agent_link_web_card_draft";
-// user / gl はモデルと thinking が対象外（TUI の advance_from_block と同じ）
-const CF_NO_INPUT_RUNNERS = ["user", "gl"];
 
 // --- 進み方（DOM を使わない・tests/test_cardform.js） ---
 
 /** 新しい書きかけ（すべてスキップした状態から始める）。 */
 function cfNewDraft() {
   return {
-    step: "runner",
-    runner: "",         // "" = スキップ（cc 扱い）
+    step: "block",
     block: "",
     model: "",
     thinking: "",
-    rounds: { global_round: "", round: "", tag: "" },
     task_text: "",
   };
 }
@@ -66,41 +57,24 @@ function cfStepHint(id) {
 }
 
 /**
- * 今いる手順の番号と題名（表示は「Step n/7」）。
- * 番号は手順の数で決まり、スキップした分は飛ぶ（user / gl なら 2 → 5）。
+ * 今いる手順の番号と題名（表示は「Step n/5」）。
+ * 番号は手順の数で決まる。
  */
 function cfStepInfo(state) {
   const entry = cfStepEntry(state.step);
   return { id: entry.id, no: entry.no, title: entry.title, label: `Step ${entry.no}/${CF_STEPS.length}` };
 }
 
-/** ブロック確定後の行き先（番号の飛び方は TUI の advance_from_block と同じ）。 */
-function cfAfterBlock(state) {
-  const runner = String(state.runner || "");
-  if (runner === "user" || runner === "gl") {
-    // gl は起動時のタスク書き込みなし・user は人がやる作業なので model〜thinking は丸ごと省く
-    state.model = "";
-    return "rounds";
-  }
-  return "model"; // cc（runner が空なら cc 扱い）
-}
-
 /** 次へ進めるか。進めれば null、ダメなら理由（その画面に止まる）。 */
 function cfNext(state) {
   switch (state.step) {
-    case "runner":
-      state.step = "block";
-      return null;
     case "block":
-      state.step = cfAfterBlock(state);
+      state.step = "model";
       return null;
     case "model":
       state.step = "thinking";
       return null;
     case "thinking":
-      state.step = "rounds";
-      return null;
-    case "rounds":
       state.step = "task_text";
       return null;
     case "task_text":
@@ -114,20 +88,16 @@ function cfNext(state) {
 
 /** スキップできる手順か（引き継ぎと確認は無し・TUI と同じ）。 */
 function cfCanSkip(state) {
-  return ["runner", "block", "model", "thinking", "rounds", "task_text"].includes(state.step);
+  return ["block", "model", "thinking", "task_text"].includes(state.step);
 }
 
 /** スキップ（その項目は agent-link の既定値に任せる）。止めれば理由を返す。 */
 function cfSkip(state) {
   if (!cfCanSkip(state)) return "スキップできません";
   switch (state.step) {
-    case "runner":
-      state.runner = "";
-      state.step = "block";
-      return null;
     case "block":
       state.block = "";
-      state.step = cfAfterBlock(state);
+      state.step = "model";
       return null;
     case "model":
       state.model = "";
@@ -135,10 +105,6 @@ function cfSkip(state) {
       return null;
     case "thinking":
       state.thinking = "";
-      state.step = "rounds";
-      return null;
-    case "rounds":
-      // TUI はここで作成するが、本フォームは task_text → 確認 があるので次へ進む
       state.step = "task_text";
       return null;
     case "task_text":
@@ -150,28 +116,19 @@ function cfSkip(state) {
   }
 }
 
-/** 1 つ前へ戻る。最初の画面（runner）なら "close"（フォームを閉じる合図）。 */
+/** 1 つ前へ戻る。最初の画面（block）なら "close"（フォームを閉じる合図）。 */
 function cfBack(state) {
   switch (state.step) {
-    case "runner":
-      return "close";
     case "block":
-      state.step = "runner";
-      return null;
+      return "close";
     case "model":
       state.step = "block";
       return null;
     case "thinking":
       state.step = "model";
       return null;
-    case "rounds":
-      // user / gl → ブロック、cc → thinking（TUI と同じ）
-      state.step = CF_NO_INPUT_RUNNERS.includes(String(state.runner || ""))
-        ? "block"
-        : "thinking";
-      return null;
     case "task_text":
-      state.step = "rounds";
+      state.step = "thinking";
       return null;
     case "confirm":
       state.step = "task_text";
@@ -236,17 +193,12 @@ function cfShouldClose(openedHash, nowHash) {
   return now !== opened;
 }
 
-/** `POST …/card` に送る JSON（項目名は計画 12 §3.2 の形のまま）。 */
+/** `POST …/card` に送る JSON（C-CARD-CREATE の項目だけ）。 */
 function cfBuildPayload(state) {
-  const rounds = state.rounds || {};
   return {
-    runner: state.runner || "",
     block: state.block || "",
     model: state.model || "",
     thinking: state.thinking || "",
-    global_round: rounds.global_round || "",
-    round: rounds.round || "",
-    tag: rounds.tag || "",
     task_text: state.task_text || "",
   };
 }
@@ -264,12 +216,15 @@ function cfLoadDraft(name) {
     const raw = localStorage.getItem(cfDraftKey(name));
     const obj = raw ? JSON.parse(raw) : null;
     if (!obj || typeof obj !== "object") return null;
-    // 手順が無い書きかけは無し扱い（U09 より前の `inputs` の手順もここで外れる）
-    if (!CF_STEPS.some((s) => s.id === obj.step)) return null;
-    // 形が崩れた項目は新しい値でそろえる
-    return Object.assign(cfNewDraft(), obj, {
-      rounds: Object.assign(cfNewDraft().rounds, obj.rounds || {}),
-    });
+    // 知らない手順（消えた runner・rounds など）は読み替える。消えた項目は拾わない
+    let step = obj.step;
+    if (!CF_STEPS.some((s) => s.id === step)) step = step === "rounds" ? "task_text" : "block";
+    const draft = cfNewDraft();
+    for (const k of ["block", "model", "thinking", "task_text"]) {
+      if (typeof obj[k] === "string") draft[k] = obj[k];
+    }
+    draft.step = step;
+    return draft;
   } catch {
     return null;
   }
@@ -413,7 +368,7 @@ function cfNote(text) {
   return el("p", "cf-note", String(text || ""));
 }
 
-/** 選ぶ行（手順 2・3・5・6・7 などで使い回す）。押した値はアクティブになる。 */
+/** 選ぶ行（手順で使い回す）。押した値はアクティブになる。 */
 function cfChoiceList(items, activeValue, onPick) {
   const box = document.createElement("div");
   box.className = "cf-choices";
@@ -437,23 +392,6 @@ function cfRenderBody() {
   // 見出しの下に 1 文の説明を足す（画面の流れは変えない）
   const hint = cfStepHint(info.id);
   if (hint) body.appendChild(cfNote(hint));
-
-  if (info.id === "runner") {
-    const runners = (cfOptions && cfOptions.runners) || [];
-    body.appendChild(
-      cfChoiceList(
-        runners.map((r) => ({ value: r, label: r })),
-        state.runner,
-        (v) => {
-          state.runner = v;
-          cfSaveDraft(cfName, state);
-          cfRenderBody();
-        }
-      )
-    );
-    body.appendChild(cfNote("スキップすると cc 扱い（agent-link の既定どおり）"));
-    return;
-  }
 
   if (info.id === "block") {
     const blocks = (cfOptions && cfOptions.blocks) || [];
@@ -506,28 +444,6 @@ function cfRenderBody() {
     return;
   }
 
-  if (info.id === "rounds") {
-    for (const [key, label, ph] of [
-      ["global_round", "global_round", "例: 5（空で引き継ぎ）"],
-      ["round", "round", "例: 2（空で引き継ぎ）"],
-      ["tag", "tag", "例: fix（空でなし）"],
-    ]) {
-      const row = el("label", "cf-input-row");
-      row.appendChild(el("span", "cf-input-label", label));
-      const input = document.createElement("input");
-      input.type = "text";
-      input.value = (state.rounds && state.rounds[key]) || "";
-      input.placeholder = ph;
-      input.addEventListener("input", () => {
-        state.rounds[key] = input.value;
-        cfSaveDraft(cfName, state);
-      });
-      row.appendChild(input);
-      body.appendChild(row);
-    }
-    return;
-  }
-
   if (info.id === "task_text") {
     body.appendChild(
       cfNote("何をしてほしいかを書きます（🎤 で音声入力もできます・空でスキップ）")
@@ -564,16 +480,12 @@ function cfRenderBody() {
     return;
   }
 
-  // 7 確認: 選んだ内容の一覧と「作成」
+  // 確認: 選んだ内容の一覧と「作成」
   const payload = cfBuildPayload(state);
   const rows = [
-    ["runner", payload.runner || "（スキップ）"],
     ["ブロック", payload.block || "（スキップ）"],
     ["モデル", payload.model || "（スキップ）"],
     ["thinking", payload.thinking || "（スキップ）"],
-    ["global_round", payload.global_round || "（自動）"],
-    ["round", payload.round || "（自動）"],
-    ["tag", payload.tag || "（なし）"],
     ["task_text", (payload.task_text || "").slice(0, 200) || "（空）"],
   ];
   for (const [label, value] of rows) {
@@ -650,7 +562,7 @@ function cfRender() {
   if (back) {
     back.hidden = false; // 読み込み失敗（cfRenderFatal）から戻すため必ず出す
     back.disabled = cfBusy;
-    back.textContent = info.id === "runner" ? "Close" : "‹ Back";
+    back.textContent = info.id === "block" ? "Close" : "‹ Back";
   }
   const skip = document.getElementById("cf-skip");
   if (skip) {
@@ -772,7 +684,6 @@ if (typeof module !== "undefined" && module.exports) {
     cfStepHint,
     cfNewDraft,
     cfStepInfo,
-    cfAfterBlock,
     cfNext,
     cfCanSkip,
     cfSkip,

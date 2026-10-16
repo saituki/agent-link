@@ -1,22 +1,21 @@
 "use strict";
 // Chats の一覧から「新しいチャット」を始める（実装計画 U04 §5）。
 //
-// プロジェクト・block・runner・model・thinking・最初の文を選び、
+// プロジェクト・block・model・thinking・最初の文を選び、
 // カード（task.md）を作って実行し、その会話の画面へ移る。
 // サーバに新しい処理は足さず、既にある 2 本の API を続けて呼ぶ:
-//   POST /api/projects/{name}/card          → {run_id, …}（cfBuildPayload の形）
+//   POST /api/projects/{name}/card          → {run_id, …}（ncBuildPayload の形）
 //   POST /api/projects/{name}/runs/{id}/start
 // 選択肢は GET /api/projects と GET /api/projects/{name}/card/options から取る。
 //
 // 起動の書き出しは常駐の周期（約 5 秒）だけ遅れるので、app.js が
 // sessionStorage の印（NC_RUN_KEY）を見て 60 秒まで「起動を待っています…」を出す。
 //
-// DOM を使わない関数（ncValidate / ncModelChoices）は末尾で node に渡す
+// DOM を使わない関数（ncValidate / ncModelChoices / ncBuildPayload）は末尾で node に渡す
 // （tests/test_newchat.js）。一番外側の名前は nc / NC_ で始める。
 
-// 前回選んだプロジェクト・runner を覚えておく場所
+// 前回選んだプロジェクトを覚えておく場所
 const NC_PROJECT_KEY = "agent_link_web_newchat_project";
-const NC_RUNNER_KEY = "agent_link_web_newchat_runner";
 // 起動待ちの見分け（app.js の NEWCHAT_RUN_KEY と同じ値）
 const NC_RUN_KEY = "agent_link_web_newchat_run";
 
@@ -36,19 +35,29 @@ function ncStore(key, value) {
 }
 
 /**
- * runner に合わせた model の選択肢（U04 §5 の 4）。
- *
- * - cc（runner が空なら cc 扱い）: `cc_models`
- * - user / gl: モデルは無い
+ * model の選択肢（`card/options` の `cc_models`）。
  *
  * @param {object|null|undefined} options `card/options` の応答
- * @param {string} runner
  * @returns {string[]}
  */
-function ncModelChoices(options, runner) {
-  const o = options || {};
-  if (runner === "cc" || runner === "") return (o.cc_models || []).map(String);
-  return [];
+function ncModelChoices(options) {
+  return ((options || {}).cc_models || []).map(String);
+}
+
+/**
+ * `POST …/card` に送る JSON（C-CARD-CREATE の項目だけ）。
+ *
+ * @param {object} state
+ * @returns {{block: string, model: string, thinking: string, task_text: string}}
+ */
+function ncBuildPayload(state) {
+  const s = state || {};
+  return {
+    block: s.block || "",
+    model: s.model || "",
+    thinking: s.thinking || "",
+    task_text: s.task_text || "",
+  };
 }
 
 /**
@@ -144,8 +153,6 @@ async function ncOpen(preset) {
     block: "main",
     wantBlock: want.block || "", // 住所で頼まれた block（loadOptions で 1 回だけ当てる）
     notice: "",
-    runner: ncStored(NC_RUNNER_KEY, "cc"),
-    provider: "",
     model: "",
     thinking: "",
     task_text: "",
@@ -156,7 +163,7 @@ async function ncOpen(preset) {
   const body = saiEl("div", "nc-body");
   const sheet = saiSheet({ title: "新しいチャット", body });
 
-  // 今の state で入力欄を作り直す（runner を変えたときに model を出し分けるため）。
+  // 今の state で入力欄を作り直す。
   function render() {
     body.innerHTML = "";
     const options = state.options || {};
@@ -196,26 +203,8 @@ async function ncOpen(preset) {
     // 住所で頼まれた block が無かったときの注意（main で開いている）
     if (state.notice) body.appendChild(saiEl("div", "nc-error", state.notice));
 
-    // 3. runner（既定は前回の値、無ければ cc）
-    body.appendChild(
-      ncField(
-        "runner",
-        ncSelect(
-          (options.runners || []).map((r) => ({ value: r, label: r })),
-          state.runner,
-          (v) => {
-            state.runner = v;
-            state.touched = true;
-            state.model = "";
-            ncStore(NC_RUNNER_KEY, v);
-            render();
-          }
-        )
-      )
-    );
-
-    // 4. model（runner に合わせて出し分ける。空なら block の既定）
-    const models = ncModelChoices(options, state.runner);
+    // 3. model（空なら block の既定）
+    const models = ncModelChoices(options);
     body.appendChild(
       ncField(
         "model",
@@ -232,7 +221,7 @@ async function ncOpen(preset) {
       )
     );
 
-    // 5. thinking（空なら block の既定）
+    // 4. thinking（空なら block の既定）
     body.appendChild(
       ncField(
         "thinking",
@@ -249,7 +238,7 @@ async function ncOpen(preset) {
       )
     );
 
-    // 6. 最初の文（複数行）
+    // 5. 最初の文（複数行）
     const ta = document.createElement("textarea");
     ta.className = "nc-text";
     ta.rows = 4;
@@ -319,15 +308,7 @@ async function ncOpen(preset) {
     }
     start.disabled = true;
     try {
-      const payload = typeof cfBuildPayload === "function"
-        ? cfBuildPayload(state)
-        : {
-            runner: state.runner, block: state.block, provider: "", model: state.model,
-            thinking: state.thinking, task_text: state.task_text,
-          };
-      // start は round・global_round が空だと断るので、新しいチャットは 1 回目として始める
-      payload.round = payload.round || "1";
-      payload.global_round = payload.global_round || "1";
+      const payload = ncBuildPayload(state);
       const card = await saiApi(`/api/projects/${encodeURIComponent(state.project)}/card`, {
         method: "POST",
         body: payload,
@@ -382,5 +363,5 @@ if (typeof window !== "undefined") {
 
 // --- node からの読み込み（tests/test_newchat.js） ---
 if (typeof module !== "undefined" && module.exports) {
-  module.exports = { ncValidate, ncModelChoices, ncParsePreset, NC_RUN_KEY };
+  module.exports = { ncValidate, ncModelChoices, ncBuildPayload, ncParsePreset, NC_RUN_KEY };
 }
