@@ -46,8 +46,7 @@ const LV_MODES = [
   ["workflow", "Workflow"],
   ["list", "List"],
   ["defs", "Settings"],
-  // U10 で足した 2 つの専用の画面（どちらもプロジェクトごとの命令・共有契約 C-F7）
-  ["commands", "コマンド"],
+  // 専用の画面（プロジェクトごとの命令・共有契約 C-F7）
   ["sessions", "会話検索"],
 ];
 // 最後に見ていた Project の画面をプロジェクトごとに覚える（localStorage・計画 14 §6・C-F7）
@@ -69,7 +68,7 @@ const LV_CHARTS = [
   ["cum", "Cumulative"],
 ];
 // レーン名 → 用語の key（見出しの横に置く用語の札用）
-const LV_TERMS = { todo: "todo", running: "running", review: "review", done: "done" };
+const LV_TERMS = { todo: "todo", running: "running", review: "review", workflow: "workflow" };
 
 // --- 小さな助け舟 ---
 
@@ -91,7 +90,6 @@ function modeHash(name, mode) {
     case "list": return listHash(name, null, null);
     case "workflow": return `${base}/workflow`;
     case "defs": return `${base}/defs`;
-    case "commands": return `${base}/commands`;
     case "sessions": return `${base}/sessions`;
     default: return base;
   }
@@ -255,8 +253,9 @@ function isAgentRun(run) {
 }
 
 /**
- * ツリーを「今開いているフォルダだけ」並べた行に組み替える（描き方の元・計画 14 §1.2）。
- * open === null は「覚えが無い＝全部開く」。depth は 行ごとの字下げの段。
+ * ツリーを「今開いているフォルダ・run だけ」並べた行に組み替える（描き方の元・計画 14 §1.2）。
+ * open === null は「全部開く」（探す処理用）。depth は行ごとの字下げの段。
+ * run は子（children）を持てる。開閉の id は `run:<run_id>`（行の id と同じ）。
  */
 function flattenTree(items, open) {
   const openSet = open == null ? null : new Set(Array.isArray(open) ? open : []);
@@ -276,16 +275,22 @@ function flattenTree(items, open) {
         });
         if (isOpen) walk(node.children, depth + 1);
       } else if (node.type === "run" && node.run_id != null) {
+        const id = `run:${node.run_id}`;
+        const kids = Array.isArray(node.children) ? node.children : [];
+        const isOpen = openSet === null || openSet.has(id);
         rows.push({
           type: "run",
-          id: `run:${node.run_id}`,
+          id,
           label: String(node.label || `ID${node.run_id}`),
           depth,
           runId: Number(node.run_id),
           lane: String(node.lane || ""),
           status: String(node.status || ""),
           executer: String(node.executer || ""),
+          hasChildren: kids.length > 0,
+          open: isOpen,
         });
+        if (isOpen) walk(kids, depth + 1);
       }
     }
   };
@@ -293,7 +298,7 @@ function flattenTree(items, open) {
   return rows;
 }
 
-/** ツリーの中から run を 1 つ探す（同じ run が状態フォルダと R/r の両方に出るため最初の 1 件）。 */
+/** ツリーの中から run を 1 つ探す（入れ子の中も探す。同じ run は 1 か所だけに出る）。 */
 function findRun(items, runId) {
   const want = Number(runId);
   if (!Number.isFinite(want)) return null;
@@ -303,45 +308,33 @@ function findRun(items, runId) {
   return null;
 }
 
-/**
- * その run が出るフォルダの lane を全部集める（同じ run が review/done と R/r の
- * 両方に出るため最初の 1 件では決められない・計画書 A の U10）。
- * R/r 側の lane も agent-link の owner_for が review / done を返すので使える。
- */
+/** その run が出る lane を集める（同じ run は 1 か所だけに出るので、多くて 1 つ）。 */
 function runLanes(items, runId) {
-  const want = Number(runId);
-  const lanes = new Set();
-  if (!Number.isFinite(want)) return lanes;
-  for (const row of flattenTree(items, null)) {
-    if (row.type === "run" && row.runId === want && row.lane) lanes.add(row.lane);
-  }
-  return lanes;
+  const run = findRun(items, runId);
+  return new Set(run && run.lane ? [run.lane] : []);
 }
 
-/**
- * 移動ボタンの出分と表示（review → done → Workflow・計画書 A の U10）。
- * どちらにも出ない（todo / running / 既に Workflow）ときは null。
- */
+/** 移動ボタンの出分と表示（review → Workflow）。review 以外は null。 */
 function advanceAction(items, runId) {
-  const lanes = runLanes(items, runId);
-  if (lanes.has("review")) return { from: "review", to: "done", label: "→ done" };
-  if (lanes.has("done")) return { from: "done", to: "workflow", label: "→ Workflow" };
+  if (runLanes(items, runId).has("review")) {
+    return { from: "review", to: "workflow", label: "→ Workflow" };
+  }
   return null;
 }
 
-/** ツリーに並ぶ全部のフォルダ id（覚えが無い状態から 1 つ閉じるときに入替える・計画 14 §1.2）。 */
-function allFolderIds(items) {
-  const ids = [];
-  const walk = (list) => {
-    for (const node of list || []) {
-      if (!node || typeof node !== "object") continue;
-      if (node.type === "folder") {
-        ids.push(String(node.id || node.label || ""));
-        walk(node.children);
-      }
-    }
-  };
-  walk(items);
+/**
+ * 覚えが無いときに開くフォルダ id（todo・running・review と、一番新しい日付フォルダ 1 つ）。
+ * 子を持つ run は閉じておく。日付フォルダの id は数字 6 桁（yymmdd）。
+ */
+function defaultOpenIds(items) {
+  const ids = ["todo", "running", "review"];
+  let latest = "";
+  for (const node of items || []) {
+    if (!node || node.type !== "folder") continue;
+    const id = String(node.id || node.label || "");
+    if (/^\d{6}$/.test(id) && id > latest) latest = id;
+  }
+  if (latest) ids.push(latest);
   return ids;
 }
 
@@ -362,13 +355,10 @@ function logSections(d) {
     });
   }
 
-  // 2. 設定（ラウンド / モデル / thinking / tag / 時刻 / commit）
+  // 2. 設定（モデル / thinking / 時刻 / commit）
   const conf = [];
   if (data.description) conf.push(["Description", text(data.description)]);
   if (data.user_block_description) conf.push(["Description", text(data.user_block_description)]);
-  if (data.round != null) conf.push(["Round", `r${data.round}`]);
-  if (data.global_round != null) conf.push(["Global round", `R${data.global_round}`]);
-  if (data.tag) conf.push(["Tag", text(data.tag)]);
   if (data.model) conf.push(["Model", text(data.model)]);
   if (data.thinking) conf.push(["thinking", text(data.thinking)]);
   if (data.started_at) conf.push(["Started", text(data.started_at)]);
@@ -393,15 +383,14 @@ function logSections(d) {
 
 /**
  * Connection の行（`connections` は Rust が作られた順で返す・時刻は出さない）。
- *   head: `from [task_text] R5.2/ID86/kantoku`（押すとその run の表示へ飛ぶ）
+ *   head: `from [task_text] ID86/kantoku`（押すとその run の表示へ飛ぶ）
  *   sub:  task_text は `waggle:<token> file:<path>`、task_create は説明、task_output は無し
  */
 function connectionItems(list) {
   const out = [];
   for (const c of Array.isArray(list) ? list : []) {
     if (!c || typeof c !== "object" || c.run_id == null) continue;
-    const num = (v) => (v == null ? "?" : String(v));
-    const head = `${c.direction} [${c.kind}] R${num(c.global_round)}.${num(c.round)}/ID${c.run_id}/${c.block_name || ""}`;
+    const head = `${c.direction} [${c.kind}] ID${c.run_id}/${c.block_name || ""}`;
     let sub = "";
     if (c.kind === "task_text" && c.waggle_token) {
       sub = `waggle:${c.waggle_token}${c.file_path ? ` file:${c.file_path}` : ""}`;
@@ -523,7 +512,7 @@ let lvView = null;         // 今見ている表示（LV_VIEWS のどれか）
 let lvRun = null;          // 選んでいる run のツリーの行（label / lane / status）
 let lvTree = null;         // ツリー（GET …/tree の items・null＝未読）
 let lvTreeError = "";      // ツリーを読めなかったときの 1 行
-let lvFolds = null;        // 開いているフォルダ（null＝全部開く）
+let lvFolds = null;        // 開いているフォルダ・run（null＝覚えが無い＝defaultOpenIds）
 let lvMsg = "";            // 見出し下に出す 1 行
 let lvMsgErr = false;      // その行を赤で出すか（失敗の理由）
 let lvBusy = false;        // ▶ 実行の送信中
@@ -746,7 +735,7 @@ function lvRenderActions() {
     }
     add("⏰ Schedule", lvSchedule, "ghost");
   } else {
-    // review / done の run だけ review → done → Workflow の移動を出す（計画書 A の U10）
+    // review の run だけ review → Workflow の移動を出す
     const adv = advanceAction(lvTree, lvRunId);
     if (adv) add(adv.label, () => lvAdvance(adv));
   }
@@ -832,7 +821,7 @@ async function lvDelete() {
   }
 }
 
-/** review → done / done → Workflow を iPhone から移す（POST …/runs/{run_id}/advance）。 */
+/** review → Workflow を iPhone から移す（POST …/runs/{run_id}/advance）。 */
 async function lvAdvance(adv) {
   if (lvBusy || lvRunId == null || !adv) return;
   const label = (lvRun && lvRun.label) || `ID${lvRunId}`;
@@ -847,7 +836,7 @@ async function lvAdvance(adv) {
     const out = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(out.detail || "移せませんでした");
     window.SaiShell.ok();
-    lvSetMsg(`ID${lvRunId} を ${out.to || adv.to} へ移しました`, false);
+    lvSetMsg(`ID${lvRunId} を Workflow（${out.to || adv.to}）へ移しました`, false);
     await lvLoadTree(lvSeq); // 置き場所が変わったのでツリーを取り直す
     lvRun = findRun(lvTree, lvRunId);
     lvRenderHead();
@@ -1780,7 +1769,7 @@ function lvRenderDrawer() {
   // ツリーの行より先に「実行［＋］［↻］」の見出しの行を出す（U01 §4）。
   // ツリーが空・読み込み中・読み込み失敗のときも残す（↻ で読み直せるように）。
   nav.appendChild(lvSideHead());
-  const rows = flattenTree(lvTree || [], lvFolds);
+  const rows = flattenTree(lvTree || [], lvFolds === null ? defaultOpenIds(lvTree) : lvFolds);
   if (rows.length === 0) {
     nav.appendChild(
       el("p", "lv-drawer-note", lvTreeError || (lvTree ? "実行がありません" : "読み込み中…"))
@@ -1794,18 +1783,37 @@ function lvRenderDrawer() {
       b.style.paddingLeft = `${10 + r.depth * 14}px`;
       b.appendChild(el("span", "lv-fold-arrow", r.open ? "▾" : "▸"));
       b.appendChild(el("span", "lv-fold-label", r.label));
-      b.addEventListener("click", () => {
-        // 覚えが無ければ「全部開く」から 1 つ閉じる形に組み替える
-        const base = lvFolds === null ? allFolderIds(lvTree || []) : lvFolds;
-        lvFolds = toggleFold(base, r.id);
-        lvSaveFolds(lvName, lvFolds);
-        lvRenderDrawer();
-      });
+      b.addEventListener("click", () => lvToggleFold(r.id));
       nav.appendChild(b);
     } else {
+      // 枠・矢印・名前の幅は style.css（U07 の担当）を触らず、ここで指定する
+      const item = el("div", "lv-tree-row");
+      item.style.display = "flex";
+      // 子を持つ run だけ開閉の矢印を付ける。子の無い run は同じ幅だけ空けて字下げをそろえる
+      const arrow = document.createElement("button");
+      arrow.type = "button";
+      arrow.className = "lv-fold lv-run-arrow";
+      arrow.style.paddingLeft = `${10 + r.depth * 14}px`;
+      arrow.style.paddingRight = "0";
+      arrow.style.width = "auto";
+      arrow.style.flex = "none";
+      if (r.hasChildren) {
+        arrow.appendChild(el("span", "lv-fold-arrow", r.open ? "▾" : "▸"));
+        arrow.setAttribute("aria-label", r.open ? "Collapse" : "Expand");
+        arrow.setAttribute("aria-expanded", r.open ? "true" : "false");
+        arrow.addEventListener("click", () => lvToggleFold(r.id));
+      } else {
+        arrow.disabled = true;
+        arrow.setAttribute("aria-hidden", "true");
+        arrow.appendChild(el("span", "lv-fold-arrow", ""));
+      }
+      item.appendChild(arrow);
       const b = document.createElement("button");
       b.className = "lv-run-item" + (r.runId === lvRunId ? " active" : "");
-      b.style.paddingLeft = `${14 + r.depth * 14}px`;
+      b.style.paddingLeft = "6px";
+      b.style.width = "auto";
+      b.style.flex = "1";
+      b.style.minWidth = "0";
       const dot = document.createElement("span");
       dot.className = `lv-dot lv-${(r.lane || r.status || "none").replace(/[^a-z]/gi, "") || "none"}`;
       dot.setAttribute("aria-hidden", "true");
@@ -1823,9 +1831,18 @@ function lvRenderDrawer() {
         location.hash = listHash(lvName, r.runId, view);
         lvSetDrawer(false);
       });
-      nav.appendChild(b);
+      item.appendChild(b);
+      nav.appendChild(item);
     }
   }
+}
+
+/** フォルダ・run の開閉（覚えが無ければ defaultOpenIds から 1 つ開け閉めした形を保存する）。 */
+function lvToggleFold(id) {
+  const base = lvFolds === null ? defaultOpenIds(lvTree) : lvFolds;
+  lvFolds = toggleFold(base, id);
+  lvSaveFolds(lvName, lvFolds);
+  lvRenderDrawer();
 }
 
 // --- サイドバーの見出しの行（実行・＋（task.md の作成）・↻（読み直し）・U01 §4） ---
@@ -2022,7 +2039,7 @@ if (typeof module !== "undefined" && module.exports) {
     findRun,
     runLanes,
     advanceAction,
-    allFolderIds,
+    defaultOpenIds,
     logSections,
     connectionItems,
     sessionStatRows,
