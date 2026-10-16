@@ -2764,6 +2764,8 @@ fn execute_pipeline_background(
             return;
         }
         Err(e) => {
+            // 最初の文を確定できなかった run の session は残さない（この run の pane だけ）。
+            close_execution_pane(&pane_info.pane_id);
             *progress.lock().unwrap() = PipelineProgress::Failed {
                 error: e.to_string(),
             };

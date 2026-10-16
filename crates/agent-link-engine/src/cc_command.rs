@@ -226,6 +226,12 @@ impl CcCommandBuilder {
         for tool in CC_ALLOWED_TOOLS {
             args.push(shell_escape_single_quotes(tool));
         }
+        // serde_json の Map は名前順なので、並びは名前の順になる。
+        if let Some(servers) = mcp_config_json()["mcpServers"].as_object() {
+            for name in servers.keys() {
+                args.push(shell_escape_single_quotes(&format!("mcp__{}__*", name)));
+            }
+        }
 
         let bin = claude_bin();
         let command = format!("{} {}", bin, args.join(" "));
@@ -252,8 +258,9 @@ pub fn claude_bin() -> String {
 
 /// Claude Code で無確認で使ってよい道具の一覧。
 ///
-/// `mcp__*` は外部 MCP（`.mcp.json` のサーバ）の道具をまとめて許可する。
-pub const CC_ALLOWED_TOOLS: [&str; 15] = [
+/// 外部 MCP（`.mcp.json` のサーバ）の道具は、cc が `mcp__*` を受けないため
+/// [`CcCommandBuilder::build`] がサーバ名ごとに `mcp__<名前>__*` を足す。
+pub const CC_ALLOWED_TOOLS: [&str; 14] = [
     "Bash",
     "Edit",
     "Write",
@@ -268,7 +275,6 @@ pub const CC_ALLOWED_TOOLS: [&str; 15] = [
     "Task",
     "TodoWrite",
     "AskUserQuestion",
-    "mcp__*",
 ];
 
 /// pi 形式のモデル名を Claude Code が解釈できる名前に正規化する。
@@ -677,9 +683,11 @@ mod tests {
         ] {
             assert!(cmd.command.contains(part), "{} が入る: {}", part, cmd.command);
         }
-        // 許可する道具の一覧（`mcp__*` も含む）が最後に並ぶ
+        // 許可する道具の一覧（`mcp__<server>__*` も含む）が最後に並ぶ。`mcp__*` は cc が受けない
         assert!(cmd.command.contains("--allowedTools 'Bash'"));
-        assert!(cmd.command.contains("'mcp__*'"));
+        assert!(cmd.command.contains("'mcp__serena__*'"));
+        assert!(cmd.command.contains("'mcp__playwright__*'"));
+        assert!(!cmd.command.contains("'mcp__*'"));
         assert!(!cmd.command.contains("--dangerously-skip-permissions"));
     }
 
