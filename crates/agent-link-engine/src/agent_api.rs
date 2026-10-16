@@ -3077,7 +3077,7 @@ mod tests {
 
         let tasks = json!([{ "client_id": "R1", "subject": "件名", "card": 120 }]);
         let err = task_create(&tasks, None, None, None).unwrap_err();
-        assert!(err.contains("todo にカード 120 がありません"), "err={}", err);
+        assert!(err.contains("Card 120 not found in todo"), "err={}", err);
 
         // 通知は書かれていないこと
         let pending = crate::common::notify_pending_dir();
@@ -3286,7 +3286,7 @@ mod tests {
         assert!(result["validation_errors"][0]["message"]
             .as_str()
             .unwrap()
-            .contains("フォルダではありません"));
+            .contains("is not a folder"));
 
         drop(guard);
     }
