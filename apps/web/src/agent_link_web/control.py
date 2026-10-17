@@ -1,6 +1,5 @@
-"""agent-link の呼び出し（Project タブ・List は、
-task.md 作成と新形式 todo の実行は、
-一覧・Dashboard・常駐の操作の移設は）。
+"""agent-link の呼び出し（Project タブ・List・task.md の作成と新形式 todo の実行・
+一覧・Dashboard・常駐の操作）。
 
  agent-link-web は DB を直接開かないため，ここはすべて CLI に頼る。
  - 一覧       : 登録簿（`registry.load_registry`）+ `agent-link project summary`
@@ -11,7 +10,7 @@ task.md 作成と新形式 todo の実行は、
    doc list --run <id> / doc read <token>`
    （cwd = root かつ `AGENT_LINK_PROJECT_ROOT` = root。値の検査と
    400 / 404 / 409 / 502 もここで・Web が CLI を呼ぶ約束）
- - 作成フォーム: `agent-link card options / create`（。入力は task_text に統一）
+ - 作成フォーム: `agent-link card options / create`（入力は task_text に統一）
  - ▶ 実行     : `agent-link card run <run_id>`（新形式 todo）
  - Workflow と定義の編集:
      - Workflow 盤面: `agent-link workflow`
@@ -50,7 +49,7 @@ _summary_cache: dict[str, tuple[float, dict]] = {}
 # --- List 画面で受け取る値の検査 ---
 # `agent-link run <view>` が返す 3 種
 _PHONE_VIEWS = ("log", "stats", "history")
-# `agent-link run md --kind` が返す 4 種（。system は固定部分）
+# `agent-link run md --kind` が返す 4 種（system は固定部分）
 _PHONE_MD_KINDS = ("task", "message", "report", "system")
 # 保存できる md（task は未実行の todo カードだけ。確かめるのは agent-link）
 _PHONE_MD_WRITABLE = ("task",)
