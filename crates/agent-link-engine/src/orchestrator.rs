@@ -3143,9 +3143,9 @@ impl StallDetector {
 }
 
 /// 長時間アラートの間隔（既定 20 分。`AGENT_LINK_LONG_RUN_ALERT_MS` で上書き可能）。
+/// （`settings.json` の `config` にも書ける）
 fn long_run_alert_ms() -> u64 {
-    std::env::var("AGENT_LINK_LONG_RUN_ALERT_MS")
-        .ok()
+    crate::settings::config_var("AGENT_LINK_LONG_RUN_ALERT_MS")
         .and_then(|v| v.trim().parse::<u64>().ok())
         .filter(|v| *v > 0)
         .unwrap_or(1_200_000)
@@ -3154,9 +3154,9 @@ fn long_run_alert_ms() -> u64 {
 /// idle の停止とみなす時間（ミリ秒）。既定 60 秒。`AGENT_LINK_IDLE_TIMEOUT_MS` で上書き可能。
 ///
 /// `agent-link run wait` も同じ値で止まりを判定するため、ここを正本にする。
+/// （`settings.json` の `config` にも書ける）
 pub(crate) fn stall_idle_ms() -> u64 {
-    std::env::var("AGENT_LINK_IDLE_TIMEOUT_MS")
-        .ok()
+    crate::settings::config_var("AGENT_LINK_IDLE_TIMEOUT_MS")
         .and_then(|v| v.trim().parse::<u64>().ok())
         .filter(|v| *v > 0)
         .unwrap_or(60_000)

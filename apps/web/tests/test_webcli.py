@@ -392,8 +392,7 @@ class DefaultPortTest(unittest.TestCase):
     def test_default_port_is_same_everywhere(self) -> None:
         repo = Path(__file__).resolve().parents[3]
         want = {
-            "apps/web/src/agent_link_web/config.py": 'os.getenv("AGENT_LINK_WEB_PORT", "8400")',
-            "apps/web/src/agent_link_web/webcli.py": "os.getenv('AGENT_LINK_WEB_PORT') or '8400'",
+            "apps/web/src/agent_link_web/webcli.py": "registry.config_var('AGENT_LINK_WEB_PORT') or '8400'",
             "apps/web/hooks/cc_question.py": 'os.environ.get("AGENT_LINK_WEB_PORT") or "8400"',
             "apps/web/hooks/cc_register.py": 'os.environ.get("AGENT_LINK_WEB_PORT") or "8400"',
             "crates/agent-link-engine/src/cc_command.rs": 'pub const DEFAULT_WEB_PORT: &str = "8400";',

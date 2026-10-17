@@ -34,6 +34,8 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+from agent_link_web import registry
+
 # 1 回の呼び出しで待つ時間の上限（秒）
 TIMEOUT_SEC = 30
 # `api` で受ける HTTP の方法（大文字小文字は問わない）
@@ -47,10 +49,10 @@ METHODS = ("GET", "POST", "PUT", "DELETE", "PATCH")
 
 def base_url() -> str:
     """Web の窓口の置き場（環境変数で差し替えられる）。"""
-    url = os.getenv("AGENT_LINK_WEB_URL")
+    url = registry.config_var("AGENT_LINK_WEB_URL")
     if url:
         return url.rstrip("/")
-    return f"http://127.0.0.1:{os.getenv('AGENT_LINK_WEB_PORT') or '8400'}"
+    return f"http://127.0.0.1:{registry.config_var('AGENT_LINK_WEB_PORT') or '8400'}"
 
 
 # ---------------------------------------------------------------------------
@@ -390,10 +392,10 @@ def cmd_serve(args: argparse.Namespace) -> object:
     port = args.port
     if port is None:
         try:
-            port = int(os.getenv("AGENT_LINK_WEB_PORT", "8400"))
+            port = int(registry.config_var("AGENT_LINK_WEB_PORT", "8400"))
         except ValueError:
             raise UsageError(
-                f"AGENT_LINK_WEB_PORT is not a number: {os.getenv('AGENT_LINK_WEB_PORT')}"
+                f"AGENT_LINK_WEB_PORT is not a number: {registry.config_var('AGENT_LINK_WEB_PORT')}"
             ) from None
     os.execv(
         sys.executable,

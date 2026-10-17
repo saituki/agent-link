@@ -16,7 +16,6 @@ WebSocket や SSE は使わない．
 from __future__ import annotations
 
 import logging
-import os
 import time
 
 from fastapi import Body, Depends, FastAPI, HTTPException, Query, Request
@@ -68,7 +67,7 @@ def _startup() -> None:
     notify.ensure_keys()
     # 確かめ用のサーバは見張りを止められる（AGENT_LINK_WEB_NO_WATCH=1）。
     # 見張りは headless の `state.json` を見て iPhone へ通知を送るので，動いているサーバと二重にならないように。
-    if os.getenv("AGENT_LINK_WEB_NO_WATCH") == "1":
+    if registry.config_var("AGENT_LINK_WEB_NO_WATCH") == "1":
         logger.warning("見張りを止めて起動しました（AGENT_LINK_WEB_NO_WATCH=1）")
         return
     # 状態の監視ループを起動する（通知用．失敗してもサーバーは止めない）
