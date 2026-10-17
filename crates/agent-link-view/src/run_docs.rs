@@ -1,13 +1,10 @@
-//! run の中身（md / waggle 成果物）の解決（TUI / CLI 共通・実装計画 12 §3.2）。
-//!
-//! 旧 `agent-link-tui::app::data`（`load_md_view` のパス解決・`waggle_choices_for`・
-//! `load_waggle_token_view`）から移設した。TUI は解決結果を描画用ビューへ、
-//! CLI（`agent-link phone md` / `phone waggle`）は JSON へ組み替える。
+//! run の中身（md / waggle 成果物）の解決。md のパス解決・waggle 文書の候補・
+//! トークンの本文を返す。CLI（`run md`・`doc list`・`card docs`）が JSON に組み替える。
 
 use agent_link_engine::db::SaiStore;
 use std::path::PathBuf;
 
-/// md の種別（`Space t` / `Space m`・`phone md --kind`）。
+/// md の種別（`run md --kind`）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MdKind {
     /// task.md
@@ -31,7 +28,7 @@ impl MdKind {
         }
     }
 
-    /// ファイル名（`phone md` の `name` 用）。
+    /// ファイル名（`run md` の `name` 用）。
     pub fn file_name(self) -> &'static str {
         match self {
             MdKind::Task => "task.md",
@@ -47,7 +44,7 @@ impl MdKind {
 pub enum MdResolve {
     /// 読めるファイルが見つかった
     Found(std::path::PathBuf),
-    /// ファイルが無い（TUI はメッセージ表示・CLI は終了コード 3「まだありません」）
+    /// ファイルが無い（CLI は終了コード 3「まだありません」）
     Missing(String),
     /// 生成・読み込みに失敗した（メッセージ付き）
     Failed(String),
@@ -217,14 +214,14 @@ pub fn doc_ref_line(c: &WaggleChoiceData) -> String {
     )
 }
 
-/// 文書選択の出力先（`w` / `phone waggle`）。
+/// 文書選択の出力先（`doc list`）。
 #[derive(Debug, Clone)]
 pub enum DocSelectScope {
     /// 指定実行の文書だけ（従来の `waggle_choices` と同じ）
     Single(i64),
 }
 
-/// 選択実行の md waggle トークン一覧を返す（`w` / `phone waggle` 用）。
+/// 選択実行の md waggle トークン一覧を返す（`doc list` 用）。
 ///
 /// `output_waggle_tokens` を解決し、`.md` のトークンのみを対象にする。
 /// 解決できないトークン・非 md トークンはスキップする。
@@ -235,8 +232,8 @@ pub fn waggle_choices(store: &SaiStore, run_id: i64) -> Vec<WaggleChoiceData> {
 
 /// 全 task 実行経路で使う文書選択の共通関数。
 ///
-/// - TUI `w` キー: `Single(選択中 run_id)`
-/// - task.md 作成（TUI Step4 / `phone card inputs --origin-run-id` / CLI `--field` 解決）: `Origin(origin_run_id)`
+/// - `doc list --run N`: `Single(N)`
+/// - task.md 作成（`card create` の文書の貼り付け・CLI `--field` 解決）: `Origin(origin_run_id)`
 /// - 実行時 `task_text` 内の `waggle:` 展開は `placeholder.rs` が行う（ここでは候補提示のみ）
 ///
 /// `Origin` では origin の文書を先頭に、全体（実行中含む）を重複排除で後ろに並べる。
@@ -370,7 +367,7 @@ fn choices_all_including_running(store: &SaiStore) -> Vec<WaggleChoiceData> {
     all_docs(store, true)
 }
 
-/// waggle トークン 1 件の内容（`phone waggle --token` 用）。
+/// waggle トークン 1 件の内容（`doc read` 用）。
 #[derive(Debug, Clone)]
 pub struct WaggleDoc {
     /// waggle トークン文字列

@@ -1,6 +1,6 @@
 //! History の表示データ（Token Usage by Category・Timeline）の組み立て。
 //!
-//! 描画は持たない。`phone run --view history`（Web の中継）が使う
+//! 描画は持たない。`run history`（Web の中継）が使う
 //! データと JSON 表現だけを提供する。
 //!
 //! - **token は近似値を含む**: cc の assistant は usage の実値を使う。user・agent・thinking・
@@ -51,14 +51,14 @@ impl HistoryViewData {
         }
     }
 
-    /// `phone run --view history` 用の JSON 表現を返す（実装計画 12 §3.2）。
+    /// `run history` 用の JSON 表現を返す。
     ///
     /// 項目名は仕様のとおり（`toolCall` / `toolResult` / `time` / `type`）。
-    pub fn phone_json(&self) -> PhoneHistoryJson<'_> {
-        PhoneHistoryJson {
+    pub fn to_json(&self) -> HistoryJson<'_> {
+        HistoryJson {
             title: &self.title,
             subtitle: &self.subtitle,
-            type_tokens: PhoneTypeTokens {
+            type_tokens: RunHistoryTypeTokens {
                 user: self.type_tokens.user,
                 agent: self.type_tokens.agent,
                 tool_call: self.type_tokens.tool_call,
@@ -68,7 +68,7 @@ impl HistoryViewData {
             events: self
                 .events
                 .iter()
-                .map(|e| PhoneEvent {
+                .map(|e| RunHistoryEvent {
                     timestamp: &e.timestamp,
                     kind: &e.kind,
                     name: &e.name,
@@ -85,24 +85,24 @@ impl HistoryViewData {
     }
 }
 
-/// `phone run --view history` の JSON 形（実装計画 12 §3.2）。
+/// `run history` の JSON 形。
 #[derive(serde::Serialize)]
-pub struct PhoneHistoryJson<'a> {
+pub struct HistoryJson<'a> {
     /// タイトル（例: `Session #25`）
     pub title: &'a str,
     /// サブタイトル（`block 名 | started: … | status: …`）
     pub subtitle: &'a str,
     /// 種別ごとの近似トークン合計
-    pub type_tokens: PhoneTypeTokens,
+    pub type_tokens: RunHistoryTypeTokens,
     /// Timeline イベント（時刻順）
-    pub events: Vec<PhoneEvent<'a>>,
+    pub events: Vec<RunHistoryEvent<'a>>,
     /// CLI の呼び出しの集計（C11）
     pub cli: &'a CliSummary,
 }
 
 /// `type_tokens`（項目名は仕様どおり camelCase の `toolCall` / `toolResult`）。
 #[derive(serde::Serialize)]
-pub struct PhoneTypeTokens {
+pub struct RunHistoryTypeTokens {
     /// user message の text
     pub user: u64,
     /// assistant message の text
@@ -119,7 +119,7 @@ pub struct PhoneTypeTokens {
 
 /// Timeline イベント 1 件（`time` / `type` リネーム付き・C11 の項目）。
 #[derive(serde::Serialize)]
-pub struct PhoneEvent<'a> {
+pub struct RunHistoryEvent<'a> {
     /// ISO 8601 タイムスタンプ
     #[serde(rename = "time")]
     pub timestamp: &'a str,

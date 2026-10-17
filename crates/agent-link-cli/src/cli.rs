@@ -780,25 +780,13 @@ pub enum WaggleCmd {
     },
 }
 
-/// Web への書き出しサブコマンド（実装計画 01 §2.4 / 12 §3.2）。
+/// `views` が実装する命令（`cmd_*` から `print_view` 経由で呼ばれる内部の振り分け。`Cli` の木には繋がらない）。
 #[derive(Subcommand)]
-pub enum PhoneCmd {
-    /// 現在のプロジェクトの実行を Web 向け JSON に書き出す
-    Export {
-        /// 1 件だけ書き出す（省略時は全件）
-        #[arg(long, value_name = "RUN_ID")]
-        run: Option<i64>,
-
-        /// 書かずに JSON を標準出力へ（1 件指定時はオブジェクト、
-        /// 全件時は配列。各要素が 00 §3.2 の形）
-        #[arg(long, default_value_t = false)]
-        dry_run: bool,
-    },
-
-    /// 左サイドバーと同形のツリーを JSON で返す（実装計画 12 §3.2）
+pub enum ViewCmd {
+    /// 左サイドバーと同形のツリーを JSON で返す
     Tree,
 
-    /// run の中身（log / stats / history）を JSON で返す（実装計画 12 §3.2）
+    /// run の中身（log / stats / history）を JSON で返す
     Run {
         /// 対象の実行 ID
         #[arg(value_name = "RUN_ID")]
@@ -810,7 +798,7 @@ pub enum PhoneCmd {
     },
 
     /// task / review / message の md 本文を JSON で返す
-    /// （無ければ終了コード 3・stderr「まだありません」・実装計画 12 §3.2）
+    /// （無ければ終了コード 3・stderr「まだありません」）
     Md {
         /// 対象の実行 ID
         #[arg(value_name = "RUN_ID")]
@@ -826,31 +814,10 @@ pub enum PhoneCmd {
         write: bool,
     },
 
-    /// run の成果物 md トークン一覧（`--token` でその本文）を JSON で返す
-    Waggle {
-        /// 対象の実行 ID
-        #[arg(value_name = "RUN_ID")]
-        run_id: i64,
-
-        /// 本文を返すトークン（省略時は一覧）
-        #[arg(long, value_name = "TOKEN")]
-        token: Option<String>,
-    },
-
-    /// カード（task.md）作成ウィザード用の JSON（実装計画 12 §3.2）
+    /// カード（task.md）作成ウィザード用の JSON
     Card {
         #[command(subcommand)]
-        cmd: PhoneCardCmd,
-    },
-
-    /// 実行中のメインブロックを完了させる（Web の ■ 終了用）
-    ///
-    /// 成功は stdout に JSON（`run_id` / `message`）・終了コード 0、
-    /// 実行が無い場合は終了コード 3、実行中以外・子ブロック・常駐停止は終了コード 1。
-    Finalize {
-        /// 対象の実行 ID
-        #[arg(value_name = "RUN_ID")]
-        run_id: i64,
+        cmd: ViewCardCmd,
     },
 
     /// 実行を次の状態へ進める（review → done → Workflow・Web の「→ done」「→ Workflow」用）
@@ -931,7 +898,7 @@ pub enum PhoneCmd {
 
     /// メイン画面（Workflow の実行ブロック線図）の DAG を JSON で返す
     ///
-    /// - `nodes`: TUI が描くのと同じ座標（文字マス単位・`x` `y` `w` `h`）で返す
+    /// - `nodes`: 文字マス単位の座標（`x` `y` `w` `h`）で返す
     /// - `edges`: 接続線（`kind` = delegation / waggle_token・`side` = 左右辺接地か）
     /// - `separators`: 日付の区切り線（`y`・`label`）
     /// - `lanes`: Kanban の 3 レーン（todo / running / review）の札
@@ -955,24 +922,15 @@ pub enum PhoneCmd {
     /// そのまま保存し、`warnings` で返す。
     Def {
         #[command(subcommand)]
-        cmd: PhoneDefCmd,
+        cmd: DefFileCmd,
     },
 }
 
-/// `agent-link phone card` のサブコマンド。
+/// `ViewCmd::Card` の内部の振り分け（`card` の命令が呼ぶ）。
 #[derive(Subcommand)]
-pub enum PhoneCardCmd {
+pub enum ViewCardCmd {
     /// ウィザードの選択肢（block / model / thinking）
     Options,
-
-    /// 指定ブロックの入力欄（入力は task_text に統一したため常に空。ブロックの存在確認に使う）
-    ///
-    /// 文書の候補は `phone card docs` を使う。
-    Inputs {
-        /// ブロック ID
-        #[arg(long, value_name = "BLOCK_ID")]
-        block: String,
-    },
 
     /// 最近の文書（running / review / done / Workflow の実行の md 成果物）を新しい順に返す
     ///
@@ -1010,7 +968,7 @@ pub enum PhoneCardCmd {
     },
 }
 
-/// `agent-link phone def` のサブコマンド。
+/// `ViewCmd::Def` の内部の振り分け（`def` の命令が呼ぶ）。
 ///
 /// 定義ファイル（`.agent-link/blocks/*.md`・`.agent-link/template/*.md`・`.agent-link/settings.json`）の
 /// 閲覧・編集用。Web から definitions を編集するために使う。
@@ -1018,7 +976,7 @@ pub enum PhoneCardCmd {
 /// 保存（`write`）は必ず検査を通してから行う。検査に失敗したら**ファイルを
 /// 書き換えず**に終了コード 2 で終わる（常駐が壊れた定義を読むのを防ぐ）。
 #[derive(Subcommand)]
-pub enum PhoneDefCmd {
+pub enum DefFileCmd {
     /// 定義ファイルの一覧を JSON で返す
     ///
     /// 並びは kind（block → template → settings）→ scope（project → global）→
@@ -1851,7 +1809,7 @@ fn default_db_path() -> PathBuf {
     agent_link_engine::project::db_path()
 }
 
-/// DB を開く（`phone` ハンドラからも使うため `pub(crate)`）。
+/// DB を開く（`views` からも使うため `pub(crate)`）。
 pub(crate) fn open_db() -> Result<SaiStore, Box<dyn std::error::Error>> {
     let db_path = default_db_path();
     // DB ディレクトリが存在しない場合は作成
@@ -1890,15 +1848,15 @@ pub fn handle_task_manage(
 /// waggle トークンを解決してファイル内容を標準出力に書き出す。
 /// 隠しコマンド。pi-sai から呼ばれる。
 // ============================================================================
-// phone 書き出しハンドラ（実装計画 01 §2.4 / 00 §3）
+// run 書き出しハンドラ
 // ============================================================================
 
-/// `agent-link phone export` のハンドラ。
+/// `run export` のハンドラ。
 ///
 /// - 引数なし: 現在のプロジェクトの全実行を書き出す
 /// - `--run <id>`: 1 件だけ
 /// - `--dry-run`: 書かずに JSON を標準出力へ
-pub fn handle_phone_export(
+pub fn handle_run_export(
     run: Option<i64>,
     dry_run: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -1940,7 +1898,7 @@ pub fn handle_phone_export(
         },
         None => {
             let summary = run_export::export_all(&store);
-            println!("phone 書き出し: {}", summary.brief());
+            println!("run 書き出し: {}", summary.brief());
         }
     }
     Ok(())
@@ -2299,7 +2257,7 @@ fn daemon_busy_description() -> Vec<String> {
 /// PID ファイルの生存確認 + ステータスファイル（`.agent-link/engine/daemon.status`）の
 /// 実行中/キュー待ちタスク数を表示します（§7.1.1）。
 /// 幽霊（P1-1）がある場合は取り残し行と復旧案内（P2-2）を追加表示する。
-/// デーモン停止中でもDB直読みで幽霊を表示する（TUIと同一方針）。
+/// デーモン停止中でもDB直読みで幽霊を表示する。
 pub fn handle_daemon_status() -> Result<(), Box<dyn std::error::Error>> {
     // 幽霊一覧はDB照会を正とする（停止中も表示できるよう）。
     let orphans: Vec<agent_link_engine::daemon::OrphanedRun> = open_db()

@@ -1,7 +1,5 @@
-//! Workflow の DAG を組み立てる材料集め（agent-link-tui の `app/data.rs` から移設）。
-//!
-//! TUI の `AppState::load_data` のうち Workflow（DAG）用の部分を 1 つの関数にまとめたもの。
-//! TUI と CLI（`agent-link phone workflow`）は**同じ手順・同じ条件**で材料を集める。
+//! Workflow の DAG を組み立てる材料集め。DB から Workflow（DAG）用の材料を
+//! 1 つの関数（[`load_workflow`]）で集める。CLI（`workflow`）がこれを使う。
 //!
 //! 使うもの:
 //! - [`SaiStore`] — DB 読み
@@ -15,7 +13,7 @@ use agent_link_engine::db::SaiStore;
 use super::build::{BlockDisplayData, ConnectionDisplayData};
 use crate::card_entries::{description_for_execution_cached, ViewPrep};
 
-/// Workflow の DAG を組み立てる材料（TUI の `load_data` と同じ手順で集める）。
+/// Workflow の DAG を組み立てる材料。
 #[derive(Debug, Clone, Default)]
 pub struct WorkflowSource {
     /// `workflow_moved == true` の実行だけ（DAG に載せる物）
@@ -36,7 +34,7 @@ fn is_kanban_owned(e: &ExecutionHistory) -> bool {
     !e.workflow_moved
 }
 
-/// Workflow の DAG の材料を DB から集める（TUI の `load_data` と同じ手順・同じ条件）。
+/// Workflow の DAG の材料を DB から集める。
 ///
 /// - 幽霊（`list_running_executions`）を集め、実行一覧は `prep.executions` を再利用する
 /// - 費用の札は完了（`completed` か `finalized`）した実行だけ

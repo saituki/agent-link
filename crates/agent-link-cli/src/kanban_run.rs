@@ -44,7 +44,7 @@ pub fn kanban_block_run(
     let _ = yes;
     let cards = list_reserved_cards();
     if cards.is_empty() {
-        println!("todo に未実行カードがありません（TUI `Shift+C` で作成してください）");
+        println!("todo に未実行カードがありません（`card create` で作成してください）");
         return Ok(());
     }
 
@@ -76,7 +76,7 @@ pub fn kanban_block_run(
     Ok(())
 }
 
-/// カードパスを直接指定して実行要求を送る（非対話・`phone card run` もこの入口を使う）。
+/// カードパスを直接指定して実行要求を送る（非対話・`card run` もこの入口を使う）。
 ///
 /// `kanban_block_run` のカード解決以降の本体で、二重実装しない。
 /// 送信メッセージは出さない（呼び出し側が自分で出す）。戻り値はブロック表示名。
@@ -95,7 +95,7 @@ pub fn run_card_request(
     let card = agent_link_engine::kanban::parse_card(&text)
         .ok_or("Cannot parse the frontmatter of the card md.")?;
 
-    // エージェント（executer: agent）が起こすカードは、人が起こす道（`phone card run`・
+    // エージェント（executer: agent）が起こすカードは、人が起こす道（`card run`・
     // `block run --kanban`・常駐の予約実行）では動かさない。起こすと root の run になり、
     // 報告が起こす側（エージェント）に届かないため。エージェント自身が子の run として
     // 起こすのは別の入口（task_create）。旧カードの値も `agent` として同じに扱う。

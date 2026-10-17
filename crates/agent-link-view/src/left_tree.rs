@@ -1,9 +1,6 @@
-//! 左サイドバー ツリーの組み立て（TUI / CLI 共通・実装計画 12 §3.1 / §3.2）。
-//!
-//! 旧 `agent-link-tui::app::data::build_left_tree_from_executions_slice` の本体を
-//! 移設した。TUI は返り値を `TreeItem`（描画用）へ変換するだけで、見た目・
-//! 折りたたみ挙動は変わらない。CLI（`agent-link phone tree`）は同じ組み立て結果を
-//! JSON に組み替えて返す。
+//! 左サイドバー ツリーの組み立て。実行の一覧を todo / running / review / 日付の
+//! フォルダに分けた平らな一覧（[`TreeItem`]）にする。CLI（`run tree`）が
+//! この結果を JSON に組み替えて返す。
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -46,10 +43,10 @@ pub enum LeftTreeKind {
     Card,
 }
 
-/// ツリーアイテム1件（平らな一覧・TUI `TreeItem` と対応）。
+/// ツリーアイテム1件（平らな一覧）。
 ///
-/// `lane` / `status` / `run_id` は `phone tree` の JSON 用の追加情報で、
-/// TUI の描画には使わない（無い項目は `None`）。
+/// `lane` / `status` / `run_id` は `run tree` の JSON 用の追加情報で、
+/// 無い項目は `None`。
 #[derive(Debug, Clone)]
 pub struct LeftTreeItem {
     /// フォルダ / 実行 / カードの一意 ID（負値はフォルダ・カード）
@@ -66,15 +63,15 @@ pub struct LeftTreeItem {
     pub kind: LeftTreeKind,
     /// 各祖先が「最後の子」か（ツリー接続線の描画用）
     pub ancestor_last: Vec<bool>,
-    /// 対応カード md のパス（TUI の `c` / `d` 用）
+    /// 対応カード md のパス
     pub card_path: Option<PathBuf>,
     /// 実行 ID（カード・実行リーフ。無ければ `None`）
     pub run_id: Option<i64>,
-    /// 所属レーン（`phone tree` JSON 用: todo / running / review / workflow）
+    /// 所属レーン（`run tree` JSON 用: todo / running / review / workflow）
     pub lane: Option<String>,
-    /// 親 run の ID（`phone tree` の入れ子用。親が無い・リーフでなければ `None`）
+    /// 親 run の ID（`run tree` の入れ子用。親が無い・リーフでなければ `None`）
     pub parent_run_id: Option<i64>,
-    /// DB status（`phone tree` JSON 用。無ければ `None`）
+    /// DB status（`run tree` JSON 用。無ければ `None`）
     pub status: Option<String>,
 }
 
@@ -102,7 +99,7 @@ pub fn build_left_tree(
     mb_replica_execs: &HashSet<i64>,
     prev_expanded: &HashMap<i64, bool>,
 ) -> Vec<LeftTreeItem> {
-    // 実行 ID → (status, parent_run_id)（phone 用 lane / status / 入れ子の解決）
+    // 実行 ID → (status, parent_run_id)（`run tree` の lane / status / 入れ子の解決）
     let status_of: HashMap<i64, (String, Option<i64>)> = executions
         .iter()
         .filter_map(|e| e.id.map(|id| (id, (e.status.clone(), e.parent_run_id))))
@@ -133,7 +130,7 @@ pub fn build_left_tree(
 
     // sidebar 最上位: `todo` / `running` / `review` フォルダ（同列）。
     {
-        // todo 載せ条件は `todo_card_paths` に共通化（`phone card run` も同じものを使う）。
+        // todo 載せ条件は `todo_card_paths` に共通化（`card run` も同じものを使う）。
         let todo_cards: Vec<PathBuf> = todo_card_paths(executions);
         let todo_open = prev_expanded.get(&TODO_FOLDER_ID).copied().unwrap_or(false);
         items.push(LeftTreeItem {
@@ -313,9 +310,9 @@ pub fn build_left_tree(
     items
 }
 
-/// todo フォルダに載せるカードパス一覧（`phone tree` の todo 条件）。
+/// todo フォルダに載せるカードパス一覧（`run tree` の todo 条件）。
 ///
-/// `phone card run <run_id>` の対象選択からも同じ関数を呼んで二重実装しない。
+/// `card run <run_id>` の対象選択からも同じ関数を呼んで二重実装しない。
 ///
 /// - 新: `outputs/todo/<run_id>/task.md` ＋ 旧: `.agent-link/todo/*.md`（移行期のみ）
 /// - DB 上で kanban 実行に紐付いたカード（`kanban_card_path`）は載せない

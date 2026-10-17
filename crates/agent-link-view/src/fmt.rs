@@ -51,7 +51,7 @@ pub fn format_num(n: u64) -> String {
 /// `creation_date`（`YYYY/MM/DD HH:MM:SS`）を Kanban todo 表示用
 /// `MM/DD HH:MM:SS` に変換する（他レーンと同一書式・A4）。形式外はそのまま返す。
 ///
-/// 旧 agent-link-tui `widgets/block_node.rs` から移設（`TodoCardInfo::date` が使う）。
+/// （`TodoCardInfo::date` が使う）。
 pub fn format_creation_date_short(date: &str) -> String {
     let t = date.trim();
     if t.len() >= 19 && t.as_bytes().get(4) == Some(&b'/') {

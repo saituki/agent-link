@@ -1,8 +1,5 @@
-//! task.md 作成ウィザードの共通処理（`agent-link phone card …` 用）。
-//!
-//! 旧 `agent-link-tui::app::card_wizard`（選択肢読み込み・カード作成）と
-//! `agent-link-tui::app::input`（`apply_card_auto_fields` / `write_card_file`）から移設した。
-//! `agent-link phone card …` がこの組み立てと検査を使う。
+//! task.md 作成ウィザードの組み立て（選択肢の読み込み・カード作成の検査と自動値）。
+//! `card options` / `card create` がこの組み立てと検査を使う。
 
 use std::path::PathBuf;
 
@@ -22,7 +19,7 @@ pub const THINKING_OPTIONS: [&str; 6] = ["none", "low", "medium", "high", "xhigh
 /// `collect_block_files` は `(表示名, パス)` を返すため、block_id は
 /// ブロック定義ファイルから読む。読めない定義はファイル stem を ID とする。
 /// 警告（`source_blocks` 未指定等）は呼び出し側に出さない
-/// （TUI の alternate screen では stderr が画面を崩すため）。
+/// （stderr に出すと呼び出し側の出力に混ざるため）。
 pub fn load_block_choices() -> Vec<(String, String)> {
     let mut out: Vec<(String, String)> = Vec::new();
     for (display, path) in agent_link_engine::common::collect_block_files() {
@@ -128,9 +125,9 @@ fn reserve_run_for_card(card: &agent_link_engine::kanban::KanbanCard) -> Result<
         .map_err(|e| e.to_string())
 }
 
-/// カード作成の入力（TUI ウィザード / `phone card create` 共通）。
+/// カード作成の入力（`card create`）。
 ///
-/// 各項目の空文字 = スキップ（TUI と同じく自動値を使う）。
+/// 各項目の空文字 = スキップ（自動値を使う）。
 #[derive(Debug, Clone, Default)]
 pub struct CardSpec {
     /// block_id（空 = スキップ）
@@ -139,11 +136,11 @@ pub struct CardSpec {
     pub model: String,
     /// thinking（空 = スキップ）
     pub thinking: String,
-    /// `# task_text` 見出しの直下に挿入する本文（TUI は常に空・nvim で書くため）
+    /// `# task_text` 見出しの直下に挿入する本文
     pub task_text: String,
 }
 
-/// `phone card create` の検査（TUI の段階入力と同じ規則）。
+/// `card create` の検査。
 ///
 /// - block は必須（無いと `card run` が必ず失敗する）
 /// - model は空（= 自動）か `normalize_model` が受ける値

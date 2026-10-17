@@ -1,10 +1,10 @@
 //! `doc` グループ（新しい木）— 文書（waggle トークン）の読み書き。
 //!
 //! `doc write` / `doc read` は `agent_api` の関数を呼び、契約の形に組み直す。
-//! `doc search` は `phone search` の出力をそのまま使う。
+//! `doc search` は `doc search` の出力をそのまま使う。
 
-use crate::cli::{DocCmd, PhoneCmd};
-use crate::cmd_common::{agent_result, print_json, print_phone, CmdError};
+use crate::cli::{DocCmd, ViewCmd};
+use crate::cmd_common::{agent_result, print_json, print_view, CmdError};
 use agent_link_engine::agent_api;
 
 /// `agent-link doc <sub>` のハンドラ。
@@ -69,7 +69,7 @@ pub(crate) fn run(cmd: DocCmd) -> Result<(), CmdError> {
             to_id,
             limit,
             json: _,
-        } => print_phone(PhoneCmd::Search {
+        } => print_view(ViewCmd::Search {
             word,
             category,
             since,
@@ -84,15 +84,15 @@ pub(crate) fn run(cmd: DocCmd) -> Result<(), CmdError> {
 
 /// `doc list`: waggle 文書の一覧。
 ///
-/// - `--run N` のときはその実行の文書（`phone waggle <id>` と同じ材料）。
+/// - `--run N` のときはその実行の文書（`doc list --run <id>` と同じ材料）。
 /// - `--all` のときは実行中（running / review）も含める。
 fn doc_list(run: Option<i64>, all: bool, json: bool) -> Result<(), CmdError> {
-    use agent_link_view::phone_view;
+    use agent_link_view::run_docs;
     let store =
         crate::cli::open_db().map_err(|e| CmdError::other(format!("Cannot open the DB: {}.", e)))?;
     let choices = match run {
-        Some(run_id) => phone_view::waggle_choices(&store, run_id),
-        None => phone_view::all_docs(&store, all),
+        Some(run_id) => run_docs::waggle_choices(&store, run_id),
+        None => run_docs::all_docs(&store, all),
     };
     if json {
         let items: Vec<serde_json::Value> = choices
@@ -103,7 +103,7 @@ fn doc_list(run: Option<i64>, all: bool, json: bool) -> Result<(), CmdError> {
                     "label": c.file_name,
                     "description": c.description,
                     "status": c.status,
-                    "ref": phone_view::doc_ref_line(c),
+                    "ref": run_docs::doc_ref_line(c),
                     "run_id": c.run_id,
                     "block": c.block_name,
                 })

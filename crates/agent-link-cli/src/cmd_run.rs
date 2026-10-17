@@ -1,12 +1,12 @@
 //! `run` グループ（新しい木）— 実行（run）の参照・操作。
 //!
-//! 処理の本体は `phone` / `cli` の実装をそのまま呼ぶ（写さない）。
+//! 処理の本体は `views` / `cli` の実装をそのまま呼ぶ（写さない）。
 //! `run list --json` だけは新しい形（`{"runs":[…]}`）を組み立てる。
 
 use std::collections::HashMap;
 
-use crate::cli::{PhoneCmd, RunCmd};
-use crate::cmd_common::{agent_result, other_error, print_json, print_phone, CmdError};
+use crate::cli::{ViewCmd, RunCmd};
+use crate::cmd_common::{agent_result, other_error, print_json, print_view, CmdError};
 
 /// `agent-link run <sub>` のハンドラ。
 pub(crate) fn run(cmd: RunCmd) -> Result<(), CmdError> {
@@ -23,12 +23,12 @@ pub(crate) fn run(cmd: RunCmd) -> Result<(), CmdError> {
         RunCmd::Show { run_id, json } => {
             crate::cli::handle_block_show(run_id, json).map_err(other_error)
         }
-        RunCmd::Tree { json: _ } => print_phone(PhoneCmd::Tree),
-        RunCmd::Log { run_id, json: _ } => print_phone(PhoneCmd::Run {
+        RunCmd::Tree { json: _ } => print_view(ViewCmd::Tree),
+        RunCmd::Log { run_id, json: _ } => print_view(ViewCmd::Run {
             run_id,
             view: "log".to_string(),
         }),
-        RunCmd::Stats { run_id, json: _ } => print_phone(PhoneCmd::Run {
+        RunCmd::Stats { run_id, json: _ } => print_view(ViewCmd::Run {
             run_id,
             view: "stats".to_string(),
         }),
@@ -36,7 +36,7 @@ pub(crate) fn run(cmd: RunCmd) -> Result<(), CmdError> {
             run_id,
             call: None,
             json: _,
-        } => print_phone(PhoneCmd::Run {
+        } => print_view(ViewCmd::Run {
             run_id,
             view: "history".to_string(),
         }),
@@ -50,7 +50,7 @@ pub(crate) fn run(cmd: RunCmd) -> Result<(), CmdError> {
             kind,
             write,
             json: _,
-        } => print_phone(PhoneCmd::Md {
+        } => print_view(ViewCmd::Md {
             run_id,
             kind,
             write,
@@ -67,7 +67,7 @@ pub(crate) fn run(cmd: RunCmd) -> Result<(), CmdError> {
             ))?;
             print_json(&v)
         }
-        RunCmd::Advance { run_id, json: _ } => print_phone(PhoneCmd::Advance { run_id }),
+        RunCmd::Advance { run_id, json: _ } => print_view(ViewCmd::Advance { run_id }),
         // 実行中の run に続きの文を送る（--text が無ければ標準入力の全文）
         RunCmd::Send {
             run_id,
@@ -125,17 +125,17 @@ pub(crate) fn run(cmd: RunCmd) -> Result<(), CmdError> {
                     "Pass --yes to delete a run. The command does not wait for confirmation.",
                 ));
             }
-            print_phone(PhoneCmd::Rm { run_id })
+            print_view(ViewCmd::Rm { run_id })
         }
         RunCmd::Export { run, dry_run } => {
-            crate::cli::handle_phone_export(run, dry_run).map_err(other_error)
+            crate::cli::handle_run_export(run, dry_run).map_err(other_error)
         }
     }
 }
 
 /// `run workflow`（トップの `workflow`）: メイン画面の DAG を JSON で返す。
 pub(crate) fn run_workflow(subtasks: bool) -> Result<(), CmdError> {
-    print_phone(PhoneCmd::Workflow { subtasks })
+    print_view(ViewCmd::Workflow { subtasks })
 }
 
 /// `run list --json`: `{"runs":[…]}` の形。
@@ -184,7 +184,7 @@ fn run_list_json(limit: i64) -> Result<(), CmdError> {
 /// `agent-link run history <id> --call <CALL_ID>`: その呼び出しの全文（C11）。
 /// `--json` が無ければ、命令（無ければ道具の名前）と結果の本文を出す。
 fn history_call(run_id: i64, call_id: &str, json: bool) -> Result<(), CmdError> {
-    let v = crate::phone::history_call(run_id, call_id)?;
+    let v = crate::views::history_call(run_id, call_id)?;
     if json {
         return print_json(&v);
     }

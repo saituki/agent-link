@@ -1,9 +1,5 @@
-//! Kanban カード・レーン一覧の組み立て（TUI / CLI 共通・実装計画 12 §3.1）。
-//!
-//! 旧 `agent-link-tui::app::data`（todo カード走査・description 解決）と
-//! `agent-link-tui::app::kanban`（`CardEntry` / `collect_card_entries_from`）から
-//! 移設した。TUI の見た目・挙動は変えず、`agent-link phone`（CLI）からも同じ
-//! 組み立て結果を呼べるようにするための共通部品である。
+//! Kanban カード・レーン一覧の組み立て（todo カードの走査・description の解決・
+//! `CardEntry` の収集）。`run tree`・`card …`・`workflow` が共通に使う部品である。
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -461,7 +457,7 @@ pub fn collect_card_entries_from(
 // CLI 用の事前準備
 // ============================================================================
 
-/// `phone tree` / `phone card options` 用の事前準備（TUI `load_data` の部品と同一）。
+/// `run tree` / `card options` 用の事前準備。
 ///
 /// 実行履歴の取得 → run フォルダの status 同期 → mb 複製集合 → todo カード走査 →
 /// カード一覧の組み立てまでを 1 度に行う。
@@ -479,7 +475,7 @@ pub struct ViewPrep {
     pub todo_by_run_id: HashMap<i64, String>,
 }
 
-/// ビュー組み立ての事前準備を行う（TUI `load_data` と同じ手順の部品）。
+/// ビュー組み立ての事前準備を行う。
 pub fn prepare_view(store: &SaiStore) -> ViewPrep {
     let mut executions = match store.list_view_executions(100) {
         Ok(v) => v,

@@ -1,13 +1,13 @@
 //! Log の表示データ（`[Inputs] [Meta] [Output] [Stats]` 相当）の組み立て。
 //!
-//! 描画は持たない。`phone run --view log`（Web の中継）が使う
+//! 描画は持たない。`run log`（Web の中継）が使う
 //! `BlockDetail` とその JSON 表現、および DB からの組み立てを提供する。
 
 use crate::fmt::{format_cost, format_tokens};
 
 /// 表示用ブロック詳細データ（旧 right_sidebar::BlockDetail の移植）。
 ///
-/// `phone run --view log` 用に JSON 化可能（項目名は snake_case のまま、
+/// `run log` 用に JSON 化可能（項目名は snake_case のまま、
 /// `input_fields` のタプルのみ `[{"label","value"}]` に変換）。
 #[derive(Debug, Clone, Default)]
 pub struct BlockDetail {
@@ -28,8 +28,8 @@ pub struct BlockDetail {
     pub timeout: Option<i32>,
     pub connections_from: Vec<String>,
     pub connections_to: Vec<String>,
-    /// 接続を作られた順（時系列）に並べた構造化版（phone の Connection 表示用）。
-    /// TUI は `connections_from` / `connections_to` の文字列を使う。
+    /// 接続を作られた順（時系列）に並べた構造化版（`run log` の Connection 表示用）。
+    /// 文字列版は `connections_from` / `connections_to`。
     pub connections: Vec<ConnectionEntry>,
     /// この実行が出力した waggle トークン一覧（sai-write 使用時）
     pub output_waggle_tokens: Vec<String>,
@@ -56,7 +56,7 @@ pub struct BlockDetail {
     pub usage_lines: Vec<String>,
 }
 
-/// 接続 1 件（phone の Connection 表示用）。
+/// 接続 1 件（`run log` の Connection 表示用）。
 #[derive(Debug, Clone, Default, serde::Serialize)]
 pub struct ConnectionEntry {
     /// `from`（この実行へ来た線）/ `to`（この実行から出る線）
@@ -145,7 +145,7 @@ struct InputRef<'a> {
     value: &'a str,
 }
 
-/// `phone run --view log` 用の JSON 化（実装計画 12 §3.2）。
+/// `run log` 用の JSON 化。
 ///
 /// フィールド名は `BlockDetail` の snake_case をそのまま使い、
 /// 描画用の内部状態は持たないため出力対象は全公開フィールド。
@@ -190,10 +190,7 @@ impl serde::Serialize for BlockDetail {
 
 /// 実行 1 件分の表示用詳細データを DB から構築する（ビルダ純関数）。
 ///
-/// agent-link-tui `app/data.rs::build_block_detail()` 本体を分離したもの。
-/// `sai_control_tui` 等の第 2 クライアントからも同一ビルダを使い、同一画面を
-/// 表示できるようにする。UI 側の副作用（選択実行 ID の覚え置き等）は
-/// 呼び出し側（各 TUI）が行う。
+/// `run log` が使う。
 ///
 /// - `store`: 対象プロジェクトの `SaiStore`（read-only でも可）
 /// - `exec_id`: 対象実行 ID
@@ -377,7 +374,7 @@ pub fn build(store: &agent_link_engine::db::SaiStore, exec_id: i64) -> Option<Bl
     })
 }
 
-/// 接続を phone 用の構造化した並びにする（`is_shown` と同じ 3 種だけ）。
+/// 接続を `run log` 用の構造化した並びにする（`is_shown` と同じ 3 種だけ）。
 fn structured_connections(
     store: &agent_link_engine::db::SaiStore,
     all: &[agent_link_engine::db::models::BlockConnection],
@@ -653,7 +650,7 @@ mod conn_line_tests {
         let d = build(&store, e2).unwrap();
         assert_eq!(d.connections_from.len(), 1);
         assert!(d.connections_from[0].starts_with("waggle:abc ID"));
-        // phone 用の構造化版: waggle は task_text、相手は e1（block a）
+        // `run log` 用の構造化版: waggle は task_text、相手は e1（block a）
         assert_eq!(d.connections.len(), 1);
         let c = &d.connections[0];
         assert_eq!((c.direction.as_str(), c.kind.as_str()), ("from", "task_text"));

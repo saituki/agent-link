@@ -1,7 +1,6 @@
 //! # Workflow — 実行グラフ（DAG）の組み立て・配置・材料集め
 //!
-//! 旧 TUI の `ui/main_panel.rs` と `graph_layout/` にあった
-//! 「Workflow（実行ブロック線図）」のロジックを移設したもの。
+//! 「Workflow（実行ブロック線図）」のロジックを集めたもの。
 //!
 //! - [`dag`] — DAG データ構造（[`DagGraph`] / [`EdgeData`] / [`EdgeKind`] / `NodeId`）
 //! - [`layered_layout`] — Sugiyama 風の階層レイアウト計算（[`calculate_layout`] と
@@ -9,7 +8,7 @@
 //! - [`build`] — 実行データから DAG を組み立てる（[`build_block_graph`] と表示データ型）
 //! - [`load`] — DB から DAG の材料を集める（[`load_workflow`]）
 //!
-//! `agent-link phone workflow`（CLI）が座標を付けて Web へ返す。
+//! `workflow`（CLI）が座標を付けて Web へ返す。
 //!
 //! ## 使用例
 //!
