@@ -763,7 +763,7 @@ pub fn run_search_verbose(
     let project_root = crate::project::project_root();
     for fe in &filtered {
         let exec_id = fe.exec.id.unwrap_or(0);
-        let Some(path) = crate::phone_export::resolve_transcript(&fe.exec, &project_root) else {
+        let Some(path) = crate::transcript::resolve_transcript(&fe.exec, &project_root) else {
             skipped += 1;
             continue;
         };
@@ -806,7 +806,7 @@ pub fn run_search_projects(
             // 単一検索と同様に `resolve_transcript` で現行正本を探す
             // （owner 移動追従 + cc の会話ファイルも解決される）。
             let exec_id = fe.exec.id.unwrap_or(0);
-            let Some(path) = crate::phone_export::resolve_transcript(&fe.exec, &project.root)
+            let Some(path) = crate::transcript::resolve_transcript(&fe.exec, &project.root)
             else {
                 continue;
             };

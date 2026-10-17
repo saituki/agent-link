@@ -2438,7 +2438,7 @@ pub fn write_message_file(store: &crate::db::SaiStore, run_id: i64) -> std::io::
     // `cc_session_files(...)`（`~/.claude/projects/` 全体で一番新しいもの）を使うと
     // 別の run の会話が出るため使わない。見つからないときは空にする。
     let cc_messages = exec.as_ref().and_then(|exec| {
-        crate::phone_export::resolve_transcript(exec, &crate::project::project_root()).and_then(
+        crate::transcript::resolve_transcript(exec, &crate::project::project_root()).and_then(
             |path| {
                 crate::session::extract_cc_user_assistant_messages(&path)
                     .ok()
@@ -2914,7 +2914,7 @@ fn execute_pipeline_background(
     // DB の herdr_pane_id は完了時にしか入らず，ラベルはプロジェクト間で重なるため。
     // DB は task_manager の分岐に使われるので触らない。失敗しても実行は続ける。
     let _ = std::fs::write(
-        prepared.session_dir.join(crate::phone_export::PANE_ID_FILE),
+        prepared.session_dir.join(crate::headless::PANE_ID_FILE),
         &pane_info.pane_id,
     );
 

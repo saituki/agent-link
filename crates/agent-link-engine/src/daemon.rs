@@ -31,7 +31,7 @@ use crate::agent_pool::AgentPool;
 use crate::db::SaiStore;
 use crate::orchestrator::{self, CompletionEvent, ExecutionOverrides, RunningExecutions};
 use crate::parser::parse_block_file;
-use crate::phone_export;
+use crate::run_export;
 use crate::doc_write_notify;
 use crate::task_manager::TaskManager;
 use crate::waggle_integration::WaggleIntegrator;
@@ -190,21 +190,21 @@ pub struct Daemon {
     running_executions: RunningExecutions,
     /// ブロック定義キャッシュ: パス → (mtime, サイズ)（定期リロード用・§7.1.1）
     block_def_cache: Mutex<HashMap<PathBuf, (SystemTime, u64)>>,
-    /// phone 書き出しの差分管理（実装計画 01 §2.3）
-    phone_export: Mutex<PhoneExportState>,
+    /// 実行の書き出し（`run_export`）の差分管理
+    run_export: Mutex<RunExportState>,
 }
 
-/// phone 書き出し（`~/.agent-link/phone/runs/`）の差分管理状態（01 §2.3）。
-struct PhoneExportState {
+/// 実行の書き出し（`$AGENT_LINK_HOME/web/runs/`）の差分管理状態。
+struct RunExportState {
     /// 書き出し器（プロジェクト名解決済み・初回サイクルで遅延作成）
-    exporter: Option<phone_export::Exporter>,
+    exporter: Option<run_export::Exporter>,
     /// run_id → 前回書き出し時のシグネチャ
-    sigs: HashMap<i64, phone_export::ExportSig>,
+    sigs: HashMap<i64, run_export::ExportSig>,
     /// 終了直後でもう一度だけ書き直す対象
     rewrite_once: HashSet<i64>,
 }
 
-impl Default for PhoneExportState {
+impl Default for RunExportState {
     fn default() -> Self {
         Self {
             exporter: None,
@@ -235,7 +235,7 @@ impl Daemon {
             notify_base,
             running_executions: Arc::new(Mutex::new(HashMap::new())),
             block_def_cache: Mutex::new(HashMap::new()),
-            phone_export: Mutex::new(PhoneExportState::default()),
+            run_export: Mutex::new(RunExportState::default()),
         }
     }
 
@@ -378,7 +378,7 @@ impl Daemon {
             if tick % STATUS_WRITE_EVERY == 0 {
                 let _ = self.write_status_file();
                 // phone 書き出しも同じ周期で差分を書き出す（実装計画 01 §2.3）
-                self.export_phone_runs(false);
+                self.export_runs(false);
                 // 実行予定時刻を過ぎた todo のカードを実行する
                 self.run_scheduled_cards();
             }
@@ -863,35 +863,35 @@ impl Daemon {
     }
 
     // -----------------------------------------------------------------------
-    // phone 書き出し（実装計画 01 §2.3・status ファイルと同じ周期）
+    // 実行の書き出し（status ファイルと同じ周期）
     // -----------------------------------------------------------------------
 
-    /// 変わった実行だけ `~/.agent-link/phone/runs/<project_name>/<run_id>.json` へ書き出す。
+    /// 変わった実行だけ `$AGENT_LINK_HOME/web/runs/<project_name>/<run_id>.json` へ書き出す。
     ///
-    /// - `todo` / `pending` は対象外（`phone_export::should_export`）
+    /// - `todo` / `pending` は対象外（`run_export::should_export`）
     /// - `status` / `finished_at` / `session_stats_json` が変わった実行だけ書き直す
     /// - 終了状態になった実行は **次の周期でもう一度** 書き直す
     ///   （終了直後は `session_stats_json` や transcript の最終行が遅れて入ることがあるため）
-    /// - 失敗はログのみ（sai-phone 連携はおまけ機能・エージェント実行を止めない）
+    /// - 失敗はログのみ（エージェント実行を止めない）
     ///
     /// `initial = true` はデーモン起動時（全件を書き出し、シグネチャ表を初期化する）。
-    fn export_phone_runs(&self, initial: bool) {
+    fn export_runs(&self, initial: bool) {
         let execs = match self.store.list_all_executions() {
             Ok(e) => e,
             Err(e) => {
-                eprintln!("[agent-link] phone 書き出し: 実行一覧の取得に失敗: {}", e);
+                eprintln!("[agent-link] 書き出し: 実行一覧の取得に失敗: {}", e);
                 return;
             }
         };
         let project_root = crate::project::project_root();
-        let mut state = self.phone_export.lock().unwrap();
+        let mut state = self.run_export.lock().unwrap();
         if state.exporter.is_none() {
-            match phone_export::Exporter::new(&project_root) {
+            match run_export::Exporter::new(&project_root) {
                 Ok(e) => state.exporter = Some(e),
                 Err(e) => {
                     // HOME 未設定など。ログのみでエージェント実行は止めない。
                     if initial {
-                        eprintln!("[agent-link] phone 書き出しを開始できません: {}", e);
+                        eprintln!("[agent-link] 書き出しを開始できません: {}", e);
                     }
                     return;
                 }
@@ -903,15 +903,15 @@ impl Daemon {
         let (mut written, mut skipped, mut failed) = (0usize, 0usize, 0usize);
         for exec in &execs {
             let Some(run_id) = exec.id else { continue };
-            if !phone_export::should_export(&exec.status) {
+            if !run_export::should_export(&exec.status) {
                 continue;
             }
-            let sig = phone_export::ExportSig::of(exec);
+            let sig = run_export::ExportSig::of(exec);
             let prev = state.sigs.get(&run_id);
             let changed = prev != Some(&sig);
             // 終了状態へ変わった（= changed）実行は次の周期にもう一度書き直す
             // （終了直後は stats / transcript が遅れて入るための 1 回限りの再書込）
-            if changed && phone_export::is_finished(&exec.status) {
+            if changed && run_export::is_finished(&exec.status) {
                 state.rewrite_once.insert(run_id);
             }
             // 実行中は毎周期書き直す（開始直後は cc の session_id・pi の実セッション
@@ -926,7 +926,7 @@ impl Daemon {
                 Ok(None) => {}
                 Err(e) => {
                     failed += 1;
-                    eprintln!("[agent-link] phone 書き出し失敗: run_id={}: {}", run_id, e);
+                    eprintln!("[agent-link] 書き出し失敗: run_id={}: {}", run_id, e);
                     continue;
                 }
             }
@@ -935,7 +935,7 @@ impl Daemon {
         state.exporter = Some(exporter);
         if initial || written > 0 || failed > 0 {
             eprintln!(
-                "[agent-link] phone 書き出し{}: {} 件書く / {} 件省略 / {} 件失敗",
+                "[agent-link] 書き出し{}: {} 件書く / {} 件省略 / {} 件失敗",
                 if initial { "（起動時・全件）" } else { "" },
                 written,
                 skipped,
@@ -1065,7 +1065,7 @@ pub fn run_foreground(project_root: &Path) -> Result<(), Box<dyn std::error::Err
 
     // 実装計画 01 §2.3: 起動時にそのプロジェクトの過去の全実行を書き出す
     // （既に同じ内容のファイルがあれば書き直さないため、2 回目以降の起動は軽い）。
-    daemon.export_phone_runs(true);
+    daemon.export_runs(true);
 
     // P0-2: SIGTERM/SIGINT 捕捉（停止時の確定終了用）。
     // `libc::signal` でフラグのみ立て、ポーリングループ側で安全に確定処理する

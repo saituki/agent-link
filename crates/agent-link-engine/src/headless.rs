@@ -18,6 +18,20 @@ use std::path::{Path, PathBuf};
 
 use crate::herdr::{HerdrError, PaneInfo};
 
+/// 実行中の pane_id を控えるファイル名（run セッション dir 直下・orchestrator が書く）。
+pub const PANE_ID_FILE: &str = "herdr_pane_id";
+
+/// run セッション dir に控えた pane_id（DB に未記録の実行中用・無ければ None）。
+///
+/// `agent-link run send` / `run interrupt` が実行中の run の送り先を探すのにも使う
+/// （共有契約 C2）。
+pub(crate) fn pane_id_from_session_dir(exec: &crate::db::models::ExecutionHistory) -> Option<String> {
+    let dir = crate::session::resolve_session_dir(exec.session_dir.as_deref(), exec.id?)?;
+    let id = std::fs::read_to_string(dir.join(PANE_ID_FILE)).ok()?;
+    let id = id.trim();
+    (!id.is_empty()).then(|| id.to_string())
+}
+
 /// 擬似 pane の id 接頭辞。
 pub const HEADLESS_PREFIX: &str = "hl-";
 
@@ -70,7 +84,7 @@ pub fn new_pane(cwd: Option<&str>) -> Result<PaneInfo, HerdrError> {
         turn: 0,
         partial: String::new(),
         error: String::new(),
-        updated_at: crate::phone_export::now_iso(),
+        updated_at: crate::common::now_iso(),
     };
     write_state(&dir, &state)?;
     Ok(pane_info(&id, cwd, "idle"))

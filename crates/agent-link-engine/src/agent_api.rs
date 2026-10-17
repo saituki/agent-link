@@ -1629,7 +1629,7 @@ fn run_pane(run_id: i64) -> Result<(ExecutionHistory, String), String> {
     let pane_id = exec
         .herdr_pane_id
         .clone()
-        .or_else(|| crate::phone_export::pane_id_from_session_dir(&exec))
+        .or_else(|| crate::headless::pane_id_from_session_dir(&exec))
         .ok_or_else(|| format!("No destination found for run {}.", run_id))?;
     Ok((exec, pane_id))
 }

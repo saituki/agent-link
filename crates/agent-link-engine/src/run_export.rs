@@ -1,20 +1,22 @@
-//! sai-phone 向け実行情報の書き出し（実装計画 01 §2.2 / 00 §3）。
+//! 実行 1 件を `$AGENT_LINK_HOME/web/runs/<project>/<run_id>.json` に書き出す。
 //!
-//! agent-link デーモン（および CLI `agent-link phone export`）が、実行 1 件につき
-//! JSON ファイル 1 個を `<AGENT_LINK_HOME>/web/runs/<project_name>/<run_id>.json` に書く。
-//! sai-phone はこのフォルダを読むだけで、sai-phone への HTTP 送信はしない。
+//! daemon（起動時と run の状態が変わったとき）と `agent-link run export` が使う。
+//! 読み手は Web（`apps/web/src/agent_link_web/runs.py`）。
 //!
-//! - JSON の形（schema_version = 1）は **00-overview.md §3.2 が正**。
 //! - 書き込みは一時ファイル（`.<run_id>.json.tmp`）→ rename（読み手が書きかけを読まないため）。
-//! - 同じ内容（`updated_at` を除く）が既にあれば書き直さない
-//!   （sai-phone の無駄な再読込を防ぐ）。
-//! - 書き出しの失敗はログに出すだけでエージェント実行は止めない（おまけ機能のため）。
+//! - 同じ内容（`updated_at` を除く）が既にあれば書き直さない（読み手の無駄な再読込を防ぐ）。
+//! - 書き出しの失敗はログに出すだけで、エージェント実行は止めない。
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use crate::db::models::ExecutionHistory;
 use crate::db::SaiStore;
+use crate::cc_cost::read_cc_cost;
+use crate::common::now_iso;
+use crate::headless::pane_id_from_session_dir;
+use crate::registry::project_name_for;
+use crate::transcript::resolve_transcript;
 use crate::usage_metrics::{collect_metrics_from_file_cc, CacheUsageTotals};
 
 /// JSON のスキーマ版（00 §3.2。形を変えるときだけ上げる）。
@@ -26,7 +28,7 @@ pub const SCHEMA_VERSION: i64 = 1;
 
 /// 実行 1 件分の書き出し JSON（00 §3.2）。
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct PhoneRunDoc {
+pub struct RunDoc {
     /// 常に 1
     pub schema_version: i64,
     /// `~/.agent-link/registry.json` の登録名（無ければフォルダ名）
@@ -66,16 +68,16 @@ pub struct PhoneRunDoc {
     /// このファイルを書いた時刻（UTC ISO 8601 Z）
     pub updated_at: String,
     /// 終了後に 00 §3.4 の stats（実行中は null）
-    pub stats: Option<PhoneRunStats>,
+    pub stats: Option<RunDocStats>,
 }
 
 /// `stats`（00 §3.4）。
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
-pub struct PhoneRunStats {
+pub struct RunDocStats {
     /// コスト内訳（USD）
-    pub cost_usd: PhoneCost,
+    pub cost_usd: RunDocCost,
     /// トークン
-    pub tokens: PhoneTokens,
+    pub tokens: RunDocTokens,
     /// `session_stats_json` の elapsed_ms（無いときは 0）
     pub elapsed_ms: u64,
     /// ターン数
@@ -94,7 +96,7 @@ pub struct PhoneRunStats {
 
 /// `stats.cost_usd`（00 §3.4）。
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
-pub struct PhoneCost {
+pub struct RunDocCost {
     pub input: f64,
     pub output: f64,
     pub cache_read: f64,
@@ -104,7 +106,7 @@ pub struct PhoneCost {
 
 /// `stats.tokens`（00 §3.4）。
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
-pub struct PhoneTokens {
+pub struct RunDocTokens {
     pub input: u64,
     pub output: u64,
     pub cache_read: u64,
@@ -129,7 +131,7 @@ pub fn is_finished(status: &str) -> bool {
 }
 
 // ============================================================================
-// パス・時刻・プロジェクト名
+// 時刻
 // ============================================================================
 
 /// DB の時刻文字列（SQLite `datetime('now')` = `YYYY-MM-DD HH:MM:SS` UTC）を
@@ -161,160 +163,6 @@ pub fn db_time_to_iso(s: &str) -> Option<String> {
         return Some(out);
     }
     None
-}
-
-/// パス文字列を比較用に正規化する（末尾スラッシュ除去 + 可能なら canonicalize）。
-fn normalize_path_str(p: &Path) -> String {
-    let raw = p.to_string_lossy().to_string();
-    let trimmed = raw.trim_end_matches('/').to_string();
-    match std::fs::canonicalize(&trimmed) {
-        Ok(c) => c.to_string_lossy().trim_end_matches('/').to_string(),
-        Err(_) => trimmed,
-    }
-}
-
-/// フォルダ名（プロジェクトルートの最終パス要素）。取れなければ `project`。
-fn folder_name(project_root: &Path) -> String {
-    project_root
-        .file_name()
-        .and_then(|s| s.to_str())
-        .map(|s| s.trim())
-        .filter(|s| !s.is_empty())
-        .unwrap_or("project")
-        .to_string()
-}
-
-/// レジストリ JSON（`~/.agent-link/registry.json`）からプロジェクト名を引く。
-///
-/// `root` がプロジェクトルートと一致する項目の `name` を返す（パスは正規化して比較）。
-/// 見つからなければ `None`。
-pub fn project_name_from_registry(registry: &Path, project_root: &Path) -> Option<String> {
-    let text = std::fs::read_to_string(registry).ok()?;
-    let value: serde_json::Value = serde_json::from_str(&text).ok()?;
-    let entries = value.as_array()?;
-    let target = normalize_path_str(project_root);
-    for e in entries {
-        let Some(root) = e.get("root").and_then(|r| r.as_str()) else {
-            continue;
-        };
-        if normalize_path_str(Path::new(root)) != target {
-            continue;
-        }
-        if let Some(name) = e.get("name").and_then(|n| n.as_str()) {
-            if !name.trim().is_empty() {
-                return Some(name.trim().to_string());
-            }
-        }
-    }
-    None
-}
-
-/// レジストリ（任意）を使ってプロジェクト名を決める。
-///
-/// 一致が無ければルートのフォルダ名（例 `sai-phone`）。
-pub fn project_name_using(registry: Option<&Path>, project_root: &Path) -> String {
-    if let Some(reg) = registry {
-        if let Some(name) = project_name_from_registry(reg, project_root) {
-            return name;
-        }
-    }
-    folder_name(project_root)
-}
-
-/// 登録簿に足した結果。
-#[derive(Debug, PartialEq, Eq)]
-pub enum RegistryAdd {
-    /// 新しく足した。
-    Added,
-    /// 同じルートが既にある（その登録名）。
-    AlreadyRegistered(String),
-}
-
-/// レジストリ JSON（`~/.agent-link/registry.json`）にプロジェクトを足す（`agent-link init` 用）。
-///
-/// 同じルートが既にあれば何もしない。同じ名前で別のルートがあればエラーにする
-/// （apps/web は名前でプロジェクトを引くため）。ファイルが無ければ作る。
-///
-/// # Errors
-/// 読み書きに失敗したとき、ファイルが配列でないとき、名前が他のルートで使われているとき。
-pub fn register_project(registry: &Path, name: &str, project_root: &Path) -> Result<RegistryAdd, String> {
-    let mut entries: Vec<serde_json::Value> = match std::fs::read_to_string(registry) {
-        Ok(text) if !text.trim().is_empty() => serde_json::from_str::<serde_json::Value>(&text)
-            .ok()
-            .and_then(|v| v.as_array().cloned())
-            .ok_or_else(|| format!("{} is not a JSON array.", registry.display()))?,
-        Ok(_) => Vec::new(),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
-        Err(e) => return Err(format!("Cannot read {}: {e}", registry.display())),
-    };
-    let target = normalize_path_str(project_root);
-    for e in &entries {
-        let root = e.get("root").and_then(|r| r.as_str()).unwrap_or_default();
-        let entry_name = e.get("name").and_then(|n| n.as_str()).unwrap_or_default();
-        if normalize_path_str(Path::new(root)) == target {
-            return Ok(RegistryAdd::AlreadyRegistered(entry_name.to_string()));
-        }
-        if entry_name == name {
-            return Err(format!(
-                "Name {name} is already used by another folder ({root}). Choose another name with --name."
-            ));
-        }
-    }
-    let now = chrono::Utc::now().to_rfc3339();
-    entries.push(serde_json::json!({
-        "name": name,
-        "root": project_root.to_string_lossy(),
-        "kind": "link",
-        "color": null,
-        "created_at": now,
-        "last_opened": now,
-    }));
-    if let Some(parent) = registry.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| format!("Cannot create {}: {e}", parent.display()))?;
-    }
-    let text = serde_json::to_string_pretty(&entries).map_err(|e| e.to_string())?;
-    std::fs::write(registry, text + "\n").map_err(|e| format!("Cannot write {}: {e}", registry.display()))?;
-    Ok(RegistryAdd::Added)
-}
-
-/// 現在のプロジェクトのプロジェクト名（`~/.agent-link/registry.json` → フォルダ名）。
-pub fn project_name_for(project_root: &Path) -> String {
-    let registry = crate::project::sai_home().map(|h| h.join("registry.json"));
-    project_name_using(registry.as_deref(), project_root)
-}
-
-// ============================================================================
-// transcript_path の解決（00 §3.3 を厳守）
-// ============================================================================
-
-/// 会話記録 jsonl の絶対パスを解決する。
-///
-/// - `agent_session_id` があれば `session::claude_session_file(cwd, agent_session_id)`。
-///   cwd はプロジェクトルート（worktree 実行なら `.worktrees/<branch>` も探索）。
-///   それでも無ければセッション ID だけで探す（`claude_session_file_any_cwd`）。
-///   **`cc_session_files(...)`（全体で一番新しい cc セッション）は使わない**
-///   （別の実行のファイルを拾うことがあるため）。
-/// - `agent_session_id` が無い古い記録は `session_dir` の主セッションを使う。
-pub fn resolve_transcript(exec: &ExecutionHistory, project_root: &Path) -> Option<PathBuf> {
-    let Some(sid) = exec.agent_session_id.as_deref() else {
-        let run_id = exec.id.unwrap_or(0);
-        let dir = crate::session::resolve_session_dir(exec.session_dir.as_deref(), run_id)?;
-        return crate::session::find_main_session_file(&dir).ok();
-    };
-    if let Some(p) = crate::session::claude_session_file(project_root, sid) {
-        return Some(p);
-    }
-    // worktree 実行時は cwd が `.worktrees/<branch>` になるため追加探索
-    let wt = project_root.join(".worktrees");
-    if let Ok(entries) = std::fs::read_dir(&wt) {
-        for dir in entries.flatten().map(|e| e.path()).filter(|p| p.is_dir()) {
-            if let Some(p) = crate::session::claude_session_file(&dir, sid) {
-                return Some(p);
-            }
-        }
-    }
-    // worktree を消したあとなど cwd が分からないときは、セッション ID で探す
-    crate::session::claude_session_file_any_cwd(sid)
 }
 
 // ============================================================================
@@ -354,31 +202,6 @@ fn description_for(task_md: Option<&Path>) -> String {
         .unwrap_or_default()
 }
 
-/// cc 自身のセッション金額（`~/.agent-link/cc-cost/<session_id>.json`・00 §3.8）を読む。
-///
-/// 無ければ `None`（呼び出し側は概算にフォールバックする）。
-pub fn read_cc_cost(session_id: &str) -> Option<f64> {
-    if !is_safe_id(session_id) {
-        return None;
-    }
-    let home = crate::project::sai_home()?;
-    let path = home.join("cc-cost").join(format!("{}.json", session_id));
-    let text = std::fs::read_to_string(path).ok()?;
-    let value: serde_json::Value = serde_json::from_str(&text).ok()?;
-    value
-        .get("total_cost_usd")
-        .and_then(|v| v.as_f64())
-        .filter(|v| v.is_finite() && *v >= 0.0)
-}
-
-/// セッション ID として安全な文字だけか（パストラバーセル防止）。
-fn is_safe_id(id: &str) -> bool {
-    let b = id.as_bytes();
-    (8..=64).contains(&b.len())
-        && b.iter()
-            .all(|c| c.is_ascii_alphanumeric() || *c == b'-' || *c == b'_')
-}
-
 /// 集計結果から最頻出のモデル名を取り出す（空文字は除外）。
 fn most_frequent_model(models: impl Iterator<Item = String>) -> Option<String> {
     let mut counts: HashMap<String, usize> = HashMap::new();
@@ -396,10 +219,10 @@ fn most_frequent_model(models: impl Iterator<Item = String>) -> Option<String> {
 }
 
 /// `execution_usage` の `total` 行からトークン・コストを拾う。
-fn tokens_from_usage_row(store: &SaiStore, run_id: i64) -> Option<(PhoneTokens, PhoneCost)> {
+fn tokens_from_usage_row(store: &SaiStore, run_id: i64) -> Option<(RunDocTokens, RunDocCost)> {
     let rows = store.list_execution_usage(run_id).ok()?;
     let total = rows.into_iter().find(|r| r.entry_type == "total")?;
-    let tokens = PhoneTokens {
+    let tokens = RunDocTokens {
         input: total.input_tokens.max(0) as u64,
         output: total.output_tokens.max(0) as u64,
         cache_read: total.cache_read.max(0) as u64,
@@ -407,7 +230,7 @@ fn tokens_from_usage_row(store: &SaiStore, run_id: i64) -> Option<(PhoneTokens, 
         total: (total.input_tokens + total.output_tokens + total.cache_read + total.cache_write)
             .max(0) as u64,
     };
-    let cost = PhoneCost {
+    let cost = RunDocCost {
         input: 0.0,
         output: 0.0,
         cache_read: 0.0,
@@ -422,7 +245,7 @@ fn build_stats(
     store: &SaiStore,
     exec: &ExecutionHistory,
     transcript: Option<&Path>,
-) -> PhoneRunStats {
+) -> RunDocStats {
     // ── トークン・コスト内訳: transcript の集計（TUI Stats と同一計算） ──
     let mut totals: Option<CacheUsageTotals> = None;
     let mut top_model: Option<String> = None;
@@ -436,14 +259,14 @@ fn build_stats(
     // transcript が無い・解析失敗 → execution_usage の total 行、どちらも無ければ 0
     let (tokens, mut cost) = match &totals {
         Some(t) => (
-            PhoneTokens {
+            RunDocTokens {
                 input: t.input,
                 output: t.output,
                 cache_read: t.cache_read,
                 cache_write: t.cache_write,
                 total: t.total_tokens,
             },
-            PhoneCost {
+            RunDocCost {
                 input: t.cost.input,
                 output: t.cost.output,
                 cache_read: t.cost.cache_read,
@@ -487,7 +310,7 @@ fn build_stats(
 
     let model = top_model.or(db_model);
 
-    PhoneRunStats {
+    RunDocStats {
         cost_usd: cost,
         tokens,
         elapsed_ms,
@@ -506,7 +329,7 @@ pub fn build_run_doc(
     exec: &ExecutionHistory,
     project_root: &Path,
     project_name: &str,
-) -> PhoneRunDoc {
+) -> RunDoc {
     let run_id = exec.id.unwrap_or(0);
     let block_name = store
         .get_block_by_id(exec.block_id)
@@ -516,7 +339,7 @@ pub fn build_run_doc(
     let task_md = task_md_path_for(run_id);
     let description = description_for(task_md.as_deref());
     // 子タスク（task.md の無い sub の実行）は task_create の件名を説明にする
-    // （sai-phone の「直近の実行」や一覧で何の実行か分かるように）
+    // （一覧で何の実行か分かるように）
     let description = if description.trim().is_empty() {
         subtask_subject(store, exec.parent_run_id, run_id).unwrap_or_default()
     } else {
@@ -541,7 +364,7 @@ pub fn build_run_doc(
 
     let herdr_pane_label = format!("sai-{}-{}", block_name, run_id);
 
-    PhoneRunDoc {
+    RunDoc {
         schema_version: SCHEMA_VERSION,
         project_name: project_name.to_string(),
         project_root: project_root.to_string_lossy().to_string(),
@@ -565,40 +388,6 @@ pub fn build_run_doc(
     }
 }
 
-/// 実行中の pane_id を控えるファイル名（run セッション dir 直下・orchestrator が書く）。
-pub const PANE_ID_FILE: &str = "herdr_pane_id";
-
-/// run セッション dir に控えた pane_id（DB に未記録の実行中用・無ければ None）。
-///
-/// `agent-link run send` / `run interrupt` が実行中の run の送り先を探すのにも使う
-/// （共有契約 C2）。
-pub(crate) fn pane_id_from_session_dir(exec: &ExecutionHistory) -> Option<String> {
-    let dir = crate::session::resolve_session_dir(exec.session_dir.as_deref(), exec.id?)?;
-    let id = std::fs::read_to_string(dir.join(PANE_ID_FILE)).ok()?;
-    let id = id.trim();
-    (!id.is_empty()).then(|| id.to_string())
-}
-
-/// 現在時刻（UTC ISO 8601・末尾 Z）。
-pub fn now_iso() -> String {
-    chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string()
-}
-
-/// JSON を一時ファイル → rename で書く（読み手が書きかけを読まないようにするため）。
-///
-/// 親ディレクトリが無ければ作る。
-/// `tmp` と `dst` は同じディレクトリに置くこと（rename が原子的なのは同一 FS のため）。
-fn write_json_atomic(tmp: &Path, dst: &Path, body: &serde_json::Value) -> std::io::Result<()> {
-    if let Some(parent) = dst.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    let text = serde_json::to_string_pretty(body)
-        .map_err(|e| std::io::Error::other(format!("JSON serialization failed: {}", e)))?;
-    std::fs::write(tmp, text)?;
-    std::fs::rename(tmp, dst)?;
-    Ok(())
-}
-
 // ============================================================================
 // ファイル書き出し
 // ============================================================================
@@ -616,7 +405,7 @@ pub fn export_dir(project_name: &str) -> Option<PathBuf> {
 /// 1 実行分の JSON を指定フォルダに書く（一時ファイル → rename）。
 ///
 /// 戻り値: `true` = 書いた、`false` = 同じ内容が既にあり省略した。
-pub fn write_run_json_in(dir: &Path, doc: &PhoneRunDoc) -> std::io::Result<bool> {
+pub fn write_run_json_in(dir: &Path, doc: &RunDoc) -> std::io::Result<bool> {
     std::fs::create_dir_all(dir)?;
     let final_path = dir.join(format!("{}.json", doc.run_id));
     let tmp_path = dir.join(format!(".{}.json.tmp", doc.run_id));
@@ -624,7 +413,7 @@ pub fn write_run_json_in(dir: &Path, doc: &PhoneRunDoc) -> std::io::Result<bool>
     let text = serde_json::to_string_pretty(doc)
         .map_err(|e| std::io::Error::other(format!("JSON serialization failed: {}", e)))?;
 
-    // 同じ内容（updated_at を除く）が既にあれば書かない（sai-phone の再読込防止）
+    // 同じ内容（updated_at を除く）が既にあれば書かない（読み手の再読込防止）
     if let Ok(existing) = std::fs::read_to_string(&final_path) {
         if unchanged(&existing, &text) {
             return Ok(false);
@@ -654,7 +443,7 @@ fn unchanged(existing: &str, new: &str) -> bool {
 }
 
 /// 1 実行分を書き出す（対象外の実行は `None`）。
-pub fn write_run_json(doc: &PhoneRunDoc) -> std::io::Result<Option<bool>> {
+pub fn write_run_json(doc: &RunDoc) -> std::io::Result<Option<bool>> {
     let Some(dir) = export_dir(&doc.project_name) else {
         return Ok(None);
     };
@@ -665,7 +454,7 @@ pub fn write_run_json(doc: &PhoneRunDoc) -> std::io::Result<Option<bool>> {
 // 一括書き出し
 // ============================================================================
 
-/// 差分検知用のシグネチャ（実装計画 01 §2.3）。
+/// 差分検知用のシグネチャ。
 ///
 /// デーモンは前回のシグネチャと比較して「変わった実行だけ」書き直す。
 /// `session_stats_json` も含めるのは、終了直後に統計が遅れて入ることがあるため。
@@ -699,7 +488,7 @@ impl Exporter {
     pub fn new(project_root: &Path) -> std::io::Result<Self> {
         let project_name = project_name_for(project_root);
         let dir = export_dir(&project_name).ok_or_else(|| {
-            std::io::Error::other("HOME is not set, so the phone export destination cannot be decided.")
+            std::io::Error::other("HOME is not set, so the export destination cannot be decided.")
         })?;
         Ok(Self {
             project_root: project_root.to_path_buf(),
@@ -719,7 +508,7 @@ impl Exporter {
     }
 
     /// 実行レコード 1 行から JSON ドキュメントを作る。
-    pub fn build_doc(&self, store: &SaiStore, exec: &ExecutionHistory) -> PhoneRunDoc {
+    pub fn build_doc(&self, store: &SaiStore, exec: &ExecutionHistory) -> RunDoc {
         build_run_doc(store, exec, &self.project_root, &self.project_name)
     }
 
@@ -768,7 +557,7 @@ pub fn build_docs(
     store: &SaiStore,
     execs: &[ExecutionHistory],
     project_root: &Path,
-) -> Vec<PhoneRunDoc> {
+) -> Vec<RunDoc> {
     let project_name = project_name_for(project_root);
     execs
         .iter()
@@ -787,7 +576,7 @@ pub fn export_execs(
     let exporter = match Exporter::new(project_root) {
         Ok(e) => e,
         Err(e) => {
-            eprintln!("[agent-link] phone 書き出し: {}", e);
+            eprintln!("[agent-link] 書き出し: {}", e);
             summary.failed = execs.len();
             return summary;
         }
@@ -801,10 +590,10 @@ pub fn export_execs(
             Ok(Some(false)) => summary.skipped += 1,
             Ok(None) => {}
             Err(e) => {
-                // 失敗はログのみ（sai-phone 連携はおまけ機能・実行は止めない）
+                // 失敗はログのみ（書き出しの失敗で実行は止めない）
                 summary.failed += 1;
                 eprintln!(
-                    "[agent-link] phone 書き出し失敗: run_id={}: {}",
+                    "[agent-link] 書き出し失敗: run_id={}: {}",
                     exec.id.unwrap_or(0),
                     e
                 );
@@ -820,7 +609,7 @@ pub fn export_all(store: &SaiStore) -> ExportSummary {
     let execs = match store.list_all_executions() {
         Ok(e) => e,
         Err(e) => {
-            eprintln!("[agent-link] phone 書き出し: 実行一覧の取得に失敗: {}", e);
+            eprintln!("[agent-link] 書き出し: 実行一覧の取得に失敗: {}", e);
             return ExportSummary::default();
         }
     };
@@ -838,122 +627,6 @@ pub fn export_one(store: &SaiStore, run_id: i64) -> std::io::Result<Option<bool>
     let exporter = Exporter::new(&project_root)?;
     exporter.export(store, &exec)
 }
-
-// ============================================================================
-// cc の費用（cc-cost）
-// ============================================================================
-
-/// `~/.agent-link/cc-cost` の出力先（置き場を解決できなければ None）。
-pub fn cc_cost_dir() -> Option<PathBuf> {
-    crate::project::sai_home().map(|h| h.join("cc-cost"))
-}
-
-/// cc の費用を `<dir>/<session_id>.json` に書く（一時ファイル → rename）。
-///
-/// 形は `{"session_id", "total_cost_usd", "updated_at"}`。
-/// headless では statusLine が呼ばれないため、engine が stream-json の `result` 行から
-/// この関数で書く（読む側は [`read_cc_cost`] のまま変えない）。
-pub fn write_cc_cost(dir: &Path, session_id: &str, total: f64) -> std::io::Result<()> {
-    let tmp = dir.join(format!(".{}.json.tmp", session_id));
-    let dst = dir.join(format!("{}.json", session_id));
-    let body = serde_json::json!({
-        "session_id": session_id,
-        "total_cost_usd": total,
-        "updated_at": now_iso(),
-    });
-    write_json_atomic(&tmp, &dst, &body)
-}
-
-// ============================================================================
-// cc の枠の値（cc-rate-limits.json）
-// ============================================================================
-
-/// cc の 5 時間枠・7 日枠の値を `<path>` に書く（一時ファイル → rename）。
-///
-/// `rate_limits` は statusLine 入力の `rate_limits` の値（`five_hour` / `seven_day` を持つ）。
-/// `used_percentage` が数の窓だけ残す（欠けた窓はキーごと省く）。1 つも残らなければ書かない。
-pub fn write_cc_rate_limits(
-    path: &Path,
-    rate_limits: &serde_json::Value,
-    session_id: &str,
-) -> std::io::Result<()> {
-    let mut body = serde_json::Map::new();
-    for key in ["five_hour", "seven_day"] {
-        let Some(window) = rate_limits.get(key).filter(|w| w.is_object()) else {
-            continue;
-        };
-        let Some(pct) = window.get("used_percentage").filter(|v| v.is_number()) else {
-            continue;
-        };
-        body.insert(
-            key.to_string(),
-            serde_json::json!({
-                "used_percentage": pct,
-                "resets_at": window.get("resets_at").cloned().unwrap_or(serde_json::Value::Null),
-            }),
-        );
-    }
-    if body.is_empty() {
-        return Ok(());
-    }
-    body.insert("session_id".to_string(), serde_json::json!(session_id));
-    body.insert("updated_at".to_string(), serde_json::json!(now_iso()));
-    let dir = path.parent().unwrap_or(Path::new("."));
-    let tmp = dir.join(".cc-rate-limits.json.tmp");
-    write_json_atomic(&tmp, path, &serde_json::Value::Object(body))
-}
-
-/// cc の statusLine 標準入力 1 件を処理する（`agent-link cc-statusline` の本体）。
-///
-/// 戻り値は cc の画面下に出す 1 行（例 `agent-link #58 $1.27`）。読めない・費用が無い・書けないときは空行。
-pub fn handle_cc_statusline(input: &str) -> String {
-    let Some(dir) = cc_cost_dir() else {
-        return String::new();
-    };
-    handle_cc_statusline_in(input, &dir)
-}
-
-/// [`handle_cc_statusline`] の出力先指定版（テスト用）。
-///
-/// `dir` は `cc-cost` のフォルダ。枠の値は `dir` の親（`<sai_home>`）の `cc-rate-limits.json` に書く。
-pub fn handle_cc_statusline_in(input: &str, dir: &Path) -> String {
-    let Ok(value) = serde_json::from_str::<serde_json::Value>(input) else {
-        return String::new();
-    };
-    let Some(session_id) = value.get("session_id").and_then(|v| v.as_str()) else {
-        return String::new();
-    };
-    if !is_safe_id(session_id) {
-        return String::new();
-    }
-    // 枠の値は費用の有無と関係なく書く（応答の後にだけ入るため）
-    if let (Some(rate_limits), Some(home)) = (value.get("rate_limits"), dir.parent()) {
-        if let Err(e) = write_cc_rate_limits(&home.join("cc-rate-limits.json"), rate_limits, session_id) {
-            eprintln!("[agent-link] cc-rate-limits の書込みに失敗: {}", e);
-        }
-    }
-    // コストが取れない場合は書かない（概算フォールバックを妨げないため）
-    let Some(total) = value
-        .pointer("/cost/total_cost_usd")
-        .and_then(|v| v.as_f64())
-        .filter(|v| v.is_finite() && *v >= 0.0)
-    else {
-        return String::new();
-    };
-    if let Err(e) = write_cc_cost(dir, session_id, total) {
-        eprintln!("[agent-link] cc-cost の書込みに失敗: {}", e);
-        return String::new();
-    }
-    let amount = format!("${:.2}", total);
-    match std::env::var("AGENT_LINK_PARENT_RUN_ID") {
-        Ok(id) if !id.trim().is_empty() => format!("agent-link #{} {}", id.trim(), amount),
-        _ => format!("agent-link {}", amount),
-    }
-}
-
-// ============================================================================
-// テスト（01 §4）
-// ============================================================================
 
 #[cfg(test)]
 mod tests {
@@ -982,74 +655,6 @@ mod tests {
         assert_eq!(db_time_to_iso("not a date"), None);
     }
 
-    /// レジストリに一致が無いときフォルダ名になる（00 §3.2 project_name）。
-    #[test]
-    fn project_name_falls_back_to_folder_name() {
-        let tmp = std::env::temp_dir().join(format!(
-            "sai_phone_reg_{}_{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        let root = tmp.join("my-project");
-        std::fs::create_dir_all(&root).unwrap();
-        let registry = tmp.join("registry.json");
-        // 別プロジェクトのみ登録（一致なし）
-        std::fs::write(
-            &registry,
-            r#"[{"name":"other","root":"/nowhere/other"}]"#,
-        )
-        .unwrap();
-        assert_eq!(project_name_using(Some(&registry), &root), "my-project");
-
-        // 登録があれば name が使われる（末尾スラッシュ差は吸収）
-        let root_str = root.to_string_lossy().to_string();
-        std::fs::write(
-            &registry,
-            format!(
-                r#"[{{"name":"registered-name","root":"{}/"}}]"#,
-                root_str.replace('\\', "\\\\")
-            ),
-        )
-        .unwrap();
-        assert_eq!(project_name_using(Some(&registry), &root), "registered-name");
-
-        // レジストリが無ければフォルダ名
-        assert_eq!(project_name_using(None, &root), "my-project");
-        let _ = std::fs::remove_dir_all(&tmp);
-    }
-
-    /// 登録簿への追加: 無ければ作り、同じルートは増やさず、同じ名前の別ルートは断る。
-    #[test]
-    fn register_project_adds_once_and_rejects_name_clash() {
-        let tmp = std::env::temp_dir().join(format!(
-            "sai_phone_regadd_{}_{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        let root = tmp.join("practice");
-        std::fs::create_dir_all(&root).unwrap();
-        let registry = tmp.join("home/registry.json");
-
-        assert_eq!(register_project(&registry, "practice", &root), Ok(RegistryAdd::Added));
-        assert_eq!(project_name_using(Some(&registry), &root), "practice");
-        let text = std::fs::read_to_string(&registry).unwrap();
-        assert!(text.contains("\"kind\": \"link\""), "{text}");
-
-        assert_eq!(
-            register_project(&registry, "practice", &root),
-            Ok(RegistryAdd::AlreadyRegistered("practice".to_string()))
-        );
-        let other = tmp.join("other");
-        std::fs::create_dir_all(&other).unwrap();
-        assert!(register_project(&registry, "practice", &other).is_err());
-        let _ = std::fs::remove_dir_all(&tmp);
-    }
 
     /// `todo` / `pending` は書き出されない（00 §3.2）。
     #[test]
@@ -1068,7 +673,7 @@ mod tests {
     #[test]
     fn write_run_json_uses_tmp_rename_and_skips_unchanged() {
         let dir = std::env::temp_dir().join(format!(
-            "sai_phone_w_{}_{}",
+            "run_export_test_w_{}_{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -1077,7 +682,7 @@ mod tests {
         ));
         std::fs::create_dir_all(&dir).unwrap();
 
-        let doc = PhoneRunDoc {
+        let doc = RunDoc {
             schema_version: SCHEMA_VERSION,
             project_name: "demo".to_string(),
             project_root: "/tmp/demo".to_string(),
@@ -1108,7 +713,7 @@ mod tests {
             !dir.join(".42.json.tmp").exists(),
             ".tmp が残っていないこと"
         );
-        let loaded: PhoneRunDoc =
+        let loaded: RunDoc =
             serde_json::from_str(&std::fs::read_to_string(&final_path).unwrap()).unwrap();
         assert_eq!(loaded.schema_version, 1);
         assert_eq!(loaded.run_id, 42);
@@ -1133,7 +738,7 @@ mod tests {
         let _env = crate::common::AGENT_LINK_ENV_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         // 既存の AGENT_LINK_PROJECT_ROOT を退避して終了時に復元する（並行テストへの影響防止）
         let prev_root = std::env::var_os("AGENT_LINK_PROJECT_ROOT");
-        let tmp = std::env::temp_dir().join(format!("sai_phone_doc_{}", std::process::id()));
+        let tmp = std::env::temp_dir().join(format!("run_export_test_doc_{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&tmp);
         std::fs::create_dir_all(tmp.join(".agent-link")).unwrap();
         std::env::set_var("AGENT_LINK_PROJECT_ROOT", &tmp);
@@ -1239,117 +844,5 @@ mod tests {
             Some(v) => std::env::set_var("AGENT_LINK_HOME", v),
             None => std::env::remove_var("AGENT_LINK_HOME"),
         }
-    }
-}
-
-#[cfg(test)]
-mod cc_statusline_tests {
-    use super::*;
-
-    /// statusLine 標準入力 JSON から金額を取り出しファイルを書けること。
-    #[test]
-    fn cc_statusline_writes_cost_file() {
-        let dir = tempfile::tempdir().unwrap();
-        let session_id = "11111111-2222-4333-8444-555555555555";
-        let input = format!(
-            r#"{{"session_id":"{}","transcript_path":"/tmp/x.jsonl","cost":{{"total_cost_usd":1.274}}}}"#,
-            session_id
-        );
-        let line = handle_cc_statusline_in(&input, dir.path());
-        assert!(line.contains("$1.27"), "画面表示に金額が入る: {}", line);
-        assert!(!dir.path().join(format!(".{}.json.tmp", session_id)).exists());
-
-        let text = std::fs::read_to_string(dir.path().join(format!("{}.json", session_id))).unwrap();
-        let v: serde_json::Value = serde_json::from_str(&text).unwrap();
-        assert_eq!(v["session_id"], session_id);
-        assert!((v["total_cost_usd"].as_f64().unwrap() - 1.274).abs() < 1e-9);
-        assert!(v["updated_at"].as_str().unwrap().ends_with('Z'));
-    }
-
-    /// 入力が壊れている・session_id / cost が無い・ID が不正なときは空行を返し、ファイルを書かない。
-    #[test]
-    fn cc_statusline_swallows_bad_input() {
-        let dir = tempfile::tempdir().unwrap();
-        assert_eq!(handle_cc_statusline_in("not json", dir.path()), "");
-        assert_eq!(
-            handle_cc_statusline_in(r#"{"cost":{"total_cost_usd":1.0}}"#, dir.path()),
-            ""
-        );
-        let sid = "11111111-2222-4333-8444-555555555555";
-        assert_eq!(
-            handle_cc_statusline_in(&format!(r#"{{"session_id":"{}"}}"#, sid), dir.path()),
-            ""
-        );
-        assert_eq!(
-            handle_cc_statusline_in(
-                r#"{"session_id":"../../etc/passwd","cost":{"total_cost_usd":1.0}}"#,
-                dir.path()
-            ),
-            ""
-        );
-        assert!(!dir.path().join(format!("{}.json", sid)).exists());
-    }
-
-    /// `rate_limits` があれば `<sai_home>/cc-rate-limits.json` に枠の値を書くこと。
-    #[test]
-    fn cc_statusline_writes_rate_limits() {
-        let tmp = tempfile::tempdir().unwrap();
-        let cost_dir = tmp.path().join("cc-cost");
-        let session_id = "11111111-2222-4333-8444-555555555555";
-        let input = format!(
-            r#"{{"session_id":"{}","rate_limits":{{"five_hour":{{"used_percentage":23.5,"resets_at":1738425600}},"seven_day":{{"used_percentage":41.2,"resets_at":1738857600}}}}}}"#,
-            session_id
-        );
-        // 費用が無くても枠の値は書く（画面下の 1 行は空）
-        assert_eq!(handle_cc_statusline_in(&input, &cost_dir), "");
-        let text = std::fs::read_to_string(tmp.path().join("cc-rate-limits.json")).unwrap();
-        let v: serde_json::Value = serde_json::from_str(&text).unwrap();
-        assert_eq!(v["five_hour"]["used_percentage"], 23.5);
-        assert_eq!(v["five_hour"]["resets_at"], 1738425600_i64);
-        assert_eq!(v["seven_day"]["used_percentage"], 41.2);
-        assert_eq!(v["seven_day"]["resets_at"], 1738857600_i64);
-        assert_eq!(v["session_id"], session_id);
-        assert!(v["updated_at"].as_str().unwrap().ends_with('Z'));
-        assert!(!tmp.path().join(".cc-rate-limits.json.tmp").exists());
-    }
-
-    /// `rate_limits` が無い・数でない入力では枠の値のファイルを書かないこと。
-    #[test]
-    fn cc_statusline_skips_rate_limits_when_absent() {
-        let tmp = tempfile::tempdir().unwrap();
-        let cost_dir = tmp.path().join("cc-cost");
-        let sid = "11111111-2222-4333-8444-555555555555";
-        handle_cc_statusline_in(
-            &format!(r#"{{"session_id":"{}","cost":{{"total_cost_usd":1.0}}}}"#, sid),
-            &cost_dir,
-        );
-        assert!(!tmp.path().join("cc-rate-limits.json").exists());
-        handle_cc_statusline_in(
-            &format!(
-                r#"{{"session_id":"{}","rate_limits":{{"five_hour":{{"used_percentage":"23"}}}}}}"#,
-                sid
-            ),
-            &cost_dir,
-        );
-        assert!(!tmp.path().join("cc-rate-limits.json").exists());
-    }
-
-    /// 片方の窓だけでも書けること（欠けた窓はキーごと省く）。
-    #[test]
-    fn cc_statusline_writes_single_window() {
-        let tmp = tempfile::tempdir().unwrap();
-        let cost_dir = tmp.path().join("cc-cost");
-        let sid = "11111111-2222-4333-8444-555555555555";
-        handle_cc_statusline_in(
-            &format!(
-                r#"{{"session_id":"{}","rate_limits":{{"seven_day":{{"used_percentage":41.2,"resets_at":1738857600}}}}}}"#,
-                sid
-            ),
-            &cost_dir,
-        );
-        let text = std::fs::read_to_string(tmp.path().join("cc-rate-limits.json")).unwrap();
-        let v: serde_json::Value = serde_json::from_str(&text).unwrap();
-        assert_eq!(v["seven_day"]["used_percentage"], 41.2);
-        assert!(v.get("five_hour").is_none(), "欠けた窓はキーごと無い: {}", v);
     }
 }
