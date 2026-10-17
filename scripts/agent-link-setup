@@ -211,7 +211,7 @@ uninstall_cmd() {
   fi
   if [ -f "$HOME/.ssh/authorized_keys" ]; then
     n=$(grep -c remote-gate "$HOME/.ssh/authorized_keys")
-    echo "  $HOME/.ssh/authorized_keys: $n line(s) with remote-gate (see docs/remote.md, 'Revoke the key')"
+    echo "  $HOME/.ssh/authorized_keys: $n line(s) with remote-gate (see docs/remote.md, section '鍵を外す')"
   fi
   echo "  remote machine: ~/.agent-link-remote/ (ssh <host> 'rm -rf ~/.agent-link-remote')"
   # 動いている物（止めない）

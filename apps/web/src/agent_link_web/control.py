@@ -756,8 +756,8 @@ def cli_card_schedule(name: str, run_id: int, at: str) -> dict:
 
 
 # --- Workflow と定義の編集 ---
-# agent-link-tui の中にしか無い Workflow の盤面と block / template / settings の編集を、
-# Web からも同じ CLI 経由でできるようにする（agent-link-web は DB を開かない）。
+# Workflow の盤面と block / template / settings の編集を、
+# Web から CLI 経由で行う（agent-link-web は DB を開かない）。
 # 外から来る値（kind / scope / 名前 / 本文）は、CLI を呼ぶ前に必ずここで確かめる。
 
 # 編集できる定義の種類（`def --kind`）

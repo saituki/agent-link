@@ -672,7 +672,7 @@ def api_project_session_search(
 
 
 # --- Workflow と定義の編集 ---
-# agent-link-tui の Workflow 盤面と block / template / settings の編集を Web から行う。
+# Workflow の盤面と block / template / settings の編集を Web から行う。
 # 外から来る値（kind / scope / 名前 / 本文）は control 側で CLI を呼ぶ前に確かめる。
 
 
