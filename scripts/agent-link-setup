@@ -1,0 +1,246 @@
+#!/bin/sh
+# agent-link-setup: ソースから入れる・点検する・消す台本。
+#
+#   scripts/agent-link-setup install   [--bin-dir DIR]
+#   scripts/agent-link-setup doctor
+#   scripts/agent-link-setup uninstall [--bin-dir DIR] [--purge-home]
+#
+# DIR の既定は $HOME/.local/bin。シェルの設定は書き換えない（足す 1 行を表示するだけ）。
+# プロセスは止めない。プロジェクトの中（init が書いた物）は消さない。
+set -u
+
+ROOT=$(cd "$(dirname "$0")/.." && pwd -P)
+HOME_DIR=${AGENT_LINK_HOME:-$HOME/.agent-link}
+VENV_PY="$ROOT/apps/web/.venv/bin/python"
+
+usage() {
+  cat >&2 <<'USAGE'
+Usage:
+  scripts/agent-link-setup install   [--bin-dir DIR]
+  scripts/agent-link-setup doctor
+  scripts/agent-link-setup uninstall [--bin-dir DIR] [--purge-home]
+(DIR defaults to $HOME/.local/bin)
+USAGE
+  exit 2
+}
+
+die() { echo "$*" >&2; exit 1; }
+
+# 設定の値 1 つ（環境変数 → settings.json の config → 既定値。Web と同じ規則は config_var が持つ）
+cfg() {
+  if [ -x "$VENV_PY" ]; then
+    if v=$(PYTHONPATH="$ROOT/apps/web/src" "$VENV_PY" -c \
+      'import sys; from agent_link_web.registry import config_var; print(config_var(sys.argv[1], sys.argv[2]) or "")' \
+      "$1" "$2" 2>/dev/null); then
+      echo "$v"
+      return
+    fi
+  fi
+  eval "v=\${$1:-}"
+  case "$v" in *[![:space:]]*) echo "$v" ;; *) echo "$2" ;; esac
+}
+
+# 登録簿の root の一覧。.venv の python があれば json.load で読む（壊れていれば何も出さない）。
+# 無いときだけ、init が書く整形済み JSON の "root" の行を grep/sed で読む。
+registry_roots() {
+  [ -f "$HOME_DIR/registry.json" ] || return 0
+  if [ -x "$VENV_PY" ]; then
+    "$VENV_PY" -c '
+import json, sys
+try:
+    for row in json.load(open(sys.argv[1], encoding="utf-8")):
+        if isinstance(row, dict) and row.get("root"):
+            print(row["root"])
+except Exception:
+    pass' "$HOME_DIR/registry.json" 2>/dev/null
+  else
+    grep '"root"' "$HOME_DIR/registry.json" | sed 's/.*"root": *"\(.*\)".*/\1/'
+  fi
+}
+
+parse_opts() {
+  BIN_DIR=$HOME/.local/bin
+  PURGE=0
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --bin-dir) [ $# -ge 2 ] || usage; BIN_DIR=$2; shift 2 ;;
+      --purge-home) [ "$CMD" = uninstall ] || usage; PURGE=1; shift ;;
+      *) usage ;;
+    esac
+  done
+}
+
+# リンクの行き先（無ければ空）
+link_of() { [ -L "$1" ] && readlink "$1"; }
+
+install_cmd() {
+  # 利用者の普通のファイルは壊さない（ビルドの前に確かめる）
+  for pair in "agent-link" "agent-link-web"; do
+    if [ -e "$BIN_DIR/$pair" ] && [ ! -L "$BIN_DIR/$pair" ]; then
+      die "Refusing to overwrite $BIN_DIR/$pair: it is a regular file, not a link. Move it away and run again."
+    fi
+  done
+  (cd "$ROOT" && cargo build --release) || die "cargo build --release failed"
+  (cd "$ROOT/apps/web" && uv sync) || die "uv sync failed"
+  mkdir -p "$BIN_DIR" || die "cannot create $BIN_DIR"
+  ln -sfn "$ROOT/target/release/agent-link" "$BIN_DIR/agent-link" || die "cannot link $BIN_DIR/agent-link"
+  ln -sfn "$ROOT/apps/web/bin/agent-link-web" "$BIN_DIR/agent-link-web" || die "cannot link $BIN_DIR/agent-link-web"
+  echo "Linked: $BIN_DIR/agent-link -> $ROOT/target/release/agent-link"
+  echo "Linked: $BIN_DIR/agent-link-web -> $ROOT/apps/web/bin/agent-link-web"
+  case ":$PATH:" in
+    *":$BIN_DIR:"*) ;;
+    *)
+      echo "$BIN_DIR is not in PATH. Add this line to your shell config (not written for you):"
+      echo "  export PATH=\"$BIN_DIR:\$PATH\""
+      ;;
+  esac
+  echo "Next: scripts/agent-link-setup doctor"
+}
+
+NG=0
+row() { # 状態 項目 詳しく
+  [ "$1" = NG ] && NG=1
+  printf '%-4s %-19s %s\n' "$1" "$2" "$3"
+}
+
+# 命令が動けば ok、動かなければ $2（NG か warn）。$1 = 項目、残り = 命令
+check_cmd() {
+  item=$1; bad=$2; shift 2
+  if out=$("$@" 2>&1 </dev/null); then
+    row ok "$item" "$(echo "$out" | head -n 1)"
+  else
+    row "$bad" "$item" "cannot run: $*"
+  fi
+}
+
+doctor_cmd() {
+  check_cmd tmux NG tmux -V
+  check_cmd claude NG "$(cfg AGENT_LINK_CLAUDE_BIN claude)" --version
+  check_cmd uv NG uv --version
+  check_cmd cargo warn cargo --version   # 入れ直すときだけ要る
+  want="$ROOT/target/release/agent-link"
+  if p=$(command -v agent-link); then
+    row ok agent-link "$p"
+    got=$(readlink -f "$p" 2>/dev/null)
+    if [ "$got" = "$want" ]; then
+      row ok agent-link-release "$got"
+    else
+      row warn agent-link-release "agent-link points to ${got:-$p}, not $want"
+    fi
+  else
+    row NG agent-link "not in PATH (run: scripts/agent-link-setup install)"
+    row warn agent-link-release "no agent-link in PATH"
+  fi
+  if [ ! -x "$want" ]; then
+    row warn release-fresh "$want is missing (run: cargo build --release)"
+  elif [ -n "$(find "$ROOT/crates" -newer "$want" -name '*.rs' 2>/dev/null | head -n 1)" ]; then
+    row warn release-fresh "sources are newer than the release binary (run: cargo build --release)"
+  else
+    row ok release-fresh "release binary is newer than the sources"
+  fi
+  if p=$(command -v agent-link-web); then
+    row ok agent-link-web "$p"
+  else
+    row NG agent-link-web "not in PATH (run: scripts/agent-link-setup install)"
+  fi
+  if [ -x "$VENV_PY" ] && "$VENV_PY" -c 'import fastapi' >/dev/null 2>&1; then
+    row ok web-venv "$VENV_PY"
+  else
+    row NG web-venv "cannot import fastapi with $VENV_PY (run: (cd apps/web && uv sync))"
+  fi
+  hooks=$(cfg AGENT_LINK_WEB_HOOKS_DIR "$ROOT/apps/web/hooks")
+  if [ -f "$hooks/cc_question.py" ] && [ -f "$hooks/cc_register.py" ]; then
+    row ok hooks "$hooks"
+  else
+    row NG hooks "cc_question.py or cc_register.py is missing in $hooks"
+  fi
+  reg="$HOME_DIR/registry.json"
+  if [ ! -f "$reg" ]; then
+    row ok registry "no $reg yet (no project is initialized)"
+  elif [ ! -x "$VENV_PY" ]; then
+    row warn registry "$reg exists; not checked (no $VENV_PY)"
+  elif "$VENV_PY" -c 'import json, sys; sys.exit(0 if isinstance(json.load(open(sys.argv[1], encoding="utf-8")), list) else 1)' "$reg" 2>/dev/null; then
+    row ok registry "$reg"
+  else
+    row NG registry "$reg is broken (not a JSON array)"
+  fi
+  total=0
+  for r in $(registry_roots); do
+    total=$((total + 1))
+    [ -d "$r" ] || row warn projects "root does not exist: $r"
+  done
+  [ "$total" -gt 0 ] || row ok projects "none registered"
+  url=$(cfg AGENT_LINK_WEB_URL "")
+  [ -n "$url" ] || url="http://127.0.0.1:$(cfg AGENT_LINK_WEB_PORT 8400)"
+  if command -v curl >/dev/null 2>&1 && curl -s -m 3 "$url/api/health" 2>/dev/null | grep -q '"ok": *true'; then
+    row ok web "$url"
+  else
+    row warn web "no answer at $url (start: agent-link-web serve; the CLI works without it)"
+  fi
+  [ "$NG" = 0 ]
+}
+
+uninstall_cmd() {
+  if [ "$PURGE" = 1 ]; then
+    h=${HOME_DIR%/}; me=${HOME%/}
+    if [ -z "$h" ] || [ "$h" = "$me" ]; then
+      die "Refusing to purge '$HOME_DIR': it is empty, '/', or HOME. Nothing was removed."
+    fi
+  fi
+  # 1) リンク（$ROOT を指す物だけ）
+  for name in agent-link agent-link-web; do
+    t=$(link_of "$BIN_DIR/$name")
+    case "$t" in
+      "$ROOT"/*) rm -f "$BIN_DIR/$name" && echo "Removed: $BIN_DIR/$name" ;;
+      *) row warn "$name" "kept $BIN_DIR/$name: not a link into $ROOT" ;;
+    esac
+  done
+  # 3) 消さない物（登録簿は 2) で消える前に読む）
+  echo
+  echo "Not removed (check by yourself):"
+  for r in $(registry_roots); do
+    echo "  project $r"
+    for f in "$r/.agent-link" "$r"/.mcp.json* "$r/.claude/commands/agent-link-finalize.md" \
+      "$r/.claude/skills/frontend-design" "$r/.claude/skills/ui-ux-rules" "$r/.serena/project.yml"; do
+      [ -e "$f" ] && echo "    $f"
+    done
+  done
+  if [ -f "$HOME/.claude.json" ]; then
+    n=$(grep -c 'hasTrustDialogAccepted\|hasCompletedOnboarding' "$HOME/.claude.json")
+    echo "  $HOME/.claude.json: $n line(s) with hasTrustDialogAccepted / hasCompletedOnboarding"
+  fi
+  if [ -f "$HOME/.ssh/authorized_keys" ]; then
+    n=$(grep -c remote-gate "$HOME/.ssh/authorized_keys")
+    echo "  $HOME/.ssh/authorized_keys: $n line(s) with remote-gate (see docs/remote.md, 'Revoke the key')"
+  fi
+  echo "  remote machine: ~/.agent-link-remote/ (ssh <host> 'rm -rf ~/.agent-link-remote')"
+  # 動いている物（止めない）
+  port=$(cfg AGENT_LINK_WEB_PORT 8400)
+  if command -v lsof >/dev/null 2>&1; then
+    pids=$(lsof -tiTCP:"$port" -sTCP:LISTEN 2>/dev/null | tr '\n' ' ')
+    [ -n "$pids" ] && echo "  running: something listens on port $port (pid $pids): stop it by pid"
+  fi
+  for r in $(registry_roots); do
+    pid=$(cat "$r/.agent-link/engine/daemon.pid" 2>/dev/null)
+    if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+      echo "  running: daemon of $r (pid $pid): (cd $r && agent-link daemon stop)"
+    fi
+  done
+  # 2) $AGENT_LINK_HOME
+  if [ "$PURGE" = 1 ]; then
+    echo
+    echo "Removing $HOME_DIR:"
+    ls -la "$HOME_DIR" 2>&1
+    rm -rf "$HOME_DIR" && echo "Removed: $HOME_DIR"
+  fi
+  return 0
+}
+
+[ $# -ge 1 ] || usage
+CMD=$1; shift
+case "$CMD" in
+  install) parse_opts "$@"; install_cmd ;;
+  doctor) [ $# -eq 0 ] || usage; doctor_cmd ;;
+  uninstall) parse_opts "$@"; uninstall_cmd ;;
+  *) usage ;;
+esac
