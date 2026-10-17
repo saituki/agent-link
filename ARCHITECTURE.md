@@ -268,7 +268,7 @@ agent-link/
 │   ├── for-developers.md     # CLI の約束と Web が読む JSON の項目
 │   ├── switch-over.md        # sai-moon と並べて使う手順書
 │   ├── remote.md             # 遠隔の機械（wsl-server など）で子の claude を動かす手順書
-│   └── plan/                 # 実装計画書。読むだけ
+│   └── plan/                 # 計画書（終わった物は読むだけ。進行中の物は書く）
 ├── .agent-link/              # このプロジェクト自身の中のデータ（.gitignore 済み）
 ├── CONCEPT.md                # 概念と用語の定義
 ├── AGENTS.md                 # このリポジトリで作業するエージェントへの指示

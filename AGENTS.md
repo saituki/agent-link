@@ -15,7 +15,7 @@
 | `crates/` | Rust のクレート（`agent-link-engine`・`agent-link-cli`・`agent-link-view`） |
 | `apps/web/` | Web の窓口（FastAPI と素の JavaScript）。パッケージは `src/agent_link_web/` |
 | `waggle/` | vendor クレート（原則編集しない） |
-| `docs/` | 利用者向けの文書。`docs/plan/` は計画書（読むだけ。書かない） |
+| `docs/` | 利用者向けの文書。`docs/plan/` は計画書（**終わった計画は読むだけ。進行中の計画は書いてよい**） |
 
 ## 読む文書
 
