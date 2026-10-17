@@ -63,10 +63,18 @@ def main() -> None:
         lines = r.stdout.splitlines()
         assert lines and all(re.match(r"^(ok|warn|NG) +\S+", ln) for ln in lines), r.stdout
         items = {ln.split()[1]: ln.split()[0] for ln in lines}
-        for k in ("tmux", "agent-link", "web"):
+        for k in ("tmux", "agent-link", "web", "web-venv", "hooks", "registry"):
             assert k in items, r.stdout
         assert items["web"] == "warn", r.stdout
         assert (r.returncode == 1) == ("NG" in items.values()), r.stdout
+
+        # 2b. 壊れた登録簿は NG で終了コード 1（.venv の python が要るので、無ければ飛ばす）
+        if (REPO / "apps/web/.venv/bin/python").exists():
+            (ALHOME / "registry.json").write_text("{not json")
+            r = run("doctor")
+            assert r.returncode == 1, r.stdout
+            assert re.search(r"^NG +registry\b", r.stdout, re.M), r.stdout
+            (ALHOME / "registry.json").unlink()
 
         # 3. 普通のファイルは上書きしない
         (BIN / "agent-link").unlink()

@@ -40,10 +40,22 @@ cfg() {
   case "$v" in *[![:space:]]*) echo "$v" ;; *) echo "$2" ;; esac
 }
 
-# 登録簿の root の一覧（init が書く整形済み JSON の "root" の行だけ読む）
+# 登録簿の root の一覧。.venv の python があれば json.load で読む（壊れていれば何も出さない）。
+# 無いときだけ、init が書く整形済み JSON の "root" の行を grep/sed で読む。
 registry_roots() {
   [ -f "$HOME_DIR/registry.json" ] || return 0
-  grep '"root"' "$HOME_DIR/registry.json" | sed 's/.*"root": *"\(.*\)".*/\1/'
+  if [ -x "$VENV_PY" ]; then
+    "$VENV_PY" -c '
+import json, sys
+try:
+    for row in json.load(open(sys.argv[1], encoding="utf-8")):
+        if isinstance(row, dict) and row.get("root"):
+            print(row["root"])
+except Exception:
+    pass' "$HOME_DIR/registry.json" 2>/dev/null
+  else
+    grep '"root"' "$HOME_DIR/registry.json" | sed 's/.*"root": *"\(.*\)".*/\1/'
+  fi
 }
 
 parse_opts() {
@@ -88,7 +100,7 @@ install_cmd() {
 NG=0
 row() { # 状態 項目 詳しく
   [ "$1" = NG ] && NG=1
-  printf '%-4s %-15s %s\n' "$1" "$2" "$3"
+  printf '%-4s %-19s %s\n' "$1" "$2" "$3"
 }
 
 # 命令が動けば ok、動かなければ $2（NG か warn）。$1 = 項目、残り = 命令
@@ -106,39 +118,64 @@ doctor_cmd() {
   check_cmd claude NG "$(cfg AGENT_LINK_CLAUDE_BIN claude)" --version
   check_cmd uv NG uv --version
   check_cmd cargo warn cargo --version   # 入れ直すときだけ要る
-  for bin in agent-link agent-link-web; do
-    if p=$(command -v "$bin"); then
-      row ok "$bin" "$p"
+  want="$ROOT/target/release/agent-link"
+  if p=$(command -v agent-link); then
+    row ok agent-link "$p"
+    got=$(readlink -f "$p" 2>/dev/null)
+    if [ "$got" = "$want" ]; then
+      row ok agent-link-release "$got"
     else
-      row NG "$bin" "not in PATH (run: scripts/agent-link-setup install)"
+      row warn agent-link-release "agent-link points to ${got:-$p}, not $want"
     fi
-  done
-  if [ -x "$VENV_PY" ]; then
-    row ok venv "$VENV_PY"
   else
-    row NG venv "missing $VENV_PY (run: scripts/agent-link-setup install)"
+    row NG agent-link "not in PATH (run: scripts/agent-link-setup install)"
+    row warn agent-link-release "no agent-link in PATH"
   fi
-  if [ -d "$HOME_DIR" ]; then
-    row ok home "$HOME_DIR"
+  if [ ! -x "$want" ]; then
+    row warn release-fresh "$want is missing (run: cargo build --release)"
+  elif [ -n "$(find "$ROOT/crates" -newer "$want" -name '*.rs' 2>/dev/null | head -n 1)" ]; then
+    row warn release-fresh "sources are newer than the release binary (run: cargo build --release)"
   else
-    row warn home "$HOME_DIR does not exist yet (made on first use)"
+    row ok release-fresh "release binary is newer than the sources"
   fi
-  total=0; missing=0
+  if p=$(command -v agent-link-web); then
+    row ok agent-link-web "$p"
+  else
+    row NG agent-link-web "not in PATH (run: scripts/agent-link-setup install)"
+  fi
+  if [ -x "$VENV_PY" ] && "$VENV_PY" -c 'import fastapi' >/dev/null 2>&1; then
+    row ok web-venv "$VENV_PY"
+  else
+    row NG web-venv "cannot import fastapi with $VENV_PY (run: (cd apps/web && uv sync))"
+  fi
+  hooks=$(cfg AGENT_LINK_WEB_HOOKS_DIR "$ROOT/apps/web/hooks")
+  if [ -f "$hooks/cc_question.py" ] && [ -f "$hooks/cc_register.py" ]; then
+    row ok hooks "$hooks"
+  else
+    row NG hooks "cc_question.py or cc_register.py is missing in $hooks"
+  fi
+  reg="$HOME_DIR/registry.json"
+  if [ ! -f "$reg" ]; then
+    row ok registry "no $reg yet (no project is initialized)"
+  elif [ ! -x "$VENV_PY" ]; then
+    row warn registry "$reg exists; not checked (no $VENV_PY)"
+  elif "$VENV_PY" -c 'import json, sys; sys.exit(0 if isinstance(json.load(open(sys.argv[1], encoding="utf-8")), list) else 1)' "$reg" 2>/dev/null; then
+    row ok registry "$reg"
+  else
+    row NG registry "$reg is broken (not a JSON array)"
+  fi
+  total=0
   for r in $(registry_roots); do
     total=$((total + 1))
-    [ -d "$r" ] || missing=$((missing + 1))
+    [ -d "$r" ] || row warn projects "root does not exist: $r"
   done
-  if [ "$missing" -gt 0 ]; then
-    row warn projects "$total registered, $missing with a missing root"
-  else
-    row ok projects "$total registered"
-  fi
+  [ "$total" -gt 0 ] || row ok projects "none registered"
   url=$(cfg AGENT_LINK_WEB_URL "")
   [ -n "$url" ] || url="http://127.0.0.1:$(cfg AGENT_LINK_WEB_PORT 8400)"
-  if command -v curl >/dev/null 2>&1 && curl -fsS -m 3 -o /dev/null "$url/api/health" 2>/dev/null; then
+  if command -v curl >/dev/null 2>&1 && curl -s -m 3 "$url/api/health" 2>/dev/null | grep -q '"ok": *true'; then
     row ok web "$url"
   else
-    row warn web "no answer at $url (start: agent-link-web serve)"
+    row warn web "no answer at $url (start: agent-link-web serve; the CLI works without it)"
   fi
   [ "$NG" = 0 ]
 }
