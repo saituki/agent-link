@@ -86,6 +86,31 @@ function testNodeRect() {
   assert.strictEqual(wf.wfBoardRects(null, null).length, 0);
 }
 
+function testDragOffset() {
+  assert.deepStrictEqual(wf.wfDragOffset(null, 30, -15, 1), [30, -15]);
+  assert.deepStrictEqual(wf.wfDragOffset(null, 30, -15, 2), [15, -7.5]);
+  for (const z of [0, NaN, "x"]) assert.deepStrictEqual(wf.wfDragOffset(null, 30, -15, z), [30, -15]);
+  // 続けてドラッグしても、置いた位置と保存した値が合う
+  const offsets = {};
+  const x0 = wf.wfNodeRect(NODE, null).x;
+  const y0 = wf.wfNodeRect(NODE, null).y;
+  let ex = 0;
+  let ey = 0;
+  for (const [mx, my, z] of [[30, 20, 1], [5, -8, 1], [12, 6, 0.5]]) {
+    const o = wf.wfDragOffset(offsets[10] || [0, 0], mx, my, z);
+    offsets[10] = o;
+    ex += mx / z;
+    ey += my / z;
+    const r = wf.wfNodeRect(NODE, { 10: o });
+    assert.strictEqual(r.x, x0 + ex);
+    assert.strictEqual(r.y, y0 + ey);
+    wf.wfSaveOffset("drag", 10, o[0], o[1]);
+    assert.deepStrictEqual(wf.wfLoadOffsets("drag")[10], o);
+  }
+  assert.strictEqual(ex, 59);
+  assert.strictEqual(ey, 24);
+}
+
 function testFitView() {
   // canvaslayout.js の cvFitView にそのまま渡せる（全体が入る矩形が返る）
   const rects = wf.wfBoardRects([NODE, NODE2], null);
@@ -432,6 +457,7 @@ function testConstants() {
 function main() {
   testHash();
   testNodeRect();
+  testDragOffset();
   testFitView();
   testFitRects();
   testBoardRight();

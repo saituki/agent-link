@@ -109,6 +109,13 @@ function wfParseHash(hash) {
   }
 }
 
+/** ドラッグ開始時のずらし量 base に、画面の移動量（px）をワールドの量にして足す。札の位置は wfNodeRect(node, {[id]: 戻り値}) で決まる。 */
+function wfDragOffset(base, dxPx, dyPx, z) {
+  const b = Array.isArray(base) ? base : [0, 0];
+  const k = Number.isFinite(Number(z)) && Number(z) > 0 ? Number(z) : 1;
+  return [(Number(b[0]) || 0) + (Number(dxPx) || 0) / k, (Number(b[1]) || 0) + (Number(dyPx) || 0) / k];
+}
+
 /** ノードの大きさを px の矩形にする（文字マス × WF_CELL_* ＋ 覚えたずらし量）。 */
 function wfNodeRect(node, offsets) {
   const n = node || {};
@@ -1232,6 +1239,7 @@ function wfOnPointerDown(e) {
     view: { ...wfView },
     nodeId: id,
     mode: null, // "pan" | "card"
+    base: id == null ? null : (wfOffsets[id] || [0, 0]), // ドラッグ開始時のずらし量
   };
 }
 
@@ -1270,19 +1278,21 @@ function wfOnPointerMove(e) {
     return;
   }
 
-  // 札を動かす（ワールドの座標に直す）
-  const wx = dx / d.view.z;
-  const wy = dy / d.view.z;
-  const card = wfCardEls.get(d.nodeId);
-  if (card) {
-    const node = wfNodes().find((n) => n.id === d.nodeId);
-    if (node) {
-      const r = wfNodeRect(node, wfOffsets);
-      card.style.left = `${r.x + wx}px`;
-      card.style.top = `${r.y + wy}px`;
-      wfRenderEdges();
-    }
-  }
+  // 札を動かす。ずらし量を仮に入れて、札と線を同じ値から置く
+  const node = wfNodes().find((n) => n.id === d.nodeId);
+  if (!node) return;
+  wfOffsets[d.nodeId] = wfDragOffset(d.base, dx, dy, d.view.z);
+  wfPlaceCard(node);
+  wfRenderEdges();
+}
+
+/** 札の要素を、今の wfOffsets の位置に置く。 */
+function wfPlaceCard(node) {
+  const card = wfCardEls.get(node.id);
+  if (!card) return;
+  const r = wfNodeRect(node, wfOffsets);
+  card.style.left = `${r.x}px`;
+  card.style.top = `${r.y}px`;
 }
 
 function wfOnPointerUp(e) {
@@ -1298,7 +1308,16 @@ function wfOnPointerUp(e) {
     return;
   }
   wfDown = null;
-  if (e.type === "pointercancel") return; // 途中で指が離れた（クリックにも保存にもしない）
+  if (e.type === "pointercancel") {
+    // 途中で指が離れた（クリックにも保存にもしない）。ドラッグ中に仮に入れた値は戻す
+    if (d.mode === "card" && d.nodeId != null) {
+      wfOffsets[d.nodeId] = d.base;
+      const n = wfNodes().find((x) => x.id === d.nodeId);
+      if (n) wfPlaceCard(n);
+      wfRenderEdges();
+    }
+    return;
+  }
 
   if (!d.mode) {
     // 動かしていない（4px 未満）-> 札を押した
@@ -1317,19 +1336,10 @@ function wfOnPointerUp(e) {
   // ドラッグした -> ずらした量をこの端末に覚える
   const node = wfNodes().find((n) => n.id === d.nodeId);
   if (!node) return;
-  const dx = (e.clientX - d.sx) / d.view.z;
-  const dy = (e.clientY - d.sy) / d.view.z;
-  const prev = (wfOffsets && wfOffsets[d.nodeId]) || [0, 0];
-  const nx = (Array.isArray(prev) ? Number(prev[0]) || 0 : 0) + dx;
-  const ny = (Array.isArray(prev) ? Number(prev[1]) || 0 : 0) + dy;
-  const card = wfCardEls.get(d.nodeId);
-  if (card) {
-    const r = wfNodeRect(node, wfOffsets);
-    card.style.left = `${r.x + nx}px`;
-    card.style.top = `${r.y + ny}px`;
-  }
-  wfOffsets[d.nodeId] = [nx, ny];
-  wfSaveOffset(wfName, d.nodeId, nx, ny);
+  const off = wfDragOffset(d.base, e.clientX - d.sx, e.clientY - d.sy, d.view.z);
+  wfOffsets[d.nodeId] = off;
+  wfPlaceCard(node);
+  wfSaveOffset(wfName, d.nodeId, off[0], off[1]);
   wfRenderEdges();
 }
 
@@ -1455,6 +1465,7 @@ async function wfLoad() {
     wfData = data && typeof data === "object" ? data : {};
     wfRaw = raw;
     wfError = "";
+    if (wfDown && wfDown.mode) { wfRaw = ""; return; } // ドラッグ・パンの途中は描き直さない。次の読み直し（10 秒後）で同じ JSON でも描き直す
     if (same) return; // 前と同じなら描き直さない
   } catch (e) {
     if (wfName !== name) return;
@@ -1529,6 +1540,7 @@ if (typeof module !== "undefined" && module.exports) {
     wfHash,
     wfParseHash,
     wfNodeRect,
+    wfDragOffset,
     wfBoardRects,
     wfFitView,
     wfFitRects,
