@@ -1,7 +1,8 @@
-//! # agent-link-view — Web と CLI が使う組み立て処理
+//! # agent-link-view — CLI が使う表示用の組み立て
 //!
-//! `agent-link phone …`（Web の中継）が使う「データを組み立てる関数」を集めた
-//! クレート。描画は持たない（画面は Web だけにする決定による）。
+//! CLI（`agent-link-cli`）が使う表示用の組み立てを集めたクレート。DB から読んで、
+//! 命令が出す JSON の材料を組み立てる。描画は持たない。クレートを分けておくのは、
+//! `engine → view` の依存をコンパイラが禁じるため。
 //!
 //! ## 構成
 //!
@@ -9,15 +10,14 @@
 //! - [`block_log`] — Log（`[Inputs] [Meta] [Output] [Stats]` 相当）の表示データ組み立て
 //! - [`cache_stats`] — Stats（キャッシュ / トークン統計）の表示データ組み立て
 //! - [`card_entries`] — Kanban カード・レーン一覧の組み立て
-//! - [`left_tree`] — 左サイドバー ツリーの組み立て（`phone tree`）
-//! - [`card_wizard`] — task.md 作成ウィザードの組み立て・検査（`phone card`）
-//! - [`phone_view`] — run の中身（md / waggle）の解決（`phone md` / `phone waggle`）
-//! - [`workflow`] — 実行グラフ（DAG）の組み立て・配置・材料集め（`phone workflow`）
+//! - [`left_tree`] — 左サイドバー ツリーの組み立て（`run tree`）
+//! - [`card_wizard`] — task.md 作成ウィザードの組み立て・検査（`card …`）
+//! - [`run_docs`] — run の中身（md / waggle）の解決（`run md` / `doc list --run`）
+//! - [`workflow`] — 実行グラフ（DAG）の組み立て・配置・材料集め（`workflow`）
 //! - [`fmt`] — 数値・費用・トークンの表示書式
 //!
-//! `block_history` / `block_log` / `cache_stats` は、もともと TUI の `ui/` 配下に
-//! あったものを移設したもので、**ビルダ純関数**（`build(store, exec_id)` /
-//! `load(store, exec_id)`）を提供する。描画部分は TUI の削除に合わせて外した。
+//! `block_history` / `block_log` / `cache_stats` は、**ビルダ純関数**（`build(store, exec_id)` /
+//! `load(store, exec_id)`）を提供する（`run history` / `run log` / `run stats`）。
 
 pub mod block_history;
 pub mod block_log;
@@ -26,7 +26,7 @@ pub mod card_entries;
 pub mod card_wizard;
 pub mod fmt;
 pub mod left_tree;
-pub mod phone_view;
+pub mod run_docs;
 pub mod workflow;
 
 /// テスト用の共有ロック。`AGENT_LINK_PROJECT_ROOT` はプロセス共通なので、

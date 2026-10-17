@@ -69,17 +69,17 @@ pub(crate) fn exit(e: CmdError) -> ! {
     std::process::exit(e.code);
 }
 
-impl From<crate::phone::PhoneError> for CmdError {
-    /// `phone` の終了コードを CLI 共通の約束の値に読み替える。
+impl From<crate::views::ViewError> for CmdError {
+    /// `views` の終了コードを CLI 共通の約束の値に読み替える。
     ///
     /// usage(1)=入力の誤り(2)・parse(2)=入力の誤り(2)・not_found(3)=見つからない(3)、
     /// conflict(5)=状態の衝突(4)・internal(4)=その他(1)。
-    fn from(e: crate::phone::PhoneError) -> Self {
+    fn from(e: crate::views::ViewError) -> Self {
         let code = if e.code == engine_common::EXIT_PARSE || e.code == engine_common::EXIT_USAGE {
             EXIT_INPUT
         } else if e.code == engine_common::EXIT_NOT_FOUND {
             EXIT_MISSING
-        } else if e.code == crate::phone::EXIT_PHONE_CONFLICT {
+        } else if e.code == crate::views::EXIT_VIEW_CONFLICT {
             EXIT_CONFLICT
         } else {
             EXIT_OTHER
@@ -127,9 +127,9 @@ pub(crate) fn print_json(value: &serde_json::Value) -> Result<(), CmdError> {
     Ok(())
 }
 
-/// `phone` の実装をそのまま呼び、出力を 1 文字も変えずに出す。
-pub(crate) fn print_phone(cmd: crate::cli::PhoneCmd) -> Result<(), CmdError> {
-    let text = crate::phone::render(cmd)?;
+/// `views` の実装をそのまま呼び、出力を 1 文字も変えずに出す。
+pub(crate) fn print_view(cmd: crate::cli::ViewCmd) -> Result<(), CmdError> {
+    let text = crate::views::render(cmd)?;
     println!("{}", text);
     Ok(())
 }

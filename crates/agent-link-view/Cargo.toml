@@ -3,7 +3,7 @@ name = "agent-link-view"
 version = "0.1.0"
 edition = "2021"
 rust-version = "1.85"
-description = "agent-link の Web と CLI が使う、実行・カード・Workflow の組み立て処理（描画は持たない）"
+description = "agent-link の CLI が使う表示用の組み立て（描画は持たない）"
 authors = ["agent-link Contributors"]
 license = "MIT OR Apache-2.0"
 

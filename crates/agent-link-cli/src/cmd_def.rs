@@ -1,11 +1,11 @@
 //! `def` グループ（新しい木）— 定義ファイル（block / template / settings）の参照・編集。
 //!
-//! - `def list` は `phone def list` の実装（block に `templates` が付く）。
+//! - `def list` は `def_files` の実装（block に `templates` が付く）。
 //! - `def list --parent <block>` は `block_discover` の形。
 //! - `def show --kind block --name N`（`--scope` なし）は `block_inspect` の形。
 
-use crate::cli::{DefCmd, PhoneCmd, PhoneDefCmd};
-use crate::cmd_common::{agent_result, other_error, print_json, print_phone, CmdError};
+use crate::cli::{DefCmd, ViewCmd, DefFileCmd};
+use crate::cmd_common::{agent_result, other_error, print_json, print_view, CmdError};
 
 /// `agent-link def <sub>` のハンドラ。
 pub(crate) fn run(cmd: DefCmd) -> Result<(), CmdError> {
@@ -19,8 +19,8 @@ pub(crate) fn run(cmd: DefCmd) -> Result<(), CmdError> {
                 print_json(&v)
             }
             // 定義ファイルの一覧（project → global）
-            None => print_phone(PhoneCmd::Def {
-                cmd: PhoneDefCmd::List,
+            None => print_view(ViewCmd::Def {
+                cmd: DefFileCmd::List,
             }),
         },
         DefCmd::Show {
@@ -29,8 +29,8 @@ pub(crate) fn run(cmd: DefCmd) -> Result<(), CmdError> {
             name,
             json: _,
         } => match scope {
-            Some(scope) => print_phone(PhoneCmd::Def {
-                cmd: PhoneDefCmd::Show { kind, scope, name },
+            Some(scope) => print_view(ViewCmd::Def {
+                cmd: DefFileCmd::Show { kind, scope, name },
             }),
             None => {
                 // `--scope` を省けるのは解決済みの block 定義のときだけ
@@ -49,8 +49,8 @@ pub(crate) fn run(cmd: DefCmd) -> Result<(), CmdError> {
             name,
             create,
             json: _,
-        } => print_phone(PhoneCmd::Def {
-            cmd: PhoneDefCmd::Write {
+        } => print_view(ViewCmd::Def {
+            cmd: DefFileCmd::Write {
                 kind,
                 scope,
                 name,
@@ -62,8 +62,8 @@ pub(crate) fn run(cmd: DefCmd) -> Result<(), CmdError> {
             scope,
             name,
             json: _,
-        } => print_phone(PhoneCmd::Def {
-            cmd: PhoneDefCmd::Delete { kind, scope, name },
+        } => print_view(ViewCmd::Def {
+            cmd: DefFileCmd::Delete { kind, scope, name },
         }),
         DefCmd::Preview {
             definition_file,

@@ -1,4 +1,5 @@
-//! `agent-link phone …` — sai-phone 向け JSON 出力（実装計画 12 §3.2）。
+//! `run`・`card`・`doc search`・`project`・`workflow` の命令が出す JSON を作る実装。
+//! `cmd_*.rs` から `cmd_common::print_view` を通して呼ばれる。
 //!
 //! すべて cwd = プロジェクト root（または `AGENT_LINK_PROJECT_ROOT`）から呼び出す前提。
 //!
@@ -6,8 +7,7 @@
 //! - 失敗時は stderr に理由 1 行を出力し、終了コード ≠ 0 で終了する
 //!   （md が無い場合は終了コード 3 + stderr「まだありません」）
 //!
-//! 組み立て処理は TUI と共有（`agent_link_view::{left_tree, card_entries,
-//! card_wizard, phone_view}`）ため、TUI の表示結果と二重実装しない。
+//! 組み立て処理は `agent_link_view::{left_tree, card_entries, card_wizard, run_docs}` を使う。
 
 use std::collections::BTreeMap;
 use std::collections::{HashMap, HashSet};
@@ -21,30 +21,30 @@ use serde_json::{json, Value};
 use agent_link_engine::db::store::exec_usage_totals;
 use agent_link_engine::db::SaiStore;
 use agent_link_view::{
-    block_history, block_log, cache_stats, card_entries, card_wizard, left_tree, phone_view,
+    block_history, block_log, cache_stats, card_entries, card_wizard, left_tree, run_docs,
 };
 
 use crate::cli::{
-    PhoneCardCmd, PhoneCmd, EXIT_DB, EXIT_NOT_FOUND, EXIT_PARSE, EXIT_USAGE,
+    ViewCardCmd, ViewCmd, EXIT_DB, EXIT_NOT_FOUND, EXIT_PARSE, EXIT_USAGE,
 };
 
 // ============================================================================
 // エラー（終了コード付き）
 // ============================================================================
 
-/// `PhoneError::conflict` の印。`EXIT_DB`（4）は処理系エラーに使われているので別の値にする。
-pub(crate) const EXIT_PHONE_CONFLICT: i32 = 5;
+/// `ViewError::conflict` の印。`EXIT_DB`（4）は処理系エラーに使われているので別の値にする。
+pub(crate) const EXIT_VIEW_CONFLICT: i32 = 5;
 
-/// phone サブコマンドのエラー（stderr 1 行 + 終了コード）。
+/// 命令の実装のエラー（stderr 1 行 + 終了コード）。
 #[derive(Debug)]
-pub(crate) struct PhoneError {
+pub(crate) struct ViewError {
     /// 終了コード（≠ 0）
     pub(crate) code: i32,
     /// stderr に出す理由
     pub(crate) msg: String,
 }
 
-impl PhoneError {
+impl ViewError {
     /// 利用エラー（引数・検査失敗・stdin 不正など）= 終了コード 1。
     pub(crate) fn usage(msg: impl Into<String>) -> Self {
         Self {
@@ -74,7 +74,7 @@ impl PhoneError {
     /// CLI 共通の終了コード 4 に読み替えるための印（`cmd_common` の `From`）。
     pub(crate) fn conflict(msg: impl Into<String>) -> Self {
         Self {
-            code: EXIT_PHONE_CONFLICT,
+            code: EXIT_VIEW_CONFLICT,
             msg: msg.into(),
         }
     }
@@ -88,43 +88,43 @@ impl PhoneError {
     }
 }
 
-pub(crate) type PhoneResult<T> = Result<T, PhoneError>;
+pub(crate) type ViewResult<T> = Result<T, ViewError>;
 
 /// テスト専用: `AGENT_LINK_PROJECT_ROOT` / `HOME` を触るテストの直列化ロック。
 ///
-/// 環境変数はプロセス共通なので、`phone` と `phone_def` のテストが同じ
+/// 環境変数はプロセス共通なので、`views` と `def_files` のテストが同じ
 /// ロックを使う（別々だと両方が並列実行で衝突する）。
 #[cfg(test)]
 pub(crate) static ENV_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
-/// `phone` サブコマンドの出力（stdout に出す 1 個）。
+/// 命令の実装の出力（stdout に出す 1 個）。
 ///
 /// 値（[`Value`]）で持つ項目は `json!` のリテラル順、テキストで持つ項目は
 /// そのまま出力する。`serde_json::Value` は `Map` = アルファベット順で
-/// 持つため、`phone dashboard` のように**項目の並び順まで共有契約**の
+/// 持つため、`project dashboard` のように**項目の並び順まで共有契約**の
 /// 出力は、構造体でシリアライズしたテキストで持つ（`dashboard` 参照）。
 #[derive(Debug)]
-pub(crate) enum PhoneOut {
+pub(crate) enum ViewOut {
     /// JSON 値
     Value(Value),
     /// シリアライズ済みの JSON テキスト（項目順を保つ）
     Text(String),
 }
 
-impl From<Value> for PhoneOut {
+impl From<Value> for ViewOut {
     fn from(v: Value) -> Self {
-        PhoneOut::Value(v)
+        ViewOut::Value(v)
     }
 }
 
-impl From<String> for PhoneOut {
+impl From<String> for ViewOut {
     fn from(s: String) -> Self {
-        PhoneOut::Text(s)
+        ViewOut::Text(s)
     }
 }
 
-/// `Value` を返すサブコマンドの腕を [`PhoneOut`] に包む（`run` のmatchを短く保つ）。
-fn val(r: PhoneResult<Value>) -> PhoneResult<PhoneOut> {
+/// `Value` を返すサブコマンドの腕を [`ViewOut`] に包む（`run` のmatchを短く保つ）。
+fn val(r: ViewResult<Value>) -> ViewResult<ViewOut> {
     Ok(r?.into())
 }
 
@@ -132,9 +132,9 @@ fn val(r: PhoneResult<Value>) -> PhoneResult<PhoneOut> {
 // 入力（card create の stdin JSON）
 // ============================================================================
 
-/// `phone card create` の stdin 入力（項目名は計画 12 §3.2 のとおり）。
+/// `card create` の stdin 入力。
 ///
-/// 空文字 = スキップ（TUI と同じく自動値を使う）。廃止した項目（`runner`・`provider`・`tag`・
+/// 空文字 = スキップ（自動値を使う）。廃止した項目（`runner`・`provider`・`tag`・
 /// round 系の 2 項目）が入っていてもエラーにせず無視する（serde は未知の項目を読み飛ばす）。
 #[derive(Debug, Default, Deserialize)]
 struct CardCreateInput {
@@ -156,8 +156,8 @@ struct CardCreateInput {
     /// 一覧に出す 1 行の説明（1 行目だけ・200 字まで。空 = 書かない）
     #[serde(default)]
     description: String,
-    /// task_text 先頭に貼る文書トークン（`phone card inputs` の candidates.token。空可）
-    /// TUI Step4 と同じく `waggle:<tok>:path:…` 参照行として task_text 先頭に貼られる
+    /// task_text 先頭に貼る文書トークン（`card docs` の `token`。空可）
+    /// `waggle:<tok>:path:…` 参照行として task_text 先頭に貼られる
     #[serde(default)]
     doc_tokens: Vec<String>,
     /// frontmatter に足す任意のメタ情報（キーは `^[a-z][a-z0-9_]*$` のみ・標準のキーは不可）
@@ -169,64 +169,38 @@ struct CardCreateInput {
 // エントリ
 // ============================================================================
 
-/// `agent-link phone <sub>` のハンドラ。
-///
-/// 成功は JSON 1 個を stdout へ、失敗は stderr + 終了コードでこの中で終了する。
-pub fn handle(cmd: PhoneCmd) -> Result<(), Box<dyn std::error::Error>> {
-    let out = match run(cmd) {
-        Ok(v) => v,
-        Err(e) => {
-            eprintln!("{}", e.msg);
-            std::process::exit(e.code);
-        }
-    };
-    match out {
-        PhoneOut::Value(v) => println!("{}", serde_json::to_string_pretty(&v)?),
-        PhoneOut::Text(s) => println!("{}", s),
-    }
-    Ok(())
-}
-
-/// 新しい命令の木（`cmd_*`）から phone の実装をそのまま呼ぶための入口。
+/// 新しい命令の木（`cmd_*`）から `views` の実装をそのまま呼ぶための入口。
 ///
 /// 成功時の出力（JSON は pretty・Text はそのまま）を 1 つの文字列で返す。
-/// 失敗は [`PhoneError`] のまま返すので、呼び出し側が CLI 共通の約束の
+/// 失敗は [`ViewError`] のまま返すので、呼び出し側が CLI 共通の約束の
 /// 終了コード（2・3・1）に読み替える。処理を写さない（出力を 1 文字も変えない）。
-pub(crate) fn render(cmd: PhoneCmd) -> PhoneResult<String> {
+pub(crate) fn render(cmd: ViewCmd) -> ViewResult<String> {
     match run(cmd)? {
-        PhoneOut::Value(v) => serde_json::to_string_pretty(&v)
-            .map_err(|e| PhoneError::internal(format!("Failed to serialize JSON: {}.", e))),
-        PhoneOut::Text(s) => Ok(s),
+        ViewOut::Value(v) => serde_json::to_string_pretty(&v)
+            .map_err(|e| ViewError::internal(format!("Failed to serialize JSON: {}.", e))),
+        ViewOut::Text(s) => Ok(s),
     }
 }
 
 /// サブコマンド本体（`Export` は main 側で処理するため到達しない）。
-pub(crate) fn run(cmd: PhoneCmd) -> PhoneResult<PhoneOut> {
+pub(crate) fn run(cmd: ViewCmd) -> ViewResult<ViewOut> {
     match cmd {
-        PhoneCmd::Export { .. } => Err(PhoneError::usage(
-            "Internal error: handle_phone_export handles phone export.",
-        )),
-        PhoneCmd::Tree => val(tree()),
-        PhoneCmd::Run { run_id, view } => val(run_view(run_id, &view)),
-        PhoneCmd::Md { run_id, kind, write: false } => val(md(run_id, &kind)),
-        PhoneCmd::Md { run_id, kind, write: true } => val(md_write(run_id, &kind)),
-        PhoneCmd::Waggle { run_id, token } => val(waggle(run_id, token.as_deref())),
-        PhoneCmd::Card { cmd } => val(match cmd {
-            PhoneCardCmd::Options => card_options(),
-            PhoneCardCmd::Inputs { block } => {
-                card_inputs(&block)
-            }
-            PhoneCardCmd::Docs { limit } => card_docs(limit),
-            PhoneCardCmd::Create => card_create(),
-            PhoneCardCmd::Schedule { run_id, at } => card_schedule(run_id, at.as_deref()),
-            PhoneCardCmd::Run { run_id } => card_run(run_id),
+        ViewCmd::Tree => val(tree()),
+        ViewCmd::Run { run_id, view } => val(run_view(run_id, &view)),
+        ViewCmd::Md { run_id, kind, write: false } => val(md(run_id, &kind)),
+        ViewCmd::Md { run_id, kind, write: true } => val(md_write(run_id, &kind)),
+        ViewCmd::Card { cmd } => val(match cmd {
+            ViewCardCmd::Options => card_options(),
+            ViewCardCmd::Docs { limit } => card_docs(limit),
+            ViewCardCmd::Create => card_create(),
+            ViewCardCmd::Schedule { run_id, at } => card_schedule(run_id, at.as_deref()),
+            ViewCardCmd::Run { run_id } => card_run(run_id),
         }),
-        PhoneCmd::Finalize { run_id } => val(finalize(run_id)),
-        PhoneCmd::Advance { run_id } => val(advance(run_id)),
-        PhoneCmd::Rm { run_id } => val(rm(run_id)),
-        PhoneCmd::Summary => val(summary()),
-        PhoneCmd::Dashboard { period } => dashboard(&period),
-        PhoneCmd::Search {
+        ViewCmd::Advance { run_id } => val(advance(run_id)),
+        ViewCmd::Rm { run_id } => val(rm(run_id)),
+        ViewCmd::Summary => val(summary()),
+        ViewCmd::Dashboard { period } => dashboard(&period),
+        ViewCmd::Search {
             word,
             category,
             since,
@@ -245,21 +219,21 @@ pub(crate) fn run(cmd: PhoneCmd) -> PhoneResult<PhoneOut> {
             to_id,
             limit,
         })),
-        PhoneCmd::Workflow { subtasks } => val(workflow(subtasks)),
-        PhoneCmd::Def { cmd } => val(crate::phone_def::run(cmd)),
+        ViewCmd::Workflow { subtasks } => val(workflow(subtasks)),
+        ViewCmd::Def { cmd } => val(crate::def_files::run(cmd)),
     }
 }
 
 /// プロジェクトの DB を開く（失敗は終了コード 4）。
-fn open_store() -> PhoneResult<SaiStore> {
-    crate::cli::open_db().map_err(|e| PhoneError::internal(format!("Cannot open the DB: {}.", e)))
+fn open_store() -> ViewResult<SaiStore> {
+    crate::cli::open_db().map_err(|e| ViewError::internal(format!("Cannot open the DB: {}.", e)))
 }
 
 // ============================================================================
 // workflow — メイン画面（Workflow の実行ブロック線図）の DAG
 // ============================================================================
 
-/// `phone workflow`: TUI が描くのと同じ DAG を JSON で返す。
+/// `workflow`: DAG を座標付きで JSON で返す。
 ///
 /// - `width` / `height`: コンテンツサイズ（文字マス単位）
 /// - `subtasks`: 偽（既定）なら親の札だけ。真なら `task create` で作った子の札も載せる
@@ -271,14 +245,14 @@ fn open_store() -> PhoneResult<SaiStore> {
 /// - `lanes`: Kanban の 3 レーンの札
 ///
 /// DB が開けないときは終了コード 4。実行が 0 件でも空の配列で成功する。
-fn workflow(include_subtasks: bool) -> PhoneResult<Value> {
+fn workflow(include_subtasks: bool) -> ViewResult<Value> {
     let store = open_store()?;
     let prep = card_entries::prepare_view(&store);
     let src = agent_link_view::workflow::load_workflow(&store, &prep, include_subtasks);
     let (dag, layout_graph) =
         agent_link_view::workflow::build_block_graph(&src.blocks, &src.connections);
     // Web の文字マスは 10×20px と大きく、同じ間隔では札どうしが詰まって見える。
-    // ここだけが TUI の既定より広く取る（TUI の座標は変わらない）。
+    // 既定より広く取る。
     let layout = agent_link_view::workflow::calculate_layout_with(
         &layout_graph,
         &agent_link_view::workflow::LayoutOptions {
@@ -354,7 +328,7 @@ fn edge_kind_name(k: agent_link_view::workflow::EdgeKind) -> &'static str {
 
 /// Kanban の 3 レーンの札を JSON にする。
 ///
-/// `phone tree` と同じく、旧形式 todo カード（`.agent-link/todo/*.md`・run_id を
+/// `run tree` と同じく、旧形式 todo カード（`.agent-link/todo/*.md`・run_id を
 /// 親フォルダ名から取れないもの）は出さない（番号の付けようが無い札のため）。
 fn lanes_json(entries: &[card_entries::CardEntry]) -> Value {
     let mut todo: Vec<Value> = Vec::new();
@@ -411,10 +385,10 @@ fn lanes_json(entries: &[card_entries::CardEntry]) -> Value {
 ///   孫も同じ）。親が別のフォルダにいる run は、そのフォルダの直下に出る。
 /// - 同じ run は 1 か所にしか出ない。
 /// - 旧形式 todo カード（`.agent-link/todo/*.md`・run_id 無し）は run_id が無いため出さない
-fn tree() -> PhoneResult<Value> {
+fn tree() -> ViewResult<Value> {
     let store = open_store()?;
     let prep = card_entries::prepare_view(&store);
-    // JSON には展開状態を持たせないため prev_expanded は空（TUI 初期状態と同じ全閉）
+    // JSON には展開状態を持たせないため prev_expanded は空（全閉）
     let items = left_tree::build_left_tree(
         &store,
         &prep.executions,
@@ -429,7 +403,7 @@ fn tree() -> PhoneResult<Value> {
 // search — 文書（task / message / waggle）の本文検索
 // ============================================================================
 
-/// `phone search` の引数（`cli.rs` の `PhoneCmd::Search` と同じ）。
+/// `doc search` の引数（`cli.rs` の `ViewCmd::Search` と同じ）。
 struct SearchOpts {
     word: String,
     category: String,
@@ -488,15 +462,15 @@ fn read_doc_for_search(path: &std::path::Path) -> Option<String> {
     Some(String::from_utf8_lossy(&buf).into_owned())
 }
 
-/// `phone search`: 新しい run から順に文書を調べ、当たった文書を返す。
-fn search(o: SearchOpts) -> PhoneResult<Value> {
+/// `doc search`: 新しい run から順に文書を調べ、当たった文書を返す。
+fn search(o: SearchOpts) -> ViewResult<Value> {
     let words: Vec<String> = o
         .word
         .split_whitespace()
         .map(|w| w.to_lowercase())
         .collect();
     if words.is_empty() {
-        return Err(PhoneError::usage("Enter a search term."));
+        return Err(ViewError::usage("Enter a search term."));
     }
     let mut want = std::collections::HashSet::new();
     for c in o.category.split(',').map(str::trim).filter(|s| !s.is_empty()) {
@@ -505,7 +479,7 @@ fn search(o: SearchOpts) -> PhoneResult<Value> {
                 want.insert(c.to_string());
             }
             other => {
-                return Err(PhoneError::usage(format!(
+                return Err(ViewError::usage(format!(
                     "Invalid kind: {} (task | message | waggle).",
                     other
                 )))
@@ -513,14 +487,14 @@ fn search(o: SearchOpts) -> PhoneResult<Value> {
         }
     }
     if want.is_empty() {
-        return Err(PhoneError::usage("Select at least one kind."));
+        return Err(ViewError::usage("Select at least one kind."));
     }
-    let parse_day = |s: &Option<String>| -> PhoneResult<Option<NaiveDate>> {
+    let parse_day = |s: &Option<String>| -> ViewResult<Option<NaiveDate>> {
         match s.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
             None => Ok(None),
             Some(v) => NaiveDate::parse_from_str(v, "%Y-%m-%d")
                 .map(Some)
-                .map_err(|_| PhoneError::usage(format!("The date must be YYYY-MM-DD: {}.", v))),
+                .map_err(|_| ViewError::usage(format!("The date must be YYYY-MM-DD: {}.", v))),
         }
     };
     let since = parse_day(&o.since)?;
@@ -531,7 +505,7 @@ fn search(o: SearchOpts) -> PhoneResult<Value> {
     let store = open_store()?;
     let mut execs = store
         .list_all_executions()
-        .map_err(|e| PhoneError::internal(e.to_string()))?;
+        .map_err(|e| ViewError::internal(e.to_string()))?;
     // 新しい run から見る
     execs.sort_by_key(|e| std::cmp::Reverse(e.id.unwrap_or(0)));
     let mut block_names: HashMap<i64, String> = HashMap::new();
@@ -580,7 +554,7 @@ fn search(o: SearchOpts) -> PhoneResult<Value> {
             docs.push(("message", agent_link_engine::run_dir::MESSAGE_FILE.to_string(), None));
         }
         if want.contains("waggle") {
-            for c in phone_view::waggle_choices(&store, run_id) {
+            for c in run_docs::waggle_choices(&store, run_id) {
                 docs.push(("waggle", c.file_name, Some(c.token)));
             }
         }
@@ -714,7 +688,7 @@ fn nest_tree(items: Vec<left_tree::LeftTreeItem>) -> Vec<Value> {
                 ));
             }
             left_tree::LeftTreeKind::Leaf | left_tree::LeftTreeKind::Card => {
-                // 旧形式 todo カード（run_id 無し）は phone では出さない
+                // 旧形式 todo カード（run_id 無し）は出さない
                 let Some(run_id) = it.run_id else { continue };
                 let Some((_, runs)) = folders.last_mut() else { continue };
                 let mut val = json!({
@@ -753,33 +727,33 @@ fn nest_tree(items: Vec<left_tree::LeftTreeItem>) -> Vec<Value> {
 // run — log / stats / history
 // ============================================================================
 
-/// `phone run <id> --view …`: run の中身を JSON で返す。
-fn run_view(run_id: i64, view: &str) -> PhoneResult<Value> {
+/// `run log|stats|history <id>`: run の中身を JSON で返す。
+fn run_view(run_id: i64, view: &str) -> ViewResult<Value> {
     let store = open_store()?;
     match view {
         "log" => {
             // BlockDetail は serde 実装済み（項目名は snake_case のまま）
             let detail = block_log::build(&store, run_id).ok_or_else(|| {
-                PhoneError::not_found(format!("Run {} not found.", run_id))
+                ViewError::not_found(format!("Run {} not found.", run_id))
             })?;
-            serde_json::to_value(&detail).map_err(|e| PhoneError::internal(e.to_string()))
+            serde_json::to_value(&detail).map_err(|e| ViewError::internal(e.to_string()))
         }
         "stats" => {
-            // run の存在は検証し、解析エラーは JSON の `error` として返す（TUI と同じ）
+            // run の存在は検証し、解析エラーは JSON の `error` として返す
             store.get_execution_by_id(run_id).map_err(|_| {
-                PhoneError::not_found(format!("Run {} not found.", run_id))
+                ViewError::not_found(format!("Run {} not found.", run_id))
             })?;
             let state = cache_stats::load(&store, run_id);
-            serde_json::to_value(state.phone_json())
-                .map_err(|e| PhoneError::internal(e.to_string()))
+            serde_json::to_value(state.to_json())
+                .map_err(|e| ViewError::internal(e.to_string()))
         }
         "history" => {
             let hist = block_history::build(&store, run_id).ok_or_else(|| {
-                PhoneError::not_found(format!("Run {} not found.", run_id))
+                ViewError::not_found(format!("Run {} not found.", run_id))
             })?;
-            serde_json::to_value(hist.phone_json()).map_err(|e| PhoneError::internal(e.to_string()))
+            serde_json::to_value(hist.to_json()).map_err(|e| ViewError::internal(e.to_string()))
         }
-        other => Err(PhoneError::usage(format!(
+        other => Err(ViewError::usage(format!(
             "Invalid view: {} (log | stats | history).",
             other
         ))),
@@ -788,76 +762,76 @@ fn run_view(run_id: i64, view: &str) -> PhoneResult<Value> {
 
 /// `run history <id> --call <call_id>`: その呼び出しの全文（C11）。
 /// run 自身の transcript から読む。呼び出しが無ければ終了コード 3。
-pub(crate) fn history_call(run_id: i64, call_id: &str) -> PhoneResult<Value> {
+pub(crate) fn history_call(run_id: i64, call_id: &str) -> ViewResult<Value> {
     let store = open_store()?;
     let exec = store
         .get_execution_by_id(run_id)
-        .map_err(|_| PhoneError::not_found(format!("Run {} not found.", run_id)))?;
+        .map_err(|_| ViewError::not_found(format!("Run {} not found.", run_id)))?;
     let root = agent_link_engine::project::project_root();
     let found = agent_link_engine::transcript::resolve_transcript(&exec, &root)
         .and_then(|path| agent_link_engine::session::history_call(&path, call_id));
     let call = found
-        .ok_or_else(|| PhoneError::not_found(format!("Call {} not found.", call_id)))?;
-    serde_json::to_value(call).map_err(|e| PhoneError::internal(e.to_string()))
+        .ok_or_else(|| ViewError::not_found(format!("Call {} not found.", call_id)))?;
+    serde_json::to_value(call).map_err(|e| ViewError::internal(e.to_string()))
 }
 
 // ============================================================================
 // md — task / message / report / system
 // ============================================================================
 
-/// `phone md <id> --kind …`: md 本文を JSON で返す。
+/// `run md <id> --kind …`: md 本文を JSON で返す。
 ///
-/// md が無い場合は終了コード 3 + stderr「まだありません」（sai-phone は 404 に読む替える）。
-fn md(run_id: i64, kind: &str) -> PhoneResult<Value> {
+/// md が無い場合は終了コード 3 + stderr「まだありません」（Web は 404 に読み替える）。
+fn md(run_id: i64, kind: &str) -> ViewResult<Value> {
     let store = open_store()?;
     let md_kind = match kind {
-        "task" => phone_view::MdKind::Task,
-        "message" => phone_view::MdKind::Message,
-        "report" => phone_view::MdKind::Report,
+        "task" => run_docs::MdKind::Task,
+        "message" => run_docs::MdKind::Message,
+        "report" => run_docs::MdKind::Report,
         // 固定部分（system prompt・U6）
-        "system" => phone_view::MdKind::System,
+        "system" => run_docs::MdKind::System,
         other => {
-            return Err(PhoneError::usage(format!(
+            return Err(ViewError::usage(format!(
                 "Invalid kind: {} (task | message | report | system).",
                 other
             )))
         }
     };
-    match phone_view::resolve_md_path(&store, run_id, md_kind) {
-        phone_view::MdResolve::Found(path) => {
+    match run_docs::resolve_md_path(&store, run_id, md_kind) {
+        run_docs::MdResolve::Found(path) => {
             let text = std::fs::read_to_string(&path)
-                .map_err(|e| PhoneError::internal(format!("Failed to read the md file: {}.", e)))?;
+                .map_err(|e| ViewError::internal(format!("Failed to read the md file: {}.", e)))?;
             Ok(json!({
                 "kind": md_kind.label(),
                 "name": md_kind.file_name(),
                 "text": text,
             }))
         }
-        phone_view::MdResolve::Missing(_) => Err(PhoneError::not_found("Not available yet.")),
-        phone_view::MdResolve::Failed(msg) => Err(PhoneError::internal(msg)),
+        run_docs::MdResolve::Missing(_) => Err(ViewError::not_found("Not available yet.")),
+        run_docs::MdResolve::Failed(msg) => Err(ViewError::internal(msg)),
     }
 }
 
-/// 保存できる md の大きさ（sai-phone の入力上限と同じ 100KB）。
+/// 保存できる md の大きさ（100KB）。
 const MD_WRITE_MAX: usize = 100 * 1024;
 
-/// `phone md <id> --kind task --write`: 標準入力の中身で md を保存する。
+/// `run md <id> --kind task --write`: 標準入力の中身で md を保存する。
 ///
-/// - task: 未実行の todo カード（`phone card run` と同じ条件）だけ。frontmatter が
+/// - task: 未実行の todo カード（`card run` と同じ条件）だけ。frontmatter が
 ///   読めなくなる・run_id が変わる内容は保存しない（todo から消えてしまうため）。
 /// - message は session から毎回作り直すので保存できない。
-fn md_write(run_id: i64, kind: &str) -> PhoneResult<Value> {
+fn md_write(run_id: i64, kind: &str) -> ViewResult<Value> {
     let mut text = String::new();
     std::io::stdin()
         .read_to_string(&mut text)
-        .map_err(|e| PhoneError::usage(format!("Cannot read standard input: {}.", e)))?;
+        .map_err(|e| ViewError::usage(format!("Cannot read standard input: {}.", e)))?;
     md_save(run_id, kind, &text)
 }
 
 /// [`md_write`] の本体（標準入力を読んだ後・テストから呼ぶ）。
-fn md_save(run_id: i64, kind: &str, text: &str) -> PhoneResult<Value> {
+fn md_save(run_id: i64, kind: &str, text: &str) -> ViewResult<Value> {
     if text.len() > MD_WRITE_MAX {
-        return Err(PhoneError::usage("The body is too large (100KB max)."));
+        return Err(ViewError::usage("The body is too large (100KB max)."));
     }
     let store = open_store()?;
     let path = match kind {
@@ -867,22 +841,22 @@ fn md_save(run_id: i64, kind: &str, text: &str) -> PhoneResult<Value> {
                 .join(run_id.to_string())
                 .join(agent_link_engine::run_dir::TASK_FILE);
             if !task.is_file() {
-                return Err(PhoneError::not_found(TODO_NOT_FOUND));
+                return Err(ViewError::not_found(TODO_NOT_FOUND));
             }
             let task = resolve_target_card(&store, run_id, task)?;
             let card = agent_link_engine::kanban::parse_card(text).ok_or_else(|| {
-                PhoneError::usage("Cannot read the frontmatter enclosed by --- at the top.")
+                ViewError::usage("Cannot read the frontmatter enclosed by --- at the top.")
             })?;
             if card.frontmatter.run_id.trim() != run_id.to_string() {
-                return Err(PhoneError::usage(
+                return Err(ViewError::usage(
                     "Cannot change run_id in the frontmatter. The card would disappear from todo.",
                 ));
             }
             task
         }
-        "message" => return Err(PhoneError::usage("A message cannot be saved.")),
+        "message" => return Err(ViewError::usage("A message cannot be saved.")),
         other => {
-            return Err(PhoneError::usage(format!(
+            return Err(ViewError::usage(format!(
                 "Invalid kind: {} (task).",
                 other
             )))
@@ -890,63 +864,20 @@ fn md_save(run_id: i64, kind: &str, text: &str) -> PhoneResult<Value> {
     };
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)
-            .map_err(|e| PhoneError::internal(format!("Cannot create the folder: {}.", e)))?;
+            .map_err(|e| ViewError::internal(format!("Cannot create the folder: {}.", e)))?;
     }
     std::fs::write(&path, text)
-        .map_err(|e| PhoneError::internal(format!("Failed to save: {}.", e)))?;
+        .map_err(|e| ViewError::internal(format!("Failed to save: {}.", e)))?;
     md(run_id, kind)
-}
-
-// ============================================================================
-// waggle — 成果物トークン一覧 / 本文
-// ============================================================================
-
-/// `phone waggle <id> [--token …]`: md 成果物の一覧（または 1 件の本文）。
-fn waggle(run_id: i64, token: Option<&str>) -> PhoneResult<Value> {
-    let store = open_store()?;
-    match token {
-        None => {
-            let items: Vec<Value> = phone_view::waggle_choices(&store, run_id)
-                .into_iter()
-                .map(|c| {
-                    json!({
-                        "token": c.token,
-                        "label": c.file_name,
-                        "description": c.description,
-                        // U03: 実行状態（running / completed 等。task.md 作成時の判断用）
-                        "status": c.status,
-                        // task_text にそのまま貼れる参照行
-                        "ref": phone_view::doc_ref_line(&c),
-                    })
-                })
-                .collect();
-            Ok(json!({ "items": items }))
-        }
-        Some(token) => {
-            let doc = phone_view::load_waggle_token(token).map_err(|msg| {
-                // integrator 起動失敗（engine の文は日本語・英語どちらでも "integrator" を含む）は DB 系（4）、解決・内容失敗は見つからない扱い（3）
-                if msg.contains("integrator") {
-                    PhoneError::internal(msg)
-                } else {
-                    PhoneError::not_found(msg)
-                }
-            })?;
-            Ok(json!({
-                "token": doc.token,
-                "label": doc.file_name,
-                "text": doc.content,
-            }))
-        }
-    }
 }
 
 // ============================================================================
 // card — options / inputs / create
 // ============================================================================
 
-/// `phone card options`: ウィザードの選択肢（block / model / thinking / …）。
-fn card_options() -> PhoneResult<Value> {
-    // DB が無いプロジェクトでは他の phone 命令と同じ終了コードで止める
+/// `card options`: ウィザードの選択肢（block / model / thinking / …）。
+fn card_options() -> ViewResult<Value> {
+    // DB が無いプロジェクトでは他の命令と同じ終了コードで止める
     open_store()?;
 
     let blocks: Vec<Value> = card_wizard::load_block_choices()
@@ -963,93 +894,77 @@ fn card_options() -> PhoneResult<Value> {
     }))
 }
 
-/// `phone card inputs --block <id>`: 入力欄（P2 で入力を廃止したため常に空）。
-///
-/// ブロックの存在確認だけ行い、`{"fields": []}` を返す（外部 sai-phone 互換）。
-fn card_inputs(block: &str) -> PhoneResult<Value> {
-    if block.trim().is_empty() {
-        return Err(PhoneError::usage("Specify a block."));
-    }
-    if card_wizard::resolve_block_path(block.trim()).is_none() {
-        return Err(PhoneError::not_found(format!(
-            "Block {} not found.",
-            block
-        )));
-    }
-    Ok(json!({ "fields": [] }))
-}
-
-/// 候補 1 件を `phone card docs` の JSON にする。
+/// 候補 1 件を `card docs` の JSON にする。
 ///
 /// `ref` の `<run_id>` は **文書を保存した実行の番号**（U08）。
-fn card_candidate_json(c: &phone_view::WaggleChoiceData) -> Value {
+fn card_candidate_json(c: &run_docs::WaggleChoiceData) -> Value {
     json!({
         "token": c.token,
         "label": c.file_name,
         "description": c.description,
         "status": c.status,
         // task.md への貼り付け形式（そのまま task_text に書ける）
-        "ref": phone_view::doc_ref_line(c),
+        "ref": run_docs::doc_ref_line(c),
     })
 }
 
-/// `phone card docs [--limit N]`: 最近の文書（実行中を含む全体の md）を新しい順に返す。
-fn card_docs(limit: usize) -> PhoneResult<Value> {
+/// `card docs [--limit N]`: 最近の文書（実行中を含む全体の md）を新しい順に返す。
+fn card_docs(limit: usize) -> ViewResult<Value> {
     let store = open_store()?;
-    let items: Vec<Value> = phone_view::recent_docs(&store, limit)
+    let items: Vec<Value> = run_docs::recent_docs(&store, limit)
         .iter()
         .map(card_candidate_json)
         .collect();
     Ok(json!({ "items": items }))
 }
 
-/// `phone card schedule <run_id> [--at …]`: todo のカードの `scheduled_at:` を書き換える。
+/// `card schedule <run_id> [--at …]`: todo のカードの `scheduled_at:` を書き換える。
 ///
-/// 実行は常駐がその時刻に `phone card run` と同じ流れで行う（`daemon.rs` の予定の見回り）。
-fn card_schedule(run_id: i64, at: Option<&str>) -> PhoneResult<Value> {
+/// 実行は常駐がその時刻に `card run` と同じ流れで行う（`daemon.rs` の予定の見回り）。
+fn card_schedule(run_id: i64, at: Option<&str>) -> ViewResult<Value> {
     let task = agent_link_engine::project::sai_path(agent_link_engine::run_dir::OUTPUTS_DIR)
         .join(agent_link_engine::run_dir::TODO_OWNER)
         .join(run_id.to_string())
         .join(agent_link_engine::run_dir::TASK_FILE);
     if !task.is_file() {
-        return Err(PhoneError::not_found(TODO_NOT_FOUND));
+        return Err(ViewError::not_found(TODO_NOT_FOUND));
     }
     let at = at.map(str::trim).filter(|s| !s.is_empty());
     if let Some(v) = at {
         agent_link_engine::kanban::parse_scheduled_at(v).ok_or_else(|| {
-            PhoneError::usage("The time must be in the form YYYY-MM-DD HH:MM.")
+            ViewError::usage("The time must be in the form YYYY-MM-DD HH:MM.")
         })?;
     }
     let text = std::fs::read_to_string(&task)
-        .map_err(|e| PhoneError::internal(format!("Cannot read task.md: {}.", e)))?;
+        .map_err(|e| ViewError::internal(format!("Cannot read task.md: {}.", e)))?;
     let mut card = agent_link_engine::kanban::parse_card(&text)
-        .ok_or_else(|| PhoneError::not_found(TODO_NOT_FOUND))?;
+        .ok_or_else(|| ViewError::not_found(TODO_NOT_FOUND))?;
     card.frontmatter
         .set_meta("scheduled_at".to_string(), at.unwrap_or("").to_string());
     std::fs::write(&task, agent_link_engine::kanban::render_card(&card))
-        .map_err(|e| PhoneError::internal(format!("Cannot write task.md: {}.", e)))?;
+        .map_err(|e| ViewError::internal(format!("Cannot write task.md: {}.", e)))?;
     Ok(json!({ "run_id": run_id, "scheduled_at": at }))
 }
 
-/// `phone card create`（stdin に JSON）: カードを作成し run_id とパスを返す。
+/// `card create`（stdin に JSON）: カードを作成し run_id とパスを返す。
 ///
-/// 受け取った値は TUI と同じ検査（`validate_card_spec`。block は必須）にかけ、
+/// 受け取った値は検査（`validate_card_spec`。block は必須）にかけ、
 /// `doc_tokens` の文書が在るかも確かめる（無ければ 3）。
-/// 本文は `# task_text` 直下に task_text（TUI と同じ）。
-/// `doc_tokens` 指定時は TUI Step4 と同じく task_text 先頭に参照行を貼る
+/// 本文は `# task_text` 直下に task_text。
+/// `doc_tokens` 指定時は task_text 先頭に参照行を貼る
 /// （全経路共通の候補形式。実行時に本文展開される）。
-fn card_create() -> PhoneResult<Value> {
+fn card_create() -> ViewResult<Value> {
     let mut input = String::new();
     std::io::stdin()
         .read_to_string(&mut input)
-        .map_err(|e| PhoneError::usage(format!("Failed to read standard input: {}.", e)))?;
+        .map_err(|e| ViewError::usage(format!("Failed to read standard input: {}.", e)))?;
     let parsed: CardCreateInput = serde_json::from_str(&input)
-        .map_err(|e| PhoneError::usage(format!("Failed to parse JSON: {}.", e)))?;
+        .map_err(|e| ViewError::usage(format!("Failed to parse JSON: {}.", e)))?;
     card_create_from(parsed)
 }
 
 /// 解析済みの入力からカードを作る（`card create` の本体・試験用）。
-fn card_create_from(parsed: CardCreateInput) -> PhoneResult<Value> {
+fn card_create_from(parsed: CardCreateInput) -> ViewResult<Value> {
     open_store()?;
     // `meta` はカードを作る前に検査する（標準のキー・キーの形）
     let meta = validate_card_meta(&parsed.meta)?;
@@ -1064,7 +979,7 @@ fn card_create_from(parsed: CardCreateInput) -> PhoneResult<Value> {
         .take(200)
         .collect();
 
-    // TUI Step4 と同じ貼り付け（doc_tokens → task_text 先頭の参照行＋本文）
+    // 貼り付け（doc_tokens → task_text 先頭の参照行＋本文）
     let doc_refs: Vec<String> = parsed
         .doc_tokens
         .iter()
@@ -1091,13 +1006,13 @@ fn card_create_from(parsed: CardCreateInput) -> PhoneResult<Value> {
         thinking: parsed.thinking,
         task_text,
     };
-    // TUI と同じ検査（block は必須で存在するもの・model・thinking は一覧の値）
-    card_wizard::validate_card_spec(&spec).map_err(PhoneError::usage)?;
+    // 検査（block は必須で存在するもの・model・thinking は一覧の値）
+    card_wizard::validate_card_spec(&spec).map_err(ViewError::usage)?;
     // `doc_tokens` の文書が在ること（無いと `card run` が必ず失敗する）。`doc read` と同じ読み出し。
     for t in &parsed.doc_tokens {
         let t = t.trim();
         if !t.is_empty() && agent_link_engine::agent_api::sai_read(t).is_err() {
-            return Err(PhoneError::not_found(format!("Document not found: {}.", t)));
+            return Err(ViewError::not_found(format!("Document not found: {}.", t)));
         }
     }
 
@@ -1105,7 +1020,7 @@ fn card_create_from(parsed: CardCreateInput) -> PhoneResult<Value> {
     let executer = match agent_link_engine::kanban::parse_executer(&parsed.executer) {
         Some(v) => v.to_string(),
         None => {
-            return Err(PhoneError::parse(format!(
+            return Err(ViewError::parse(format!(
                 "Unknown starter: {} (human / agent).",
                 parsed.executer.trim()
             )))
@@ -1113,13 +1028,13 @@ fn card_create_from(parsed: CardCreateInput) -> PhoneResult<Value> {
     };
 
     let path = card_wizard::create_card(&spec)
-        .map_err(|e| PhoneError::usage(format!("Failed to create the card: {}.", e)))?;
+        .map_err(|e| ViewError::usage(format!("Failed to create the card: {}.", e)))?;
 
     // 作成済み task.md の frontmatter に起動者を足す（`executer` はメタ情報）。
     let text = std::fs::read_to_string(&path)
-        .map_err(|e| PhoneError::internal(format!("Cannot read the created task.md: {}.", e)))?;
+        .map_err(|e| ViewError::internal(format!("Cannot read the created task.md: {}.", e)))?;
     let mut card = agent_link_engine::kanban::parse_card(&text)
-        .ok_or_else(|| PhoneError::internal("Cannot read the frontmatter of the created task.md."))?;
+        .ok_or_else(|| ViewError::internal("Cannot read the frontmatter of the created task.md."))?;
     card.frontmatter
         .set_meta("executer".to_string(), executer.clone());
     // `meta`（任意の追加項目）を frontmatter に書く（改行は空白に置き換え済み）
@@ -1129,14 +1044,14 @@ fn card_create_from(parsed: CardCreateInput) -> PhoneResult<Value> {
     // 一覧に出す説明（1 行目だけ）を frontmatter に書く
     card.frontmatter.description = description;
     std::fs::write(&path, render_card_with_meta(&card, &meta))
-        .map_err(|e| PhoneError::internal(format!("Cannot write the created task.md: {}.", e)))?;
+        .map_err(|e| ViewError::internal(format!("Cannot write the created task.md: {}.", e)))?;
 
     // 作成済み task.md の frontmatter から確定した run_id を読む
     let text = std::fs::read_to_string(&path)
-        .map_err(|e| PhoneError::internal(format!("Cannot read the created task.md: {}.", e)))?;
+        .map_err(|e| ViewError::internal(format!("Cannot read the created task.md: {}.", e)))?;
     let run_id: i64 = agent_link_engine::kanban::parse_card(&text)
         .and_then(|c| c.frontmatter.run_id.trim().parse::<i64>().ok())
-        .ok_or_else(|| PhoneError::internal("Cannot read run_id in task.md."))?;
+        .ok_or_else(|| ViewError::internal("Cannot read run_id in task.md."))?;
 
     Ok(json!({
         "run_id": run_id,
@@ -1154,7 +1069,7 @@ fn card_create_from(parsed: CardCreateInput) -> PhoneResult<Value> {
 /// - キーは `^[a-z][a-z0-9_]*$` だけ受ける。
 /// - 標準のキー（run_id など）は受け付けない（終了コード 2）。
 /// - 値の改行は空白に置き換える。
-fn validate_card_meta(meta: &HashMap<String, String>) -> PhoneResult<Vec<(String, String)>> {
+fn validate_card_meta(meta: &HashMap<String, String>) -> ViewResult<Vec<(String, String)>> {
     // 廃止した `runner`・`provider`・`tag` と round 系の 2 項目も、`meta` で同名を書かせないため残す。
     const STANDARD_KEYS: [&str; 15] = [
         "runner",
@@ -1176,13 +1091,13 @@ fn validate_card_meta(meta: &HashMap<String, String>) -> PhoneResult<Vec<(String
     let mut out = Vec::with_capacity(meta.len());
     for (key, value) in meta {
         if !valid_meta_key(key) {
-            return Err(PhoneError::parse(format!(
+            return Err(ViewError::parse(format!(
                 "A meta key may contain only lowercase letters, digits and _: {}.",
                 key
             )));
         }
         if STANDARD_KEYS.contains(&key.as_str()) {
-            return Err(PhoneError::parse(format!(
+            return Err(ViewError::parse(format!(
                 "The meta key {} is reserved.",
                 key
             )));
@@ -1233,169 +1148,128 @@ const DAEMON_STOPPED: &str = "The daemon is stopped. Start it first.";
 /// 実行が見つからないときの stderr 文言（終了コード 3）。
 const EXEC_NOT_FOUND: &str = "Run not found.";
 
-/// `phone advance` で review / done 以外の置き場所だったときの stderr 文言（終了コード 1）。
+/// `run advance` で review / done 以外の置き場所だったときの stderr 文言（終了コード 1）。
 const ADVANCE_UNSUPPORTED: &str = "Only a run in review can be moved.";
 
-/// `phone card run <run_id>`: todo の未実行カードに実行要求を送る（非対話）。
+/// `card run <run_id>`: todo の未実行カードに実行要求を送る（非対話）。
 ///
-/// - 対象: `outputs/todo/<run_id>/task.md` があり、`phone tree` の todo に出るもの
+/// - 対象: `outputs/todo/<run_id>/task.md` があり、`run tree` の todo に出るもの
 ///   （同じ `todo_card_paths` を使うため送信済み・DB 紐付け済みは弾かれる）
 /// - 実行本体は `agent-link block run --kanban --card … --yes` と同じ
 ///   `kanban_run::run_card_request` を通す（二重実装しない・対話は出さない）
 /// - 成功: stdout に `{"run_id": N, "message": "Run requested."}` / 終了コード 0
 /// - 対象無し: 終了コード 3、常駐停止・実行失敗: 終了コード 1
-fn card_run(run_id: i64) -> PhoneResult<Value> {
+fn card_run(run_id: i64) -> ViewResult<Value> {
     // 1. 対象カードの解決（無ければ終了コード 3）
     let task = agent_link_engine::project::sai_path(agent_link_engine::run_dir::OUTPUTS_DIR)
         .join(agent_link_engine::run_dir::TODO_OWNER)
         .join(run_id.to_string())
         .join(agent_link_engine::run_dir::TASK_FILE);
     if !task.is_file() {
-        return Err(PhoneError::not_found(TODO_NOT_FOUND));
+        return Err(ViewError::not_found(TODO_NOT_FOUND));
     }
     let store = open_store()?;
     let target = resolve_target_card(&store, run_id, task)?;
 
     // 2. 常駐確認（既存の判定方法を使う。止まっていれば終了コード 1）
     if !agent_link_engine::daemon::is_running() {
-        return Err(PhoneError::usage(DAEMON_STOPPED));
+        return Err(ViewError::usage(DAEMON_STOPPED));
     }
 
     // 3. 実行要求（対話なし。`block run --kanban --card … --yes` と同じ流れ）
     crate::kanban_run::run_card_request(
         &target, None, &[], None, None, None,
     )
-    .map_err(|e| PhoneError::usage(e.to_string()))?;
+    .map_err(|e| ViewError::usage(e.to_string()))?;
 
     Ok(json!({ "run_id": run_id, "message": "Run requested." }))
 }
 
 /// todo に出ている未実行カードかを検証し、カードパスを返す（無ければ終了コード 3）。
-fn resolve_target_card(store: &SaiStore, run_id: i64, task: PathBuf) -> PhoneResult<PathBuf> {
+fn resolve_target_card(store: &SaiStore, run_id: i64, task: PathBuf) -> ViewResult<PathBuf> {
     // ディレクトリ名と frontmatter の run_id が対象と一致するか
     // （不一致（A3）は todo に run_id が出ないため実行対象にしない）
     let text = std::fs::read_to_string(&task)
-        .map_err(|e| PhoneError::internal(format!("Cannot read task.md: {}.", e)))?;
+        .map_err(|e| ViewError::internal(format!("Cannot read task.md: {}.", e)))?;
     let card = agent_link_engine::kanban::parse_card(&text)
-        .ok_or_else(|| PhoneError::not_found(TODO_NOT_FOUND))?;
+        .ok_or_else(|| ViewError::not_found(TODO_NOT_FOUND))?;
     let info_run_id = card_entries::todo_card_info(&task, &card).and_then(|i| i.run_id);
     if info_run_id != Some(run_id) {
-        return Err(PhoneError::not_found(TODO_NOT_FOUND));
+        return Err(ViewError::not_found(TODO_NOT_FOUND));
     }
-    // `phone tree` の todo と同じ条件（送信済み・DB 紐付け済みは除外）
+    // `run tree` の todo と同じ条件（送信済み・DB 紐付け済みは除外）
     let executions = store
         .list_recent_executions(100)
-        .map_err(|e| PhoneError::internal(e.to_string()))?;
+        .map_err(|e| ViewError::internal(e.to_string()))?;
     if left_tree::todo_card_paths(&executions).contains(&task) {
         Ok(task)
     } else {
-        Err(PhoneError::not_found(TODO_NOT_FOUND))
+        Err(ViewError::not_found(TODO_NOT_FOUND))
     }
 }
 
-/// `phone finalize <run_id>`: 実行中のメインブロックを完了させる（sai-phone の ■ 終了用）。
-///
-/// - 対象: `status == "running"` かつ `parent_run_id` が無い（メインブロックのみ）。
-///   子ブロックは `task_report` で完了させるため受け付けない
-/// - 完了要求は `agent_api::finalize` を通る（finalize_request を書き、デーモンが
-///   DB 保存・成果物のまとめ・pane を閉じる。`pi` / `cc` 終了時の自動完了と同じ経路）
-/// - 成功: stdout に `{"run_id": N, "message": "Stop requested."}` / 終了コード 0
-/// - 実行が無い: 終了コード 3、実行中以外・子ブロック・常駐停止: 終了コード 1
-fn finalize(run_id: i64) -> PhoneResult<Value> {
-    let store = open_store()?;
-
-    // 1. 実行の存在（無ければ終了コード 3）
-    let exec = store
-        .get_execution_by_id(run_id)
-        .map_err(|_| PhoneError::not_found(EXEC_NOT_FOUND))?;
-
-    // 2. 実行中か（完了済み・未実行は二重確定になるため弾く）
-    if exec.status != "running" {
-        return Err(PhoneError::usage(format!(
-            "The run is not running (status={}).",
-            exec.status
-        )));
-    }
-
-    // 3. メインブロックか（子ブロックは task_report で完了する）
-    if exec.parent_run_id.is_some() {
-        return Err(PhoneError::usage("A subtask finishes with `agent-link task report`."));
-    }
-
-    // 4. 常駐確認（実行時と同じ判定。止まっていれば完了処理ができない）
-    if !agent_link_engine::daemon::is_running() {
-        return Err(PhoneError::usage(DAEMON_STOPPED));
-    }
-
-    // 5. 完了要求（デーモンが拾って完了処理する）
-    agent_link_engine::agent_api::finalize(Some(run_id), None).map_err(PhoneError::usage)?;
-
-    Ok(json!({ "run_id": run_id, "message": "Stop requested." }))
-}
-
-/// `phone advance <run_id>`: review の実行を Workflow へ進める（review → 日付フォルダ）。
+/// `run advance <run_id>`: review の実行を Workflow へ進める（review → 日付フォルダ）。
 ///
 /// - 今の置き場所は `run_dir::find_run_dir` で決める。`review` だけ受ける
 ///   （`advance_review_to_workflow`・移し先は `yymmdd`）
 /// - 成功: stdout に `{"run_id": N, "from": "review", "to": "<yymmdd>"}` / 終了コード 0
 /// - 実行が無い: 終了コード 3、review 以外: 終了コード 2
-fn advance(run_id: i64) -> PhoneResult<Value> {
+fn advance(run_id: i64) -> ViewResult<Value> {
     use agent_link_engine::run_dir;
 
     let store = open_store()?;
 
     // 1. 今の置き場所（run フォルダが無い実行は対象外・終了コード 3）
     let (from, _) =
-        run_dir::find_run_dir(run_id).ok_or_else(|| PhoneError::not_found(EXEC_NOT_FOUND))?;
+        run_dir::find_run_dir(run_id).ok_or_else(|| ViewError::not_found(EXEC_NOT_FOUND))?;
 
     // 2. review だけ Workflow へ進める
     if from != run_dir::REVIEW_OWNER {
-        return Err(PhoneError::usage(ADVANCE_UNSUPPORTED));
+        return Err(ViewError::usage(ADVANCE_UNSUPPORTED));
     }
-    let to = run_dir::advance_review_to_workflow(&store, run_id).map_err(PhoneError::usage)?;
+    let to = run_dir::advance_review_to_workflow(&store, run_id).map_err(ViewError::usage)?;
 
     Ok(json!({ "run_id": run_id, "from": from, "to": to }))
 }
 
-/// `phone rm <run_id>`: 実行を消す（`run_dir::delete_run`・`block rm` と同じ関数）。
+/// `run rm <run_id>`: 実行を消す（`run_dir::delete_run`・`block rm` と同じ関数）。
 ///
 /// 実行中（pane が生きている）は消さない。子の実行と run フォルダも一緒に消える。
-fn rm(run_id: i64) -> PhoneResult<Value> {
+fn rm(run_id: i64) -> ViewResult<Value> {
     let store = open_store()?;
     let exec = store
         .get_execution_by_id(run_id)
-        .map_err(|_| PhoneError::not_found(format!("Run {} not found.", run_id)))?;
+        .map_err(|_| ViewError::not_found(format!("Run {} not found.", run_id)))?;
     if matches!(exec.status.as_str(), "running" | "pending") {
-        return Err(PhoneError::conflict("A running run cannot be deleted. Stop it first."));
+        return Err(ViewError::conflict("A running run cannot be deleted. Stop it first."));
     }
     let summary =
-        agent_link_engine::run_dir::delete_run(&store, run_id).map_err(PhoneError::internal)?;
+        agent_link_engine::run_dir::delete_run(&store, run_id).map_err(ViewError::internal)?;
     Ok(json!({ "run_id": run_id, "executions": summary.executions }))
 }
 
 // ============================================================================
-// summary — プロジェクト一覧用の最小集計（実装計画 C C1）
+// summary — プロジェクト一覧用の最小集計
 // ============================================================================
 
-/// `phone summary`: プロジェクト一覧に出す 1 プロジェクトの最小集計
-/// （実装計画 C C1・sai-phone の Project タブが `sai-control status --json` の
-/// 代わりに使う）。
+/// `project summary`: プロジェクト一覧に出す 1 プロジェクトの最小集計
+/// （Web の Project 一覧が使う）。
 ///
 /// 返す形（共有契約）:
 /// ```json
 /// { "running": 3, "last_executed_at": "2026-09-26T02:15:13Z" }
 /// ```
 ///
-/// - `running`: `status = 'running'` の実行数（件数のみ・sai-phone は中身を使わない）
+/// - `running`: `status = 'running'` の実行数（件数のみ）
 /// - `last_executed_at`: 最終実行の開始時刻（`started_at` が空なら `created_at`）。
 ///   実行が 1 件も無ければ `null`
 /// - 集計の決め方は sai-control の `reader::status`（`reader.rs:346-363`）に揃える
-fn summary() -> PhoneResult<Value> {
+fn summary() -> ViewResult<Value> {
     let store = open_store()?;
     // `list_all_executions` は created_at の昇順（store.rs:2768）なので末尾が最新
     let execs = store
         .list_all_executions()
-        .map_err(|e| PhoneError::internal(e.to_string()))?;
+        .map_err(|e| ViewError::internal(e.to_string()))?;
 
     // 実行中（件数のみ）
     let running = execs.iter().filter(|e| e.status == "running").count();
@@ -1413,7 +1287,7 @@ fn summary() -> PhoneResult<Value> {
 }
 
 // ============================================================================
-// dashboard — 期間集計（実装計画 C C2）
+// dashboard — 期間集計
 // ============================================================================
 
 /// 集計期間（`sai-control dashboard --period` と同じ 3 種）。
@@ -1454,7 +1328,7 @@ impl std::str::FromStr for Period {
     }
 }
 
-/// `phone dashboard` の返り値（sai-control `cross::Dashboard` と同形）。
+/// `project dashboard` の返り値（sai-control `cross::Dashboard` と同形）。
 ///
 /// 構造体にしてあるのは、JSON の項目順を sai-control と一致させるため
 /// （`json!` のmacro は `serde_json::Map` = アルファベット順になる）。
@@ -1482,7 +1356,7 @@ struct Dashboard {
     recent: Vec<RecentRun>,
 }
 
-/// `phone dashboard` の `summary` 欄（sai-control `cross::DashboardSummary` と同形）。
+/// `project dashboard` の `summary` 欄（sai-control `cross::DashboardSummary` と同形）。
 #[derive(Debug, Clone, Default, serde::Serialize)]
 struct DashboardSummary {
     /// 期間内の実行数
@@ -1509,7 +1383,7 @@ struct DashboardSummary {
     cost_usd: f64,
 }
 
-/// `phone dashboard` の `daily` 1 行（`since`〜`until` の全日・0 埋め）。
+/// `project dashboard` の `daily` 1 行（`since`〜`until` の全日・0 埋め）。
 #[derive(Debug, Clone, serde::Serialize)]
 struct DailyRow {
     /// 日付（日本時間・YYYY-MM-DD）
@@ -1520,7 +1394,7 @@ struct DailyRow {
     tokens: u64,
 }
 
-/// `phone dashboard` の `by_model` 1 行（token の多い順）。
+/// `project dashboard` の `by_model` 1 行（token の多い順）。
 #[derive(Debug, Clone, serde::Serialize)]
 struct ModelRow {
     /// モデル名（実行時 > ブロック定義 > `unknown`）
@@ -1535,7 +1409,7 @@ struct ModelRow {
     cost_usd: f64,
 }
 
-/// `phone dashboard` の `by_block` 1 行（token の多い順）。
+/// `project dashboard` の `by_block` 1 行（token の多い順）。
 #[derive(Debug, Clone, serde::Serialize)]
 struct BlockRow {
     /// ブロック名
@@ -1548,7 +1422,7 @@ struct BlockRow {
     tokens: u64,
 }
 
-/// `phone dashboard` の `recent` 1 行（期間内の新しい順・最大 10 件）。
+/// `project dashboard` の `recent` 1 行（期間内の新しい順・最大 10 件）。
 #[derive(Debug, Clone, serde::Serialize)]
 struct RecentRun {
     /// 実行 ID（`execution_history.id`）
@@ -1565,8 +1439,8 @@ struct RecentRun {
     duration_ms: Option<i64>,
 }
 
-/// `phone dashboard --period <p>`: 期間ダッシュボードを JSON で返す
-/// （実装計画 C C2・sai-phone の Dashboard タブ用）。
+/// `project dashboard --period <p>`: 期間ダッシュボードを JSON で返す
+/// （Web の Dashboard 用）。
 ///
 /// 出力の形は `sai-control dashboard <name> --period <p> --json` と **同じ**。
 /// 期間の決め方（日本時間）・集計は sai-control の `cross::dashboard`
@@ -1576,18 +1450,18 @@ struct RecentRun {
 /// - `since` / `until`: 日本時間の日付（YYYY-MM-DD）
 /// - `daemon_alive`: `daemon::is_running()`（`daemon.pid` の生存確認）
 /// - 実行が 1 件も無くても `daily` は `since`〜`until` の全日を 0 埋めで返す
-fn dashboard(period_str: &str) -> PhoneResult<PhoneOut> {
+fn dashboard(period_str: &str) -> ViewResult<ViewOut> {
     let period: Period = period_str
         .parse()
-        .map_err(|e| PhoneError::usage(format!("{}", e)))?;
+        .map_err(|e| ViewError::usage(format!("{}", e)))?;
     let store = open_store()?;
     let root = agent_link_engine::project::project_root();
     // 「今日」の日本時間の日付（sai-control の `cmd_dashboard` と同じ +9 時間）
     let today_jst = (chrono::Utc::now() + chrono::Duration::hours(9)).date_naive();
     let value = build_dashboard(&store, &root, period, today_jst)?;
     let text =
-        serde_json::to_string_pretty(&value).map_err(|e| PhoneError::internal(e.to_string()))?;
-    Ok(PhoneOut::Text(text))
+        serde_json::to_string_pretty(&value).map_err(|e| ViewError::internal(e.to_string()))?;
+    Ok(ViewOut::Text(text))
 }
 
 /// 期間ダッシュボードを組み立てる（`today_jst` を渡せる純関数・sai-control の
@@ -1597,13 +1471,13 @@ fn build_dashboard(
     root: &std::path::Path,
     period: Period,
     today_jst: NaiveDate,
-) -> PhoneResult<Dashboard> {
+) -> ViewResult<Dashboard> {
     let execs = store
         .list_all_executions()
-        .map_err(|e| PhoneError::internal(e.to_string()))?;
+        .map_err(|e| ViewError::internal(e.to_string()))?;
     let usage_map = store
         .execution_usage_total_map()
-        .map_err(|e| PhoneError::internal(e.to_string()))?;
+        .map_err(|e| ViewError::internal(e.to_string()))?;
 
     // ブロック情報は実行ごとに引かない（取り回しのため一度だけためる）
     let mut blocks: HashMap<i64, agent_link_engine::db::BlockMetadata> = HashMap::new();
@@ -1825,7 +1699,7 @@ fn period_since(period: Period, today: NaiveDate, first: NaiveDate) -> NaiveDate
 /// プロジェクト表示名（`.agent-link/project.json` の `name`・無ければルートフォルダ名）。
 ///
 /// sai-control は CLI 引数のプロジェクト名をそのまま `name` に入れていたが、
-/// `phone dashboard` はプロジェクト名を引数に取らない（cwd で決まる）ため
+/// `project dashboard` はプロジェクト名を引数に取らない（cwd で決まる）ため
 /// 同じ結果を `.agent-link/project.json` から復元する。
 fn project_display_name(root: &std::path::Path) -> String {
     let from_json = std::fs::read_to_string(root.join(".agent-link").join("project.json"))
@@ -1850,7 +1724,7 @@ mod tests {
 
     /// `AGENT_LINK_PROJECT_ROOT` はプロセス共通のため、環境変数を触るテスト同士が
     /// 並行実行で衝突しないようこのロックを共用する。
-    /// `phone_def` のテストも [`ENV_TEST_LOCK`] と同じロックを使う。
+    /// `def_files` のテストも [`ENV_TEST_LOCK`] と同じロックを使う。
     /// 別々のロックだと両方が並列実行して `AGENT_LINK_PROJECT_ROOT` を奪い合う。
     pub(crate) static ENV_LOCK: &std::sync::Mutex<()> = &super::ENV_TEST_LOCK;
 
@@ -1940,7 +1814,7 @@ mod tests {
         path
     }
 
-    /// `phone workflow` の出力が共有契約（C-L1）の形を満たすこと。
+    /// `workflow` の出力が共有契約（C-L1）の形を満たすこと。
     ///
     /// DB は空（実行 0 件）なので `nodes` / `edges` / `separators` は空配列の
     /// ままで、成否ではなく「形」とキー集合を確かめる。
@@ -1951,7 +1825,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let _guard = RootGuard::set(tmp.path());
 
-        let out = workflow(false).expect("phone workflow");
+        let out = workflow(false).expect("workflow");
         for key in ["width", "height", "nodes", "edges", "separators", "lanes"] {
             assert!(out.get(key).is_some(), "{key} が無い: {out}");
         }
@@ -1990,7 +1864,7 @@ mod tests {
         };
 
         // 既定は親だけ
-        let out = workflow(false).expect("phone workflow");
+        let out = workflow(false).expect("workflow");
         let nodes = out["nodes"].as_array().expect("nodes");
         assert_eq!(nodes.len(), 1, "子は載らない: {out}");
         assert_eq!(nodes[0]["id"], parent);
@@ -1998,7 +1872,7 @@ mod tests {
         assert!(out["edges"].as_array().unwrap().is_empty());
 
         // --subtasks で子も載り、親 → 子の委譲が 1 本
-        let out = workflow(true).expect("phone workflow --subtasks");
+        let out = workflow(true).expect("workflow --subtasks");
         let nodes = out["nodes"].as_array().expect("nodes");
         assert_eq!(nodes.len(), 2, "{out}");
         let want = [
@@ -2055,7 +1929,7 @@ mod tests {
 
         // 注: `todo_card_paths` の pending 照合は「フルパス一致 or ファイル名一致」で、
         // 新形式のカードは全部 `task.md` なため pending 中は新形式カード全体が
-        // todo から消える（`phone tree` と同じ挙動）。以降のケースは
+        // todo から消える（`run tree` と同じ挙動）。以降のケースは
         // この干渉を避けるため pending を消してから検証する。
         std::fs::remove_file(pending.join("1-block_run_request.json")).unwrap();
 
@@ -2297,62 +2171,7 @@ mod tests {
             .unwrap()
     }
 
-    /// `phone finalize`: 実行が無い / 実行中以外 / 子ブロック / 常駐停止の扱い。
-    ///
-    /// 完了要求まで到達するケース（実行中のメインブロック）は、テスト環境では
-    /// 常駐が居ないため必ず DAEMON_STOPPED で止まる（`AGENT_LINK_PROJECT_ROOT` を
-    /// 一時ディレクトリに向けたので PID ファイルも読まれない）。
-    #[test]
-    fn finalize_target_selection_and_exit_codes() {
-        let _env = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        let tmp = tempfile::tempdir().unwrap();
-        let root = tmp.path();
-        let _guard = RootGuard::set(root);
-
-        // (1) 存在しない run_id → 終了コード 3
-        let err = finalize(999_999_999).unwrap_err();
-        assert_eq!(err.code, EXIT_NOT_FOUND);
-        assert_eq!(err.msg, EXEC_NOT_FOUND);
-
-        // 実行レコードを差し込む（一時ルート配下の DB を使う）
-        let db = root.join(".agent-link/engine/agent-link.db");
-        std::fs::create_dir_all(db.parent().unwrap()).unwrap();
-        let store = SaiStore::open(&db).unwrap();
-        let block_id = insert_test_block(&store);
-        // 完了済みの run
-        let completed = store.create_execution(block_id, None).unwrap();
-        store.update_execution_status(completed, "completed").unwrap();
-        // 実行中のメインブロック
-        let running = store.create_execution(block_id, None).unwrap();
-        store.update_execution_status(running, "running").unwrap();
-        // 実行中の子ブロック
-        let subtask = store
-            .create_execution_for_subtask(block_id, None, running, None)
-            .unwrap();
-        store.update_execution_status(subtask, "running").unwrap();
-        drop(store);
-
-        // (2) 完了済みの run → 終了コード 1（The run is not running）
-        let err = finalize(completed).unwrap_err();
-        assert_eq!(err.code, EXIT_USAGE);
-        assert!(
-            err.msg.contains("is not running"),
-            "実行中以外を弾く: {}",
-            err.msg
-        );
-
-        // (3) 実行中の子ブロック → 終了コード 1（task_report で完了する）
-        let err = finalize(subtask).unwrap_err();
-        assert_eq!(err.code, EXIT_USAGE);
-        assert_eq!(err.msg, "A subtask finishes with `agent-link task report`.");
-
-        // (4) 実行中のメインブロック → 常駐停止で終了コード 1
-        let err = finalize(running).unwrap_err();
-        assert_eq!(err.code, EXIT_USAGE);
-        assert_eq!(err.msg, DAEMON_STOPPED);
-    }
-
-    /// `phone advance`: review → 日付フォルダと進み、review 以外は弾く。
+    /// `run advance`: review → 日付フォルダと進み、review 以外は弾く。
     /// 親子の実行（子は親の `children` に入る）も `run tree` で確かめる。
     #[test]
     fn advance_review_to_workflow_and_unsupported() {
@@ -2440,7 +2259,7 @@ mod tests {
     }
 
     // ========================================================================
-    // テスト: phone summary / phone dashboard（実装計画 C C1 / C2）
+    // テスト: project summary / project dashboard
     // ========================================================================
 
     /// テスト用のブロックを作る（engine 側の `create_test_block` は `#[cfg(test)]` のため
@@ -2493,8 +2312,8 @@ mod tests {
             .collect()
     }
 
-    /// `phone summary` が「実行中の件数」と「最終実行の開始日時」を返すこと
-    /// （実装計画 C C1 の共有契約 `{"running", "last_executed_at"}`）。
+    /// `project summary` が「実行中の件数」と「最終実行の開始日時」を返すこと
+    /// （共有契約 `{"running", "last_executed_at"}`）。
     #[test]
     fn summary_reports_running_count_and_last_executed_at() {
         let _env = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
@@ -2528,7 +2347,7 @@ mod tests {
         assert!(obj.contains_key("last_executed_at"));
     }
 
-    /// 実行が 0 件のとき `phone summary` が `running = 0` / `last_executed_at = null` を返すこと。
+    /// 実行が 0 件のとき `project summary` が `running = 0` / `last_executed_at = null` を返すこと。
     #[test]
     fn summary_on_empty_db() {
         let _env = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
@@ -2539,8 +2358,8 @@ mod tests {
         assert!(v["last_executed_at"].is_null());
     }
 
-    /// `phone dashboard` の JSON が sai-control と同じ**項目名・入れ子・並び順**であること
-    /// （実装計画 C C2 の共有契約）。
+    /// `project dashboard` の JSON が sai-control と同じ**項目名・入れ子・並び順**であること
+    /// （共有契約）。
     ///
     /// 並び順まで契約なので、構造体でシリアライズしている
     /// （`serde_json::Value` に落とすとアルファベット順になり sai-control と食い違う）。
@@ -2595,7 +2414,6 @@ mod tests {
     }
 
     /// `week` / `month` / `all` の期間切り分けと集計が sai-control と合うこと
-    /// （実装計画 C C2 のテスト条件）。
     ///
     /// 一時 DB に「今日」の実行を 3 件（completed / failed / running）入れ、
     /// `today_jst` を未来に動かすことで 3 つの期間が切り分けられることを確かめる。
@@ -2741,7 +2559,7 @@ mod tests {
         assert_eq!(" WEEK ".parse::<Period>().unwrap(), Period::Week);
         let err = "year".parse::<Period>().unwrap_err();
         assert!(err.contains("week / month / all"));
-        // `phone dashboard` が受け付けない期間рю，並列 1（stderr に理由を出す）
+        // `project dashboard` が受け付けない期間рю，並列 1（stderr に理由を出す）
         let err = dashboard("year").unwrap_err();
         assert_eq!(err.code, EXIT_USAGE);
         assert!(err.msg.contains("week / month / all"));
@@ -2784,11 +2602,11 @@ mod tests {
         );
     }
 
-    /// `phone card inputs` の候補 JSON の `ref` は、origin ではなく
+    /// `card docs` の候補 JSON の `ref` は、origin ではなく
     /// 文書を保存した実行の番号を使う（U08・AC2）。
     #[test]
     fn card_candidate_ref_uses_doc_run_id() {
-        let c = phone_view::WaggleChoiceData {
+        let c = run_docs::WaggleChoiceData {
             token: "W9knAR4G".to_string(),
             file_name: "paper-search-eeg-llm-2026.md".to_string(),
             description: "計画書".to_string(),
@@ -2804,7 +2622,7 @@ mod tests {
         assert_eq!(v["token"].as_str().unwrap(), "W9knAR4G");
     }
 
-    /// `phone md --kind report <run_id>` が finalize-report.md の本文を返すこと。
+    /// `run md --kind report <run_id>` が finalize-report.md の本文を返すこと。
     /// 無いときは「まだありません」（404）になる。
     #[test]
     fn md_report_returns_finalize_report() {
@@ -2819,7 +2637,7 @@ mod tests {
         .unwrap();
         std::fs::write(dir.join("finalize-report.md"), "結果: DONE\n Waggle: ABC123").unwrap();
 
-        let out = md(77, "report").expect("phone md --kind report");
+        let out = md(77, "report").expect("run md --kind report");
         assert_eq!(out["kind"], "report");
         assert_eq!(out["name"], "finalize-report.md");
         assert!(out["text"].as_str().unwrap().contains("DONE"));
@@ -2834,7 +2652,7 @@ mod tests {
         assert!(err.msg.contains("task | message | report"), "err={}", err.msg);
     }
 
-    /// U6・AC4: `phone md --kind system <run_id>` が固定部分（system-prompt.md）を返す。
+    /// U6・AC4: `run md --kind system <run_id>` が固定部分（system-prompt.md）を返す。
     /// run フォルダに無いときは「まだありません」（404）になる。
     #[test]
     fn md_system_returns_system_prompt() {
@@ -2852,7 +2670,7 @@ mod tests {
         )
         .unwrap();
 
-        let out = md(88, "system").expect("phone md --kind system");
+        let out = md(88, "system").expect("run md --kind system");
         assert_eq!(out["kind"], "system");
         assert_eq!(out["name"], "system-prompt.md");
         assert!(out["text"].as_str().unwrap().contains("# 固定部分"));

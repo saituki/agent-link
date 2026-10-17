@@ -32,11 +32,11 @@ mod cmd_remote;
 mod cmd_run;
 mod cmd_schema;
 mod cmd_task;
+mod def_files;
 mod kanban_run;
-mod phone;
-mod phone_def;
 mod search;
 mod usage;
+mod views;
 
 use clap::error::ErrorKind;
 use clap::Parser;

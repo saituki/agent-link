@@ -86,7 +86,7 @@ impl<N> DagGraph<N> {
 
     /// 全エッジを「(元ノード, 先ノード, 辺データ)」の一覧で返す。
     ///
-    /// `agent-link phone workflow`（CLI）が petgraph を直接触らずに済むよう、
+    /// `workflow`（CLI）が petgraph を直接触らずに済むよう、
     /// 端点を **ノードデータ**で返す。順序は `add_edge` 順（安定）。
     pub fn all_edges(&self) -> Vec<(&N, &N, &EdgeData)> {
         self.graph

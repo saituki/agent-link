@@ -1,7 +1,6 @@
 //! Stats の表示データ（キャッシュ / トークン統計）の組み立て。
 //!
-//! `sai-cache-tui-rs` の解析ロジックを流用し、`phone run --view stats`
-//! （Web の中継）が使うデータと JSON 表現を提供する。描画は持たない。
+//! `run stats` が使うデータと JSON 表現を提供する。描画は持たない。
 //!
 //! 実行（ブロック）の `agent_session_id` からセッション jsonl を解決し、
 //! usage を集計して [`CacheViewState`] に詰める（[`load`]）。
@@ -9,7 +8,7 @@
 use std::path::PathBuf;
 
 // ============================================================================
-// 集計ロジック（engine へ移設・01 §2.1）
+// 集計ロジック（engine にある）
 // ============================================================================
 //
 // トークン / コストの集計ロジックと型は `agent_link_engine::usage_metrics` に
@@ -37,11 +36,11 @@ pub struct CacheViewState {
     pub error: Option<String>,
 }
 
-/// `phone run --view stats` 用の JSON 化（実装計画 12 §3.2）。
+/// `run stats` 用の JSON 化。
 ///
 /// `metrics` が無い（解析失敗・セッション無し）項目は `null`。
 #[derive(serde::Serialize)]
-pub struct PhoneStatsJson<'a> {
+pub struct StatsJson<'a> {
     /// 解析対象のセッション jsonl パス（無ければ null）
     pub session_file: Option<String>,
     /// 読み込みエラー（無ければ null）
@@ -59,9 +58,9 @@ pub struct PhoneStatsJson<'a> {
 }
 
 impl CacheViewState {
-    /// `phone run --view stats` 用の JSON 表現を返す。
-    pub fn phone_json(&self) -> PhoneStatsJson<'_> {
-        PhoneStatsJson {
+    /// `run stats` 用の JSON 表現を返す。
+    pub fn to_json(&self) -> StatsJson<'_> {
+        StatsJson {
             session_file: self
                 .session_file
                 .as_ref()
@@ -79,7 +78,7 @@ impl CacheViewState {
 /// 実行 1 件分の Stats ビュー状態を DB から構築する（ビルダ純関数）。
 ///
 /// 実行レコードの `agent_session_id` から `transcript::resolve_transcript` で
-/// セッション jsonl を解決し、sai-cache-tui-rs と同じ解析（usage 集計）を行う。
+/// セッション jsonl を解決し、usage を集計する。
 ///
 /// - `store`: 対象プロジェクトの `SaiStore`（read-only でも可）
 /// - `exec_id`: 対象実行 ID
@@ -109,7 +108,7 @@ pub fn load(store: &agent_link_engine::db::SaiStore, exec_id: i64) -> CacheViewS
         };
     };
 
-    // sai-cache-tui-rs と同じ解析を実行する
+    // usage を集計する
     // cc（Claude Code）: usage フィールドが snake_case
     let (metrics, counts) = match (
         collect_metrics_from_file_cc(&session_file),

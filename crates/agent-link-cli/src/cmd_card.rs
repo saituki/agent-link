@@ -1,31 +1,31 @@
 //! `card` グループ（新しい木）— カード（実行予約）の参照・作成・実行。
 //!
-//! 処理の本体は `phone` の実装をそのまま呼ぶ（写さない・出力を変えない）。
+//! 処理の本体は `views` の実装をそのまま呼ぶ（写さない・出力を変えない）。
 
-use crate::cli::{CardCmd, PhoneCardCmd, PhoneCmd};
-use crate::cmd_common::{print_phone, CmdError};
+use crate::cli::{CardCmd, ViewCardCmd, ViewCmd};
+use crate::cmd_common::{print_view, CmdError};
 
 /// `agent-link card <sub>` のハンドラ。
 pub(crate) fn run(cmd: CardCmd) -> Result<(), CmdError> {
     match cmd {
-        CardCmd::Options { json: _ } => print_phone(PhoneCmd::Card {
-            cmd: PhoneCardCmd::Options,
+        CardCmd::Options { json: _ } => print_view(ViewCmd::Card {
+            cmd: ViewCardCmd::Options,
         }),
-        CardCmd::Docs { limit, json: _ } => print_phone(PhoneCmd::Card {
-            cmd: PhoneCardCmd::Docs { limit },
+        CardCmd::Docs { limit, json: _ } => print_view(ViewCmd::Card {
+            cmd: ViewCardCmd::Docs { limit },
         }),
-        CardCmd::Create { json: _ } => print_phone(PhoneCmd::Card {
-            cmd: PhoneCardCmd::Create,
+        CardCmd::Create { json: _ } => print_view(ViewCmd::Card {
+            cmd: ViewCardCmd::Create,
         }),
         CardCmd::Schedule {
             run_id,
             at,
             json: _,
-        } => print_phone(PhoneCmd::Card {
-            cmd: PhoneCardCmd::Schedule { run_id, at },
+        } => print_view(ViewCmd::Card {
+            cmd: ViewCardCmd::Schedule { run_id, at },
         }),
-        CardCmd::Run { run_id, json: _ } => print_phone(PhoneCmd::Card {
-            cmd: PhoneCardCmd::Run { run_id },
+        CardCmd::Run { run_id, json: _ } => print_view(ViewCmd::Card {
+            cmd: ViewCardCmd::Run { run_id },
         }),
     }
 }

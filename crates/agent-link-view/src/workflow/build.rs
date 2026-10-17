@@ -1,10 +1,9 @@
-//! Workflow の DAG 組み立て（agent-link-tui の `ui/main_panel.rs` から移設）。
+//! Workflow の DAG 組み立て。
 //!
 //! - [`BlockDisplayData`] / [`ConnectionDisplayData`] — DAG の表示データ
 //! - [`build_block_graph`] — 実行データから `DagGraph` と `LayoutGraph` を組み立てる
 //!
-//! TUI（`agent-link-tui`）と CLI（`agent-link phone workflow`）はこの同じ関数を
-//! 使い、DAG の形が 2 か所で食い違わないようにする。
+//! CLI（`workflow`）がこの関数で DAG の形を作る。
 
 use std::collections::HashMap;
 

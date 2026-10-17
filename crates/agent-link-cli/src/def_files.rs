@@ -1,5 +1,4 @@
-//! `agent-link phone def …` — 定義ファイル（block / template / settings）の
-//! 一覧・読み書き・削除（sai-phone 向け JSON）。
+//! `def list|show|write|delete` の実装（block・template・settings の定義ファイル）。
 //!
 //! # 置き場（scope）
 //!
@@ -29,8 +28,8 @@ use serde_json::{json, Value};
 
 use agent_link_engine::parser::{apply_templates, parse_block_string};
 
-use crate::cli::PhoneDefCmd;
-use crate::phone::{PhoneError, PhoneResult};
+use crate::cli::DefFileCmd;
+use crate::views::{ViewError, ViewResult};
 
 /// 標準入力で受け付ける最大の大きさ（256KB）。
 const MAX_STDIN_BYTES: usize = 256 * 1024;
@@ -80,31 +79,31 @@ impl Scope {
 }
 
 /// `kind` 文字列を [`DefKind`] にする（引数の値 Parsing は clap が-filter済み）。
-fn parse_kind(s: &str) -> PhoneResult<DefKind> {
+fn parse_kind(s: &str) -> ViewResult<DefKind> {
     match s {
         "block" => Ok(DefKind::Block),
         "template" => Ok(DefKind::Template),
         "settings" => Ok(DefKind::Settings),
-        other => Err(PhoneError::usage(format!("Unknown definition kind: {other}."))),
+        other => Err(ViewError::usage(format!("Unknown definition kind: {other}."))),
     }
 }
 
 /// `scope` 文字列を [`Scope`] にする。
-fn parse_scope(s: &str) -> PhoneResult<Scope> {
+fn parse_scope(s: &str) -> ViewResult<Scope> {
     match s {
         "project" => Ok(Scope::Project),
         "global" => Ok(Scope::Global),
-        other => Err(PhoneError::usage(format!("Unknown scope: {other}."))),
+        other => Err(ViewError::usage(format!("Unknown scope: {other}."))),
     }
 }
 
 /// block / template の名前の妥当性を確かめる（`^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$`）。
 ///
 /// settings の名前は `settings` だけ。`name.md` の拡張子は付けない前提。
-fn check_name(kind: DefKind, name: &str) -> PhoneResult<()> {
+fn check_name(kind: DefKind, name: &str) -> ViewResult<()> {
     if kind == DefKind::Settings {
         if name != "settings" {
-            return Err(PhoneError::usage("The name of settings must be settings."));
+            return Err(ViewError::usage("The name of settings must be settings."));
         }
         return Ok(());
     }
@@ -115,12 +114,12 @@ fn check_name(kind: DefKind, name: &str) -> PhoneResult<()> {
     if ok {
         Ok(())
     } else {
-        Err(PhoneError::usage("A name may contain only letters, digits, - and _, up to 64 characters."))
+        Err(ViewError::usage("A name may contain only letters, digits, - and _, up to 64 characters."))
     }
 }
 
 /// 定義ファイルのあるフォルダ（`scope` ごとに解決）。
-fn base_dir(scope: Scope) -> PhoneResult<PathBuf> {
+fn base_dir(scope: Scope) -> ViewResult<PathBuf> {
     let root = root_dir(scope)?;
     Ok(match scope {
         Scope::Project => root,
@@ -129,16 +128,16 @@ fn base_dir(scope: Scope) -> PhoneResult<PathBuf> {
 }
 
 /// `scope` のルートフォルダ（project = `<project_root>/.agent-link` / global = 利用者全体の置き場 `~/.agent-link`）。
-fn root_dir(scope: Scope) -> PhoneResult<PathBuf> {
+fn root_dir(scope: Scope) -> ViewResult<PathBuf> {
     match scope {
         Scope::Project => Ok(agent_link_engine::project::project_root().join(".agent-link")),
         Scope::Global => agent_link_engine::project::sai_home()
-            .ok_or_else(|| PhoneError::usage("Cannot resolve the agent-link home (AGENT_LINK_HOME or HOME).")),
+            .ok_or_else(|| ViewError::usage("Cannot resolve the agent-link home (AGENT_LINK_HOME or HOME).")),
     }
 }
 
 /// 定義ファイルのパス（folder / file 名まで解決）。
-fn def_path(kind: DefKind, scope: Scope, name: &str) -> PhoneResult<PathBuf> {
+fn def_path(kind: DefKind, scope: Scope, name: &str) -> ViewResult<PathBuf> {
     Ok(match kind {
         DefKind::Block => base_dir(scope)?.join("blocks").join(format!("{name}.md")),
         DefKind::Template => base_dir(scope)?.join("template").join(format!("{name}.md")),
@@ -289,16 +288,16 @@ fn settings_error(text: &str) -> Option<String> {
 ///
 /// `parse_block_string` だけでは template の存在までは見ないので、
 /// `apply_templates` も通す（`templates:` に無い名前があれば終了コード 2）。
-fn check_block(text: &str) -> PhoneResult<Vec<String>> {
-    let parsed = parse_block_string(text).map_err(|e| PhoneError::parse(e.to_string()))?;
+fn check_block(text: &str) -> ViewResult<Vec<String>> {
+    let parsed = parse_block_string(text).map_err(|e| ViewError::parse(e.to_string()))?;
     let template_dir = agent_link_engine::project::project_root().join(".agent-link/template");
     apply_templates(&parsed.config, &parsed.body, &template_dir)
-        .map_err(|e| PhoneError::parse(e.to_string()))?;
+        .map_err(|e| ViewError::parse(e.to_string()))?;
     Ok(parsed.warnings)
 }
 
 /// 定義の検査。検査エラーは無ければ `Ok(warnings)`。
-fn check(kind: DefKind, text: &str) -> PhoneResult<Vec<String>> {
+fn check(kind: DefKind, text: &str) -> ViewResult<Vec<String>> {
     match kind {
         DefKind::Block => check_block(text),
         DefKind::Template => {
@@ -306,31 +305,31 @@ fn check(kind: DefKind, text: &str) -> PhoneResult<Vec<String>> {
             Ok(Vec::new())
         }
         DefKind::Settings => match settings_error(text) {
-            Some(msg) => Err(PhoneError::parse(msg)),
+            Some(msg) => Err(ViewError::parse(msg)),
             None => Ok(Vec::new()),
         },
     }
 }
 
 /// 標準入力を読む（256KB まで）。
-fn read_stdin() -> PhoneResult<String> {
+fn read_stdin() -> ViewResult<String> {
     let mut buf = Vec::new();
     let mut stdin = std::io::stdin().lock();
     let mut limited = stdin.take((MAX_STDIN_BYTES + 1) as u64);
     limited
         .read_to_end(&mut buf)
-        .map_err(|e| PhoneError::usage(format!("Cannot read standard input: {}.", e)))?;
+        .map_err(|e| ViewError::usage(format!("Cannot read standard input: {}.", e)))?;
     if buf.len() > MAX_STDIN_BYTES {
-        return Err(PhoneError::usage("The body must be 256KB or less."));
+        return Err(ViewError::usage("The body must be 256KB or less."));
     }
     Ok(String::from_utf8_lossy(&buf).to_string())
 }
 
 /// ファイルへ保存する（親フォルダを作り、`.tmp` → `rename` で置き換える）。
-fn save(path: &Path, text: &str) -> PhoneResult<()> {
+fn save(path: &Path, text: &str) -> ViewResult<()> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)
-            .map_err(|e| PhoneError::usage(format!("Cannot create the folder: {}.", e)))?;
+            .map_err(|e| ViewError::usage(format!("Cannot create the folder: {}.", e)))?;
     }
     let tmp = path.with_extension("md.tmp");
     let tmp = if tmp == *path {
@@ -339,10 +338,10 @@ fn save(path: &Path, text: &str) -> PhoneResult<()> {
         tmp
     };
     std::fs::write(&tmp, text)
-        .map_err(|e| PhoneError::usage(format!("Cannot save: {}.", e)))?;
+        .map_err(|e| ViewError::usage(format!("Cannot save: {}.", e)))?;
     std::fs::rename(&tmp, path).map_err(|e| {
         let _ = std::fs::remove_file(&tmp);
-        PhoneError::usage(format!("Cannot save: {}.", e))
+        ViewError::usage(format!("Cannot save: {}.", e))
     })
 }
 
@@ -350,11 +349,11 @@ fn save(path: &Path, text: &str) -> PhoneResult<()> {
 // サブコマンド
 // ============================================================================
 
-/// `phone def` の入口。
-pub fn run(cmd: PhoneDefCmd) -> PhoneResult<Value> {
+/// `def` の入口。
+pub fn run(cmd: DefFileCmd) -> ViewResult<Value> {
     match cmd {
-        PhoneDefCmd::List => list(),
-        PhoneDefCmd::Show {
+        DefFileCmd::List => list(),
+        DefFileCmd::Show {
             kind,
             scope,
             name,
@@ -362,7 +361,7 @@ pub fn run(cmd: PhoneDefCmd) -> PhoneResult<Value> {
             let (kind, scope, name) = resolve(&kind, &scope, &name)?;
             show(kind, scope, &name)
         }
-        PhoneDefCmd::Write {
+        DefFileCmd::Write {
             kind,
             scope,
             name,
@@ -371,7 +370,7 @@ pub fn run(cmd: PhoneDefCmd) -> PhoneResult<Value> {
             let (kind, scope, name) = resolve(&kind, &scope, &name)?;
             write(kind, scope, &name, create)
         }
-        PhoneDefCmd::Delete {
+        DefFileCmd::Delete {
             kind,
             scope,
             name,
@@ -383,7 +382,7 @@ pub fn run(cmd: PhoneDefCmd) -> PhoneResult<Value> {
 }
 
 /// 引数（`kind` / `scope` / `name`）を解決する。
-fn resolve(kind: &str, scope: &str, name: &str) -> PhoneResult<(DefKind, Scope, String)> {
+fn resolve(kind: &str, scope: &str, name: &str) -> ViewResult<(DefKind, Scope, String)> {
     let kind = parse_kind(kind)?;
     let scope = parse_scope(scope)?;
     check_name(kind, name)?;
@@ -395,7 +394,7 @@ fn resolve(kind: &str, scope: &str, name: &str) -> PhoneResult<(DefKind, Scope, 
 /// 並びは kind（block → template → settings）→ scope（project → global）→ name。
 /// `shadowed` はグローバルがプロジェクトで上書きされるか
 /// （settings はキーごとにグローバルが優先されるため常に `false`）。
-fn list() -> PhoneResult<Value> {
+fn list() -> ViewResult<Value> {
     let project_root = agent_link_engine::project::project_root();
     let global_root = root_dir(Scope::Global).unwrap_or_else(|_| PathBuf::new());
     let project_names: std::collections::HashSet<String> = list_files(DefKind::Block, Scope::Project)
@@ -472,17 +471,17 @@ fn list() -> PhoneResult<Value> {
 /// `show`: 定義ファイルの中身を返す。
 ///
 /// 解析に失敗した block でも中身は返す（`error` に理由が入る）。
-fn show(kind: DefKind, scope: Scope, name: &str) -> PhoneResult<Value> {
+fn show(kind: DefKind, scope: Scope, name: &str) -> ViewResult<Value> {
     let path = def_path(kind, scope, name)?;
     let exists = path.exists();
     let text = if exists {
         std::fs::read_to_string(&path)
-            .map_err(|e| PhoneError::usage(format!("Cannot read: {}.", e)))?
+            .map_err(|e| ViewError::usage(format!("Cannot read: {}.", e)))?
     } else {
         match kind {
             DefKind::Settings => "{}\n".to_string(),
             // block / template が無い
-            _ => return Err(PhoneError::not_found("Definition not found.")),
+            _ => return Err(ViewError::not_found("Definition not found.")),
         }
     };
     let error = match kind {
@@ -524,14 +523,14 @@ fn show(kind: DefKind, scope: Scope, name: &str) -> PhoneResult<Value> {
 /// `write`: 標準入力の内容で保存し、保存後の状態を返す。
 ///
 /// 検査に通らなかったときは**ファイルを一切書き換えない**。
-fn write(kind: DefKind, scope: Scope, name: &str, create: bool) -> PhoneResult<Value> {
+fn write(kind: DefKind, scope: Scope, name: &str, create: bool) -> ViewResult<Value> {
     let path = def_path(kind, scope, name)?;
     let exists = path.exists();
     if create && exists {
-        return Err(PhoneError::conflict("A definition with the same name already exists."));
+        return Err(ViewError::conflict("A definition with the same name already exists."));
     }
     if !create && !exists && kind != DefKind::Settings {
-        return Err(PhoneError::not_found("Definition not found."));
+        return Err(ViewError::not_found("Definition not found."));
     }
     write_text(kind, scope, name, create, &read_stdin()?)
 }
@@ -543,14 +542,14 @@ fn write_text(
     name: &str,
     create: bool,
     text: &str,
-) -> PhoneResult<Value> {
+) -> ViewResult<Value> {
     let path = def_path(kind, scope, name)?;
     let exists = path.exists();
     if create && exists {
-        return Err(PhoneError::conflict("A definition with the same name already exists."));
+        return Err(ViewError::conflict("A definition with the same name already exists."));
     }
     if !create && !exists && kind != DefKind::Settings {
-        return Err(PhoneError::not_found("Definition not found."));
+        return Err(ViewError::not_found("Definition not found."));
     }
     // 保存前に検査（エラーならここで止める。ファイルは触らない）
     let warnings = check(kind, text)?;
@@ -569,18 +568,18 @@ fn write_text(
 }
 
 /// `delete`: 定義ファイルを削除する。settings は消せない。
-fn delete(kind: DefKind, scope: Scope, name: &str) -> PhoneResult<Value> {
+fn delete(kind: DefKind, scope: Scope, name: &str) -> ViewResult<Value> {
     if kind == DefKind::Settings {
-        return Err(PhoneError::usage("settings cannot be deleted."));
+        return Err(ViewError::usage("settings cannot be deleted."));
     }
     let path = def_path(kind, scope, name)?;
     if !path.exists() {
-        return Err(PhoneError::not_found("Definition not found."));
+        return Err(ViewError::not_found("Definition not found."));
     }
     // 消す前に「この定義を使っている block」を数える（消したら分からないため）
     let used = used_by(kind, name);
     std::fs::remove_file(&path)
-        .map_err(|e| PhoneError::usage(format!("Cannot delete: {}.", e)))?;
+        .map_err(|e| ViewError::usage(format!("Cannot delete: {}.", e)))?;
     Ok(json!({
         "deleted": true,
         "kind": kind.as_str(),
@@ -597,11 +596,11 @@ fn delete(kind: DefKind, scope: Scope, name: &str) -> PhoneResult<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::phone::ENV_TEST_LOCK as ENV_LOCK;
+    use crate::views::ENV_TEST_LOCK as ENV_LOCK;
 
     /// 一時フォルダ（project / HOME）を作り、`AGENT_LINK_PROJECT_ROOT` と `HOME` を差し替える。
     ///
-    /// 環境変数はプロセス共通のため、ENV_LOCK で直列化する（`phone.rs` のテストと
+    /// 環境変数はプロセス共通のため、ENV_LOCK で直列化する（`views.rs` のテストと
     /// 同じロックを使う）。Drop で元の値へ戻す。
     struct Sandbox {
         root: PathBuf,
@@ -792,7 +791,7 @@ id: x\n---\nhello\n";
         _s.put(".agent-link/template/tp.md", "# テンプレ見出し\n\n本文\n");
         _s.put(".agent-link/settings.json", "{\"a\":1}");
 
-        let out = run(PhoneDefCmd::List).expect("list");
+        let out = run(DefFileCmd::List).expect("list");
         assert_eq!(
             out["project_root"].as_str().expect("project_root"),
             _s.root.to_str().expect("UTF-8")
@@ -853,7 +852,7 @@ id: x\n---\nhello\n";
     fn list_reports_broken_block_error() {
         let _s = Sandbox::new();
         _s.put(".agent-link/blocks/broken.md", "---\nname: [\n---\n");
-        let out = run(PhoneDefCmd::List).expect("list");
+        let out = run(DefFileCmd::List).expect("list");
         let items = out["items"].as_array().expect("items");
         let it = items.iter().find(|i| i["name"] == "broken").expect("broken");
         // 壊れた block でも一覧には出る（error に理由が入る。title はファイル名へ落ちる）
@@ -913,7 +912,7 @@ id: x\n---\nhello\n";
         assert_eq!(_s.get(".agent-link/blocks/x.md"), GOOD_BLOCK);
         // 一度ighbours  existent なので 2 回目は --create で 1
         let err = write_text(DefKind::Block, Scope::Project, "x", true, GOOD_BLOCK).unwrap_err();
-        assert_eq!(err.code, crate::phone::EXIT_PHONE_CONFLICT);
+        assert_eq!(err.code, crate::views::EXIT_VIEW_CONFLICT);
         assert_eq!(err.msg, "A definition with the same name already exists.");
 
         // show の中身が保存と一致（id と名前が揃っていれば警告なし）
