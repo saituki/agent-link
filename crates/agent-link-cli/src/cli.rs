@@ -20,7 +20,7 @@ use serde_json;
 use agent_link_engine::daemon;
 use agent_link_engine::db::models::DbError;
 use agent_link_engine::db::SaiStore;
-use agent_link_engine::herdr::SplitDirection;
+use agent_link_engine::pane::SplitDirection;
 use agent_link_engine::orchestrator::{self, ExecutionOverrides, PipelineConfig};
 use agent_link_engine::parser::parse_block_file;
 use std::sync::Arc;
@@ -1828,7 +1828,7 @@ pub(crate) fn open_db() -> Result<SaiStore, Box<dyn std::error::Error>> {
 ///
 /// `agent_api::task_manage` に委譲する（通知を書く処理を二重に持たない）。
 /// interrupt と作業中（in_progress）タスクへの send は、デーモンを経由せず
-/// MCP サーバが herdr を直接呼ぶ。
+/// MCP サーバが擬似 pane を直接操作する。
 pub fn handle_task_manage(
     action: &str,
     task_id: i64,

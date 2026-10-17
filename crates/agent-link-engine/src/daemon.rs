@@ -1357,7 +1357,7 @@ fn fs_rename_safe(source: &Path, dest: &Path) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::herdr::SplitDirection;
+    use crate::pane::SplitDirection;
 
     /// デーモンは `card run <run_id>` を呼ぶ（旧 `phone card run` ではない）。
     #[test]

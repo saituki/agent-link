@@ -28,7 +28,7 @@ use serde::{Deserialize, Serialize};
 use crate::agent_pool::{AgentPool, EnqueueResult};
 use crate::db::models::Task;
 use crate::db::SaiStore;
-use crate::herdr::{HerdrClient, SplitDirection};
+use crate::pane::{PaneClient, SplitDirection};
 use crate::orchestrator::RunningExecutions;
 
 // ============================================================================
@@ -260,13 +260,13 @@ pub struct TaskFailedResult {
 
 /// バッチ実行時にタスクへ割り当てられるタブ内スロット（U2・R4）。
 ///
-/// 発行元メインブロック（parent_run_id）単位で管理される herdr タブ（U2・R4 案X）。
+/// 発行元メインブロック（parent_run_id）単位で管理されるタブ（U2・R4 案X）。
 ///
 /// 同じメインブロックによって作成されたサブタスクはすべて同じタブに pane を作成する。
 /// タブ作成時に生成されたルートペイン（空シェル）は列計算から除外するため保持する。
 #[derive(Debug, Clone)]
 pub struct TabGroup {
-    /// メインブロック専用の herdr タブ ID
+    /// メインブロック専用のタブ ID
     pub tab_id: String,
     /// タブ作成時に生成されたルートペイン ID（未使用時は空シェル・列計算から除外）
     pub root_pane_id: String,
@@ -318,7 +318,7 @@ pub fn next_split_target(
     }
 
     // 列数は WIP から導出する（n<=4 → cols=n、n>4 → cols=ceil(n/2)）
-    let (_cols, _rows) = crate::herdr::layout_for_wip(wip, wip);
+    let (_cols, _rows) = crate::pane::layout_for_wip(wip, wip);
     let max_cols = if wip <= 4 { wip } else { (wip + 1) / 2 };
 
     // 列グループ化（x で分類し、各列は y 昇順に並べる）
@@ -429,14 +429,12 @@ pub struct TaskManager {
     store: Arc<SaiStore>,
     /// 通知ディレクトリのベースパス
     notify_base: PathBuf,
-    /// バッチ実行用の herdr クライアント（U2・R4。テストでモックに差し替え可能）
-    herdr: HerdrClient,
     /// 発行元メインブロック（parent_run_id）→ 専用タブ（U2・R4 案X。動的 pane 配置用）
     block_tabs: std::sync::Mutex<std::collections::HashMap<i64, TabGroup>>,
     /// pane 配置（タブ取得・作成 → レイアウト取得 → 配置決定 → 分割 → 状態更新）を
     /// 1 つの原子的な処理にするための専用ロック（U2・R4 案X）。
     ///
-    /// `block_tabs` は分割（herdr 呼び出し）中は保持したくない（`maybe_close_parent_tab`
+    /// `block_tabs` は分割中は保持したくない（`maybe_close_parent_tab`
     /// などと競合するため）ので、配置全体を直列化するのはこのロックの役割。
     pane_placement_lock: std::sync::Mutex<()>,
 }
@@ -454,7 +452,6 @@ impl TaskManager {
             agent_pool: Arc::new(AgentPool::new()),
             store,
             notify_base,
-            herdr: HerdrClient::new(),
             block_tabs: std::sync::Mutex::new(std::collections::HashMap::new()),
             pane_placement_lock: std::sync::Mutex::new(()),
         }
@@ -471,30 +468,6 @@ impl TaskManager {
             agent_pool,
             store,
             notify_base,
-            herdr: HerdrClient::new(),
-            block_tabs: std::sync::Mutex::new(std::collections::HashMap::new()),
-            pane_placement_lock: std::sync::Mutex::new(()),
-        }
-    }
-
-    /// カスタム `AgentPool` と `HerdrClient` を使用する `TaskManager` を作成する（テスト用・U2）。
-    ///
-    /// バッチ実行のタブ作成（`create_tab` / `snapshot_layout` / `split_pane_from`）をモック herdr で検証するため。
-    pub fn with_herdr(
-        store: Arc<SaiStore>,
-        agent_pool: Arc<AgentPool>,
-        herdr: HerdrClient,
-    ) -> Self {
-        let notify_base = notify_base_dir();
-        let _ = fs::create_dir_all(notify_base.join(PENDING_DIR));
-        let _ = fs::create_dir_all(notify_base.join(PROCESSED_DIR));
-        let _ = fs::create_dir_all(notify_base.join(RESULTS_DIR));
-
-        Self {
-            agent_pool,
-            store,
-            notify_base,
-            herdr,
             block_tabs: std::sync::Mutex::new(std::collections::HashMap::new()),
             pane_placement_lock: std::sync::Mutex::new(()),
         }
@@ -790,7 +763,7 @@ impl TaskManager {
 
     /// `resolve_pane_placement` の実体（呼び出し元が `pane_placement_lock` を保持済み）。
     ///
-    /// sai-tree では herdr のタブ・レイアウト・分割を使わない。擬似 pane を 1 つ作って
+    /// sai-tree ではタブ・レイアウト・分割を使わない。擬似 pane を 1 つ作って
     /// 返すだけにし、同時実行の上限は `AgentPool` に任せる。
     fn resolve_pane_placement_inner(
         &self,
@@ -800,7 +773,7 @@ impl TaskManager {
         // host 付きの子の cwd は遠隔のパスなので、Mac の pane（cwd.txt・tmux -c）には渡さない
         let pane_cwd = if task.host.is_some() { None } else { task.cwd.as_deref() };
         let pane = crate::headless::new_pane(pane_cwd)
-            .map_err(|e| TaskManagerError::Herdr(format!("Failed to create the pseudo pane: {}", e)))?;
+            .map_err(|e| TaskManagerError::Pane(format!("Failed to create the pseudo pane: {}", e)))?;
         Ok(PlacementResult::Placed(
             "headless".to_string(),
             pane.pane_id,
@@ -808,7 +781,7 @@ impl TaskManager {
         ))
     }
 
-    /// sai-tree では herdr のタブを使わないので何もしない。
+    /// sai-tree ではタブを使わないので何もしない。
     ///
     /// `block_tabs` は常に空（読み取りだけ残して未使用警告を避ける）。
     fn maybe_close_parent_tab(&self, parent_run_id: i64) {
@@ -1517,10 +1490,10 @@ impl TaskManager {
         );
 
         // 6. 同一 pane へテキスト送信 + 完了待機
-        let herdr = HerdrClient::new();
+        let pane_client = PaneClient::new();
         let submit_key = crate::cc_command::CC_SUBMIT_KEY;
         let turn_result = crate::orchestrator::send_turn_to_pane(
-            &herdr,
+            &pane_client,
             &pane_id,
             &message,
             timeout_ms,
@@ -2166,8 +2139,8 @@ pub enum TaskManagerError {
         limit: usize,
     },
 
-    #[error("herdr operation error: {0}")]
-    Herdr(String),
+    #[error("pane operation error: {0}")]
+    Pane(String),
 
     #[error("The tab of main block {parent_run_id} reached the pane limit of {limit}, so no new pane can be created. Finalize unneeded panes and run again.")]
     PaneLimitReached {
@@ -3304,15 +3277,8 @@ mod tests {
     /// バッチ単位の task_execute が承認済みタスクのみ投入すること。
     #[test]
     fn test_process_batch_execute() {
-        // タブ作成が実 herdr へ漏れないよう、モック herdr を使用する（U2・R4）
-        let uniq = unique_tm_id("be");
-        let (script, state) = write_tab_create_mock(&uniq);
         let store = Arc::new(SaiStore::open_in_memory().unwrap());
-        let manager = TaskManager::with_herdr(
-            Arc::clone(&store),
-            Arc::new(AgentPool::new()),
-            HerdrClient::with_binary(script.to_string_lossy().to_string()),
-        );
+        let manager = TaskManager::with_agent_pool(Arc::clone(&store), Arc::new(AgentPool::new()));
         let parent_run_id = create_dummy_execution(&store, 205);
 
         let notif = TaskCreatedNotification {
@@ -3371,9 +3337,6 @@ mod tests {
 
         // be-2 は pending のまま
         assert_eq!(manager.get_task(ids[1]).unwrap().status, "pending");
-
-        let _ = std::fs::remove_dir_all(&state);
-        let _ = std::fs::remove_file(&script);
     }
 
     // ---------------------------------------------------------------------
@@ -3634,184 +3597,6 @@ mod tests {
     // U2・R4/R5: バッチ実行の pane 事前カウント・タブ作成・上限制御
     // ---------------------------------------------------------------------
 
-    /// タブ作成・pane 分割・スナップショット取得に対応したモック herdr を一時パスに生成する。
-    ///
-    /// 呼び出しログを `calls` ファイルに記録する（並列テスト回避のため
-    /// `uniq` 埋め込みの状態ディレクトリを使用）。
-    /// 作成した pane は `order` に作成順で並べ、スナップショットでは
-    /// 左から 10 幅のタイルとして返す（列構造の判定用）。
-    fn write_tab_create_mock(uniq: &str) -> (PathBuf, PathBuf) {
-        write_tab_create_mock_delayed(uniq, "0")
-    }
-
-    /// `write_tab_create_mock` の遅延付き版。
-    ///
-    /// `delay` は `sleep` に渡す秒数（例: `"0.3"`）。スナップショット取得と pane 分割を
-    /// わざと遅くし、複数スレッドが同時に `resolve_pane_placement` を呼んでも
-    /// pane が重複しないことを検証する競合テストで使う。
-    fn write_tab_create_mock_delayed(uniq: &str, delay: &str) -> (PathBuf, PathBuf) {
-        let state = std::env::temp_dir().join(format!("mock_herdr_tm_state_{}", uniq));
-        let _ = std::fs::create_dir_all(&state);
-        let script = std::env::temp_dir().join(format!("mock_herdr_tm_{}.sh", uniq));
-        let state_display = state.display();
-
-        // 生文字列 + format! のため bash の ${...} は {{...}} と書く。
-        // JSON の波括弧も同様に {{ / }} に逃がす。
-        let body = format!(
-            r###"#!/usr/bin/env bash
-set -euo pipefail
-
-STATE='{state_display}'
-mkdir -p "$STATE/panes"
-
-log() {{ echo "$*" >> "$STATE/calls"; }}
-
-next_pane_name() {{
-    local n=0
-    if [[ -f "$STATE/order" ]]; then n=$(grep -c . "$STATE/order" || true); fi
-    echo "pane_$n"
-}}
-
-main() {{
-    local sub="$1"
-    shift
-    case "$sub" in
-        --version)
-            echo "herdr 1.0.0"
-            exit 0
-            ;;
-        tab)
-            local act="$1"
-            shift
-            case "$act" in
-                create)
-                    log "tab create"
-                    for a in "$@"; do log "tab create arg $a"; done
-                    echo "tab_x" > "$STATE/panes/tabroot"
-                    echo "tabroot" > "$STATE/order"
-                    cat <<'ENVELOPE'
-{{"id":"cli:tab:create","result":{{"root_pane":{{"pane_id":"tabroot","workspace_id":"ws","tab_id":"tab_x","focused":false,"cwd":"/tmp","agent":null,"agent_status":"unknown","revision":0}},"tab":{{"tab_id":"tab_x","workspace_id":"ws","label":"tab_x","number":1,"pane_count":1,"focused":false,"agent_status":"unknown"}}}},"type":"tab_created"}}
-ENVELOPE
-                    exit 0
-                    ;;
-                *)
-                    echo '{{"error":{{"message":"unknown tab action"}}}}'
-                    exit 1
-                    ;;
-            esac
-            ;;
-        pane)
-            local act="$1"
-            shift
-            case "$act" in
-                split)
-                    local source="$1"
-                    shift
-                    local direction="right"
-                    local cwd="/tmp"
-                    while [[ $# -gt 0 ]]; do
-                        case "$1" in
-                            --direction) shift; direction="$1"; shift ;;
-                            --cwd) shift; cwd="$1"; shift ;;
-                            --no-focus) shift ;;
-                            *) shift ;;
-                        esac
-                    done
-                    local pane
-                    sleep {delay}
-                    pane=$(next_pane_name)
-                    echo "tab_x" > "$STATE/panes/$pane"
-                    echo "$pane" >> "$STATE/order"
-                    log "pane split $direction"
-                    log "pane split cwd $cwd"
-                    cat <<ENVELOPE
-{{"result":{{"pane":{{"pane_id":"$pane","workspace_id":"ws","tab_id":"tab_x","focused":false,"cwd":"$cwd","agent":null,"agent_status":"idle","revision":0}}}}}}
-ENVELOPE
-                    exit 0
-                    ;;
-                get)
-                    local pane="$1"
-                    if [[ ! -f "$STATE/panes/$pane" ]]; then
-                        echo '{{"error":{{"message":"pane not found"}}}}' >&2
-                        exit 1
-                    fi
-                    cat <<ENVELOPE
-{{"result":{{"pane":{{"pane_id":"$pane","workspace_id":"ws","tab_id":"tab_x","focused":false,"cwd":"/tmp","agent":null,"agent_status":"idle","revision":0}}}}}}
-ENVELOPE
-                    exit 0
-                    ;;
-                list)
-                    echo '{{"result":{{"panes":[]}}}}'
-                    exit 0
-                    ;;
-                *)
-                    echo '{{"error":{{"message":"unknown pane action"}}}}'
-                    exit 1
-                    ;;
-            esac
-            ;;
-        api)
-            local act="$1"
-            shift
-            case "$act" in
-                snapshot)
-                    sleep {delay}
-                    local panes=""
-                    local i=0
-                    if [[ -f "$STATE/order" ]]; then
-                        while read -r p; do
-                            [[ -n "$p" ]] || continue
-                            panes="${{panes}}{{\"pane_id\":\"$p\",\"rect\":{{\"x\":$((i * 10)),\"y\":0,\"width\":10,\"height\":10}}}},"
-                            i=$((i + 1))
-                        done < "$STATE/order"
-                    fi
-                    panes="${{panes%,}}"
-                    cat <<ENVELOPE
-{{"result":{{"snapshot":{{"layouts":[{{"tab_id":"tab_x","workspace_id":"ws","panes":[$panes]}}]}}}}}}
-ENVELOPE
-                    exit 0
-                    ;;
-                *)
-                    echo '{{"error":{{"message":"unknown api action"}}}}'
-                    exit 1
-                    ;;
-            esac
-            ;;
-        workspace)
-            echo '{{"result":{{"workspaces":[]}}}}'
-            exit 0
-            ;;
-        *)
-            echo '{{"error":{{"message":"unknown subcommand"}}}}'
-            exit 1
-            ;;
-    esac
-}}
-
-main "$@"
-"###
-        );
-        let script_tmp = script.with_extension("sh.tmp");
-        std::fs::write(&script_tmp, body).unwrap();
-        std::fs::set_permissions(
-            &script_tmp,
-            std::os::unix::fs::PermissionsExt::from_mode(0o755),
-        )
-        .unwrap();
-        std::fs::rename(&script_tmp, &script).unwrap();
-
-        (script, state)
-    }
-
-    /// テスト用にユニークなモック識別子を生成する。
-    fn unique_tm_id(prefix: &str) -> String {
-        let nanos = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_nanos();
-        format!("{}_{}_{}", prefix, nanos, std::process::id())
-    }
-
     /// max_concurrent を確実に超えるタスク数を返す（オーバーリミットテスト用）。
     fn super_max_concurrent() -> usize {
         crate::settings::max_concurrent_limit() + 1
@@ -3933,7 +3718,7 @@ main "$@"
 
     /// `process_batch_execute` はタブを事前作成しないこと（U2・R4 案X）。
     /// pane 分割はワーカーの `execute_subtask` が実行時・動的に行うため、
-    /// バッチ処理時点では herdr の `tab create` を呼び出さない。
+    /// バッチ処理時点ではタブを作らない。
     #[test]
     fn test_process_batch_execute_does_not_create_tab() {
         let (manager, store) = create_test_manager();
@@ -3964,7 +3749,7 @@ main "$@"
     /// - 上限 8   → None
     #[test]
     fn test_next_split_target_layout_rules() {
-        use crate::herdr::SplitDirection as D;
+        use crate::pane::SplitDirection as D;
         let root = "root".to_string();
 
         // 0 pane: ルートを Right（最初の列）
@@ -4060,7 +3845,7 @@ main "$@"
     /// ```
     #[test]
     fn test_resolve_batch_split_vertical_layout() {
-        use crate::herdr::SplitDirection as D;
+        use crate::pane::SplitDirection as D;
         let mut g = TabGroup {
             tab_id: "t1".to_string(),
             root_pane_id: "root".to_string(),
@@ -4124,7 +3909,7 @@ main "$@"
     /// 今ある pane から決める `next_split_target` にフォールバックする。
     #[test]
     fn test_resolve_batch_split_falls_back_when_anchor_closed() {
-        use crate::herdr::SplitDirection as D;
+        use crate::pane::SplitDirection as D;
         let mut g = TabGroup {
             tab_id: "t1".to_string(),
             root_pane_id: "root".to_string(),
@@ -4150,7 +3935,7 @@ main "$@"
     /// 今ある pane から決める `next_split_target` にフォールバックする。
     #[test]
     fn test_resolve_batch_split_falls_back_when_last_closed() {
-        use crate::herdr::SplitDirection as D;
+        use crate::pane::SplitDirection as D;
         let mut g = TabGroup {
             tab_id: "t1".to_string(),
             root_pane_id: "root".to_string(),
