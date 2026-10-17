@@ -1,4 +1,4 @@
-"""文書検索 API（`GET /api/projects/{name}/search`・`control.phone_search`）の小さなテスト。
+"""文書検索 API（`GET /api/projects/{name}/search`・`control.cli_search`）の小さなテスト。
 
 確かめること:
 - 外から来る値は CLI を呼ぶ前に弾く（400・呼び出し 0 回）
@@ -60,19 +60,19 @@ def test_validation(cli: FakeCli) -> None:
         {"word": "x", "limit": 101},
     ]
     for kw in bad_kwargs:
-        expect_400(lambda kw=kw: control.phone_search("demo", **kw))
+        expect_400(lambda kw=kw: control.cli_search("demo", **kw))
     assert cli.calls == [], f"検査前に CLI が呼ばれた: {cli.calls}"
 
 
 def test_calls(cli: FakeCli) -> None:
     cli.calls.clear()
-    assert control.phone_search("demo", " mlflow  run ") == {"items": [], "truncated": False}
+    assert control.cli_search("demo", " mlflow  run ") == {"items": [], "truncated": False}
     assert cli.calls[-1] == [
         "agent-link", "doc", "search",
         "--word", "mlflow  run", "--category", "task,message,waggle", "--limit", "50",
     ], cli.calls[-1]
 
-    control.phone_search(
+    control.cli_search(
         "demo",
         "x",
         category="waggle, task",

@@ -107,7 +107,7 @@ def send_to(subscription: dict, title: str, body: str, url: str) -> str:
 
 
 def notify_heading(run: dict) -> str:
-    """通知の見出し（＝プロジェクト名）．無いときだけ agent-link（計画書 A の U05・U17）．
+    """通知の見出し（＝プロジェクト名）．無いときだけ agent-link．
 
     watch.py と questions.py の両方から使うのでここに置く．
     """
@@ -121,7 +121,7 @@ def run_title(run: dict) -> str:
 
 
 def run_url(run: dict) -> str:
-    """通知タップで開く実行画面の住所（02 §3.1）．"""
+    """通知タップで開く実行画面の住所．"""
     project = quote(str(run.get("project_name") or ""), safe="")
     return f"/#/run/{project}/{run.get('run_id', '')}"
 

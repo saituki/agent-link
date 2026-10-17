@@ -1,14 +1,14 @@
-"""Web が CLI を呼ぶ約束（共有契約・U09）の読み替えの試験。
+"""Web が CLI を呼ぶ約束の読み替えの試験。
 
 確かめること:
 - `cli.run_json` の読み替え（終了コード 0 / 2 / 3 / 4 / 1 / その他）
   - 0 で JSON → その JSON
   - 0 で JSON でない → 502
   - 2 → 400・3 → 404・4 → 409・1 とそのほか → 502
-  - 理由は標準エラーの最後の空でない行（`sai-progress` の行は飛ばす）
+  - 理由は標準エラーの最後の空でない行
   - 標準出力の `{"error": …}` は理由に使わない（終了コードで決める）
 - 起動できない → 503・時間切れ → 504（`run_cli`）
-- 呼び出しの env（`_phone_env`）
+- 呼び出しの env（`_cli_env`）
   - `AGENT_LINK_PROJECT_ROOT` がある
 
 実行:
@@ -30,7 +30,7 @@ def expect(code: int, fn) -> HTTPException:
         fn()
     except HTTPException as e:
         assert e.status_code == code, f"{code} のはずが {e.status_code}: {e.detail}"
-        assert str(e.detail).strip(), f"{code} のときは日本語で理由を書く"
+        assert str(e.detail).strip(), f"{code} のときは英語で理由を書く"
         return e
     raise AssertionError(f"{code} になるはず")
 
@@ -77,16 +77,16 @@ def test_exit_codes() -> None:
 
 
 def test_reason_is_last_line() -> None:
-    """理由は標準エラーの最後の空でない行（`sai-progress` は飛ばす）。"""
-    e = expect(502, lambda: call(1, "", "sai-progress step=1\n本当の理由\n\n"))
+    """理由は標準エラーの最後の空でない行。"""
+    e = expect(502, lambda: call(1, "", "first line\n本当の理由\n\n"))
     assert e.detail == "本当の理由", e.detail
-    # 進捗しか無ければ既定の文
-    e = expect(502, lambda: call(1, "", "sai-progress step=1\nsai-progress msg=途中\n"))
+    # 空白だけなら既定の文
+    e = expect(502, lambda: call(1, "", "  \n\n"))
     assert e.detail == "agent-link failed.", e.detail
 
 
 def test_stdout_error_is_not_special() -> None:
-    """標準出力の `{"error"}` は理由に使わない（終了コードで決める・U14 で形 A を消した）。"""
+    """標準出力の `{"error"}` は理由に使わない（終了コードで決める）。"""
     e = expect(502, lambda: call(1, '{"error": "stdout の理由"}'))
     assert e.detail == "agent-link failed.", e.detail
     # 2 なら標準エラーの理由で 400
@@ -107,8 +107,8 @@ def test_run_cli_503_504() -> None:
     assert "in time" in str(e.detail), e.detail
 
 
-def test_phone_env() -> None:
-    env = control._phone_env("/tmp/root")
+def test_cli_env() -> None:
+    env = control._cli_env("/tmp/root")
     assert env["AGENT_LINK_PROJECT_ROOT"] == "/tmp/root", env.get("AGENT_LINK_PROJECT_ROOT")
 
 
@@ -118,7 +118,7 @@ def main() -> None:
     test_reason_is_last_line()
     test_stdout_error_is_not_special()
     test_run_cli_503_504()
-    test_phone_env()
+    test_cli_env()
     print("test_cli_contract: すべて通りました")
 
 

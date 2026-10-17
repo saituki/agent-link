@@ -1,9 +1,9 @@
-"""外部 CLI を呼ぶ共通の受け口（06 §3.2・07 以降も使う）．
+"""外部 CLI を呼ぶ共通の受け口（以降も使う）．
 
-決め事（共有契約「Web が CLI を呼ぶ約束」）:
+決め事（Web が CLI を呼ぶ約束）:
 - シェルは使わない（args の配列で渡す。`shell=True` は使わない）。
 - 成功は終了コード 0・`--json` なら標準出力に JSON 1 個。
-- 失敗は標準出力に何も書かず，標準エラーの最後の空でない行に日本語で理由 1 行。
+- 失敗は標準出力に何も書かず，標準エラーの最後の空でない行に英語で理由 1 行。
   終了コードは 2（入力の誤り）・3（見つからない）・4（状態の衝突）・1（その他）。
 
 終了コードの HTTP への読み替え（この 1 か所に集める）:
@@ -12,7 +12,7 @@
 |---|---|---|
 | 0 で標準出力が JSON | （成功） | — |
 | 0 で標準出力が JSON でない | 502 | 「<app> の応答を読めませんでした」 |
-| 2 | 400 | 標準エラーの最後の空でない行（`sai-progress` を除く） |
+| 2 | 400 | 標準エラーの最後の空でない行 |
 | 3 | 404 | 同上 |
 | 4 | 409 | 同上 |
 | 1 とそのほか | 502 | 同上（無ければ「<app> が失敗しました」） |
@@ -31,10 +31,6 @@ from fastapi import HTTPException
 
 logger = logging.getLogger("agent_link_web")
 
-# 進捗の目印（この行は失敗の理由にしない・CLI 共通の約束 4）
-_PROGRESS_PREFIX = "sai-progress"
-
-
 def _log_stderr(app: str, proc: subprocess.CompletedProcess) -> None:
     """標準エラーの先頭 300 文字をログに出す（どの失敗でも呼ぶ）．"""
     err = (proc.stderr or "").strip()
@@ -43,19 +39,19 @@ def _log_stderr(app: str, proc: subprocess.CompletedProcess) -> None:
 
 
 def last_reason(proc: subprocess.CompletedProcess) -> str:
-    """標準エラーの最後の空でない行（`sai-progress` で始まる行を除く）。
+    """標準エラーの最後の空でない行。
 
     失敗の理由として使う（無ければ空文字）。
     """
     for line in reversed((proc.stderr or "").splitlines()):
         text = line.strip()
-        if text and not text.startswith(_PROGRESS_PREFIX):
+        if text:
             return text
     return ""
 
 
 def raise_for_failure(app: str, proc: subprocess.CompletedProcess):
-    """終了コード 0 以外を，共有契約の HTTP の状態に読み替えて `HTTPException` を出す。
+    """終了コード 0 以外を，CLI の約束どおりの HTTP の状態に読み替えて `HTTPException` を出す。
 
     `run_json`（JSON を返す呼び出し）と `result_json`，文字出力を扱う `daemon` が
     同じ読み替えを使うための入口。理由は終了コードと標準エラーだけで決める。
@@ -94,7 +90,7 @@ def run_cli(
     終了コードは見ない（呼び出し側が必要なら自分で確かめる）。
     JSON でない CLI（文字出力の ones）もこれで呼ぶ。
     `input_text` は標準入力へ渡す文字列（`agent-link card create` の
-    stdin JSON・計画 15 §3.3）。無ければ標準入力は閉じたまま。
+    stdin JSON）。無ければ標準入力は閉じたまま。
     """
     try:
         return subprocess.run(
@@ -129,7 +125,7 @@ def run_json(
     input_text: str | None = None,
     runner=None,
 ):
-    """共有契約の CLI を呼び，JSON を返す（成功・失敗の読み替えは `result_json`）．
+    """agent-link の CLI を呼び，JSON を返す（成功・失敗の読み替えは `result_json`）．
 
     - 終了コード 0: 標準出力の JSON をそのまま返す。
     - それ以外: `result_json` の読み替え（http の状態 + 標準エラーの最後の行）。

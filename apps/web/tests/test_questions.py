@@ -1,9 +1,9 @@
-"""質問の状態遷移の小さなテスト（assertだけ）・05 §6・U03．
+"""質問の状態遷移の小さなテスト（assertだけ）．
 
-headless では pane の画面が無いので，回答は記録するだけになった（共有契約 C6）。
+headless では pane の画面が無いので，回答は記録するだけになった。
 確かめること:
 - pi の質問は答えるまで open のまま（画面を読まない）
-- cc の質問に答えると，キーを送らずに answered になり答えが保存される（AC4）
+- cc の質問に答えると，キーを送らずに answered になり答えが保存される
 - 未回答の問が残っている間は記録しない
 - pi は 10 分・cc は 24 時間で期限切れになる
 - 拡張からの「PC で答えた」の通知は resolved_elsewhere にする
@@ -59,7 +59,7 @@ def state_of(qid: str) -> str:
 
 
 def test_pi_question_stays_open_when_pane_not_blocked() -> None:
-    """pi の質問は答えるまで open のまま（画面を読まない・05 §6）．"""
+    """pi の質問は答えるまで open のまま（画面を読まない）．"""
     with tempfile.TemporaryDirectory() as tmp:
         fresh_db(tmp)
         qid = make_question("pi")["id"]
@@ -76,7 +76,7 @@ def test_pi_question_stays_open_when_pane_not_blocked() -> None:
 
 
 def test_cc_question_answer_records_without_keys() -> None:
-    """cc の質問もキーを送らず，記録するだけ（AC4・共有契約 C6）．"""
+    """cc の質問もキーを送らず，記録するだけ．"""
     with tempfile.TemporaryDirectory() as tmp:
         fresh_db(tmp)
         qid = make_question("claude")["id"]
@@ -92,7 +92,7 @@ def test_cc_question_answer_records_without_keys() -> None:
 
 
 def test_answer_requires_all_questions() -> None:
-    """未回答の問が残っている間は記録しない（05 §1 の2番の保険）．"""
+    """未回答の問が残っている間は記録しない．"""
     with tempfile.TemporaryDirectory() as tmp:
         fresh_db(tmp)
         qid = make_question("pi", n=2)["id"]
@@ -154,7 +154,7 @@ def test_validation_error_detail_is_string() -> None:
 
 
 def test_pi_question_expires_after_10_minutes() -> None:
-    """pi の open な質問は10分経ったら expired（05 §3.1）．"""
+    """pi の open な質問は10分経ったら expired．"""
     with tempfile.TemporaryDirectory() as tmp:
         fresh_db(tmp)
         qid = make_question("pi")["id"]
@@ -173,7 +173,7 @@ def test_pi_question_expires_after_10_minutes() -> None:
 
 
 def test_cc_question_expires_after_24_hours() -> None:
-    """cc の open な質問は 24 時間で expired（フックの待ち時間に合わせる・U02）．"""
+    """cc の open な質問は 24 時間で expired（フックの待ち時間に合わせる）．"""
     with tempfile.TemporaryDirectory() as tmp:
         fresh_db(tmp)
         qid = make_question("claude")["id"]
@@ -196,7 +196,7 @@ def test_cc_question_expires_after_24_hours() -> None:
 
 
 def test_resolve_on_terminal() -> None:
-    """拡張からの「PC で答えた」は resolved_elsewhere にする（05 §3.1）．"""
+    """拡張からの「PC で答えた」は resolved_elsewhere にする．"""
     with tempfile.TemporaryDirectory() as tmp:
         fresh_db(tmp)
         qid = make_question("pi")["id"]
@@ -207,7 +207,7 @@ def test_resolve_on_terminal() -> None:
 
 
 def test_answer_records_answered_by() -> None:
-    """回答者を記録する（C8）: 単独モードは user，端末で答えたのは terminal．"""
+    """回答者を記録する: 単独モードは user，端末で答えたのは terminal．"""
     with tempfile.TemporaryDirectory() as tmp:
         fresh_db(tmp)
         qid = make_question("claude")["id"]
@@ -250,7 +250,7 @@ def test_old_db_gets_answered_by_column() -> None:
 
 
 def test_free_text_answer_is_recorded() -> None:
-    """自由記述（Other）の答えは text のまま保存され、回答済みになる（AC3）。"""
+    """自由記述（Other）の答えは text のまま保存され、回答済みになる。"""
     with tempfile.TemporaryDirectory() as tmp:
         fresh_db(tmp)
         qid = make_question("claude")["id"]
@@ -261,7 +261,7 @@ def test_free_text_answer_is_recorded() -> None:
 
 
 def test_withdraw_changes_only_open() -> None:
-    """取り下げは open の行だけを変え，送った文を答えに残す。画面にも出る（U02）。"""
+    """取り下げは open の行だけを変え，送った文を答えに残す。画面にも出る。"""
     with tempfile.TemporaryDirectory() as tmp:
         fresh_db(tmp)
         qid = make_question("claude")["id"]

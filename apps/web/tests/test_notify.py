@@ -1,11 +1,11 @@
-"""プッシュ通知の送り方の小さなテスト（U03）。
+"""プッシュ通知の送り方の小さなテスト。
 
 確かめること:
 - 鍵は Vapid として渡し，送り主の連絡先（sub）は @localhost ではない
 - 無効な登録（404 / 410）だけ消し，一時的な失敗（403・500 など）では消さない
-- 通知の見出しはプロジェクト名（無ければ sai・計画書 A の U05）
-- headless の `state.json`（共有契約 C1）が 3 分以上 working のあと idle になると，
-  通知が 1 回だけ出る（AC5）
+- 通知の見出しはプロジェクト名（無ければ sai）
+- headless の `state.json`が 3 分以上 working のあと idle になると，
+  通知が 1 回だけ出る
 
 実行:
     PYTHONPATH=src .venv/bin/python tests/test_notify.py
@@ -74,7 +74,7 @@ def main() -> None:
 
 
 def test_heading_is_project_name() -> None:
-    """通知の見出しはプロジェクト名（無ければ sai・計画書 A の U05・U17）。"""
+    """通知の見出しはプロジェクト名（無ければ sai）。"""
     assert notify.notify_heading({"project_name": "agent-link-web"}) == "agent-link-web"
     assert notify.notify_heading({"project_name": "sai-base"}) == "sai-base"
     # project_name が無いときは agent-link（アプリの名前）
@@ -106,7 +106,7 @@ def test_heading_is_project_name() -> None:
 
 
 def test_long_work_notifies_once() -> None:
-    """偽の `state.json` が 3 分以上 working のあと idle になると通知が 1 回出る（AC5）。"""
+    """偽の `state.json` が 3 分以上 working のあと idle になると通知が 1 回出る。"""
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
         pane_id = "hl-0123456789ab"

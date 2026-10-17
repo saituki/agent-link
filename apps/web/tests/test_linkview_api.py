@@ -1,14 +1,14 @@
-"""List 画面の API（計画 14 §3.3）の小さなテスト。
+"""List 画面の APIの小さなテスト。
 
 確かめること:
 - 外から来る値の検査（run_id は正の整数 / view・kind は一覧の値 / token は英数字と -_.:）
 - 検査は CLI を呼ぶ前に行う（呼び出し 0 回）
 - `agent-link <新しい命令>` は cwd = プロジェクトの root，`AGENT_LINK_PROJECT_ROOT` = 同じ root で呼ばれる
-- CLI の失敗の読み替えは共有契約のとおり（2 → 400・3 → 404・4 → 409・1 とそのほか → 502。
+- CLI の失敗の読み替えは CLI の約束のとおり（2 → 400・3 → 404・4 → 409・1 とそのほか → 502。
   理由は標準エラーの最後の行）
 - 終了コード 0 で JSON でない応答は 502
 - root / db が無いプロジェクトは CLI を呼ばず 404
-- 5 つの住所が登録済み（計画 14 §3.3）
+- 5 つの住所が登録済み
 - task の保存（PUT …/md/task）と report の読み出し（GET …/md/report）の検査と呼ぶ形
 
 実行:
@@ -31,7 +31,7 @@ def expect(code: int, fn) -> HTTPException:
         fn()
     except HTTPException as e:
         assert e.status_code == code, f"{code} のはずが {e.status_code}: {e.detail}"
-        assert str(e.detail).strip(), f"{code} のときは日本語で理由を書く"
+        assert str(e.detail).strip(), f"{code} のときは英語で理由を書く"
         return e
     raise AssertionError(f"{code} になるはず")
 
@@ -77,35 +77,35 @@ def make_find_project(rows: list[dict]):
 
 
 def test_validation(cli: FakeCli) -> None:
-    """外から来る値は CLI を呼ぶ前に弾く（計画 14 §3.3）。"""
+    """外から来る値は CLI を呼ぶ前に弾く。"""
     cli.calls.clear()
     # run_id: 1 以上の整数だけ
     for bad in (0, -1, True, "3"):
-        expect(400, lambda bad=bad: control.phone_run_view("demo", bad, "log"))
+        expect(400, lambda bad=bad: control.cli_run_view("demo", bad, "log"))
     # view: log / stats / history
     for bad in ("bogus", "", "LOG", "task"):
-        expect(400, lambda bad=bad: control.phone_run_view("demo", 1, bad))
+        expect(400, lambda bad=bad: control.cli_run_view("demo", 1, bad))
     # kind: task / message / report
     for bad in ("bogus", "", "TASK", "log", "review"):
-        expect(400, lambda bad=bad: control.phone_md("demo", 1, bad))
+        expect(400, lambda bad=bad: control.cli_md("demo", 1, bad))
     # token: 英数字と -_.: だけ（長さ上限 128・: は入れられる形なので使わない）
     for bad in ("bad token", "a" * 129, "../x", "", "絵文字", "a/b"):
-        expect(400, lambda bad=bad: control.phone_waggle("demo", 1, bad))
+        expect(400, lambda bad=bad: control.cli_waggle("demo", 1, bad))
     # call_id（History の全文）: 英数字と - _ だけの 80 字まで（`:` `.` `|` は通さない）
     for bad in ("", "a" * 81, "a.b", "a:b", "a|b", "a/b", "絵文字", None, 3):
-        expect(400, lambda bad=bad: control.phone_run_call("demo", 1, bad))
-    expect(400, lambda: control.phone_run_call("demo", 0, "toolu_01"))
+        expect(400, lambda bad=bad: control.cli_run_call("demo", 1, bad))
+    expect(400, lambda: control.cli_run_call("demo", 0, "toolu_01"))
     assert cli.calls == [], f"検査前に CLI が呼ばれた: {cli.calls}"
 
 
 def test_calls(cli: FakeCli) -> None:
-    """呼ぶ形（cwd と AGENT_LINK_PROJECT_ROOT は選んだプロジェクトの root・計画 12 §3.1）。"""
+    """呼ぶ形（cwd と AGENT_LINK_PROJECT_ROOT は選んだプロジェクトの root）。"""
     cli.returncode = 0
     cli.stdout = '{"items": []}'
     cli.stderr = ""
     cli.calls.clear()
 
-    assert control.phone_tree("demo") == {"items": []}
+    assert control.cli_tree("demo") == {"items": []}
     call = cli.last
     assert call["args"] == ["agent-link", "run", "tree"], call["args"]
     assert call["cwd"] == "/tmp/demo-root", call["cwd"]
@@ -115,49 +115,49 @@ def test_calls(cli: FakeCli) -> None:
     )
 
     cli.stdout = "{}"
-    control.phone_run_view("demo", 7, "stats")
+    control.cli_run_view("demo", 7, "stats")
     assert cli.last["args"] == ["agent-link", "run", "stats", "7"]
 
-    control.phone_run_view("demo", 7, "history")
+    control.cli_run_view("demo", 7, "history")
     assert cli.last["args"] == ["agent-link", "run", "history", "7"], cli.last["args"]
 
     # 全文は --json を付けて呼ぶ（付けないと CLI は本文だけの文字を出す）
-    control.phone_run_call("demo", 7, "toolu_01-x_Y")
+    control.cli_run_call("demo", 7, "toolu_01-x_Y")
     assert cli.last["args"] == [
         "agent-link", "run", "history", "7", "--call", "toolu_01-x_Y", "--json",
     ], cli.last["args"]
     assert cli.last["cwd"] == "/tmp/demo-root", cli.last["cwd"]
 
-    control.phone_md("demo", 7, "task")
+    control.cli_md("demo", 7, "task")
     assert cli.last["args"] == ["agent-link", "run", "md", "7", "--kind", "task"]
 
-    control.phone_waggle("demo", 7)
+    control.cli_waggle("demo", 7)
     assert cli.last["args"] == [
         "agent-link", "doc", "list", "--run", "7", "--json",
     ], cli.last["args"]
 
-    control.phone_waggle("demo", 7, "abc-123_x.y")
+    control.cli_waggle("demo", 7, "abc-123_x.y")
     assert cli.last["args"] == [
         "agent-link", "doc", "read", "abc-123_x.y", "--json",
     ], cli.last["args"]
 
 
 def test_missing_404(cli: FakeCli) -> None:
-    """終了コード 3 は文に関係なく 404（共有契約「Web が CLI を呼ぶ約束」）。"""
+    """終了コード 3 は文に関係なく 404（Web が CLI を呼ぶ約束）。"""
     cli.returncode = 3
     cli.stdout = ""
     cli.stderr = "まだありません"
     cli.calls.clear()
-    e = expect(404, lambda: control.phone_md("demo", 7, "report"))
+    e = expect(404, lambda: control.cli_md("demo", 7, "report"))
     assert str(e.detail) == "まだありません", e.detail
     assert cli.last["args"][1] == "run"
     # 文が「実行が見つかりません」でも 404（文の一致は見ない）
     cli.stderr = "実行が見つかりません: ID9999"
-    e = expect(404, lambda: control.phone_run_view("demo", 9999, "log"))
+    e = expect(404, lambda: control.cli_run_view("demo", 9999, "log"))
     assert str(e.detail) == "実行が見つかりません: ID9999", e.detail
     # 呼び出しが無いときも 3 → 404（History の全文）
     cli.stderr = "呼び出しが見つかりません: toolu_01"
-    e = expect(404, lambda: control.phone_run_call("demo", 7, "toolu_01"))
+    e = expect(404, lambda: control.cli_run_call("demo", 7, "toolu_01"))
     assert str(e.detail) == "呼び出しが見つかりません: toolu_01", e.detail
 
 
@@ -167,25 +167,25 @@ def test_cli_failure_502(cli: FakeCli) -> None:
     cli.stdout = ""
     cli.stderr = "x" * 500
     cli.calls.clear()
-    e = expect(502, lambda: control.phone_tree("demo"))
+    e = expect(502, lambda: control.cli_tree("demo"))
     assert str(e.detail) == "x" * 500, str(e.detail)
 
-    # 最後の空でない行だけを使う（`sai-progress` の行は飛ばす）
+    # 最後の空でない行だけを使う
     cli.returncode = 1
-    cli.stderr = "sai-progress step=1\n本当の理由です\n"
-    e = expect(502, lambda: control.phone_tree("demo"))
+    cli.stderr = "first line\n本当の理由です\n"
+    e = expect(502, lambda: control.cli_tree("demo"))
     assert str(e.detail) == "本当の理由です", e.detail
 
     # 終了コード 4 は 409
     cli.returncode = 4
     cli.stderr = "実行中です"
-    e = expect(409, lambda: control.phone_tree("demo"))
+    e = expect(409, lambda: control.cli_tree("demo"))
     assert str(e.detail) == "実行中です", e.detail
 
     # stderr が空でも 502（文言は日本語）
     cli.returncode = 1
     cli.stderr = ""
-    expect(502, lambda: control.phone_tree("demo"))
+    expect(502, lambda: control.cli_tree("demo"))
 
 
 def test_bad_json_502(cli: FakeCli) -> None:
@@ -193,7 +193,7 @@ def test_bad_json_502(cli: FakeCli) -> None:
     cli.returncode = 0
     cli.stdout = "これは JSON ではありません"
     cli.stderr = ""
-    expect(502, lambda: control.phone_tree("demo"))
+    expect(502, lambda: control.cli_tree("demo"))
 
 
 def test_md_save(cli: FakeCli) -> None:
@@ -203,16 +203,16 @@ def test_md_save(cli: FakeCli) -> None:
     """
     cli.calls.clear()
     for bad_kind in ("message", "report", "log", ""):
-        expect(400, lambda k=bad_kind: control.phone_md_save("demo", 7, k, "x"))
+        expect(400, lambda k=bad_kind: control.cli_md_save("demo", 7, k, "x"))
     for bad_text in (None, 3, "x" * (100 * 1024 + 1)):
-        expect(400, lambda t=bad_text: control.phone_md_save("demo", 7, "task", t))
-    expect(400, lambda: control.phone_md_save("demo", 0, "task", "x"))
+        expect(400, lambda t=bad_text: control.cli_md_save("demo", 7, "task", t))
+    expect(400, lambda: control.cli_md_save("demo", 0, "task", "x"))
     assert cli.calls == [], f"検査前に CLI が呼ばれた: {cli.calls}"
 
     cli.returncode = 0
     cli.stdout = '{"kind": "task", "name": "task.md", "text": "本文"}'
     cli.stderr = ""
-    assert control.phone_md_save("demo", 7, "task", "本文")["text"] == "本文"
+    assert control.cli_md_save("demo", 7, "task", "本文")["text"] == "本文"
     assert cli.last["args"] == [
         "agent-link", "run", "md", "7", "--kind", "task", "--write",
     ], cli.last["args"]
@@ -221,21 +221,21 @@ def test_md_save(cli: FakeCli) -> None:
     cli.returncode = 3
     cli.stdout = ""
     cli.stderr = "未実行のカードが見つかりません"
-    e = expect(404, lambda: control.phone_md_save("demo", 7, "task", "x"))
+    e = expect(404, lambda: control.cli_md_save("demo", 7, "task", "x"))
     assert str(e.detail) == "未実行のカードが見つかりません", e.detail
 
 
 def test_project_checks(cli: FakeCli) -> None:
     """登録簿に無い・root / db が無いプロジェクトは CLI を呼ばず 404。"""
     cli.calls.clear()
-    expect(404, lambda: control.phone_tree("unknown"))
-    expect(404, lambda: control.phone_tree("no-root"))
-    expect(404, lambda: control.phone_tree("no-db"))
+    expect(404, lambda: control.cli_tree("unknown"))
+    expect(404, lambda: control.cli_tree("no-root"))
+    expect(404, lambda: control.cli_tree("no-db"))
     assert cli.calls == [], f"呼ばれるべきでない CLI 呼び出し: {cli.calls}"
 
 
 def test_routes() -> None:
-    """住所が登録済みで，他の /api/projects/… と衝突しない（計画 14 §3.3・History の全文 C11）。"""
+    """住所が登録済みで，他の /api/projects/… と衝突しない（History の全文）。"""
     from agent_link_web.main import app
 
     paths = [
@@ -254,7 +254,7 @@ def test_routes() -> None:
         assert (path, ["GET"]) in paths, f"住所が無い: {path}"
     assert ("/api/projects/{name}/runs/{run_id:int}/md/{kind}", ["PUT"]) in paths
     # 旧 `POST …/run`（カード実行）は新形式 todo の
-    # `POST …/runs/{run_id}/start` に置き換わった（計画 15・形は test_card_api で確認）
+    # `POST …/runs/{run_id}/start` に置き換わった（形は test_card_api で確認）
     assert ("/api/projects/{name}/run", ["POST"]) not in paths, paths
 
 

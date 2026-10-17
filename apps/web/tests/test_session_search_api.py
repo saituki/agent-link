@@ -1,9 +1,9 @@
-"""会話の検索 API（`GET /api/projects/{name}/sessions/search`・`control.phone_session_search`）の試験。
+"""会話の検索 API（`GET /api/projects/{name}/sessions/search`・`control.cli_session_search`）の試験。
 
 確かめること:
 - 条件が 1 つも無い・run の番号・日付・状態・種類・block・検索語の長さの検査
   （外れたら 400・CLI は呼ばない）
-- CLI に渡す argv（共有契約「会話の検索の口」）
+- CLI に渡す argv（会話の検索の口）
 - 先頭 200 件で切り，201 件目があれば `truncated` を真にすること
 - 住所が登録されていること
 
@@ -61,17 +61,17 @@ def test_validation(cli: FakeCli) -> None:
         {"sess_type": "bogus"},
     ]
     for kw in bad:
-        expect_400(lambda kw=kw: control.phone_session_search("demo", **kw))
+        expect_400(lambda kw=kw: control.cli_session_search("demo", **kw))
     assert cli.calls == [], f"検査前に CLI が呼ばれた: {cli.calls}"
 
 
 def test_calls(cli: FakeCli) -> None:
     cli.calls.clear()
     cli.items = []
-    assert control.phone_session_search("demo", word=" mlflow ") == {"items": [], "truncated": False}
+    assert control.cli_session_search("demo", word=" mlflow ") == {"items": [], "truncated": False}
     assert cli.calls[-1] == ["agent-link", "session", "search", "-w", "mlflow", "--json"], cli.calls[-1]
 
-    control.phone_session_search(
+    control.cli_session_search(
         "demo",
         word="a,b",
         run_id="10-20",
@@ -91,11 +91,11 @@ def test_calls(cli: FakeCli) -> None:
 def test_truncate(cli: FakeCli) -> None:
     cli.calls.clear()
     cli.items = [{"block_id": i} for i in range(201)]
-    out = control.phone_session_search("demo", word="x")
+    out = control.cli_session_search("demo", word="x")
     assert len(out["items"]) == 200, len(out["items"])
     assert out["truncated"] is True
     cli.items = [{"block_id": 1}]
-    out = control.phone_session_search("demo", word="x")
+    out = control.cli_session_search("demo", word="x")
     assert out["truncated"] is False
 
 

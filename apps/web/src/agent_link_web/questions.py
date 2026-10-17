@@ -3,12 +3,12 @@
 質問の中身は cc の AskUserQuestion と同じ書式
 （質問文・見出し・選択肢・説明・複数選択可否・最大4問）．
 
-方針（U03・共有契約 C6）:
+方針:
 - headless では pane の画面が無いので，回答は**記録するだけ**にする。
-  cc のフック（U02）と pi の拡張が `GET /api/questions/{qid}` で取りに来る。
+  cc のフックと pi の拡張が `GET /api/questions/{qid}` で取りに来る。
 - 質問の状態は，答えの記録・拡張からの `resolved` の通知・期限切れでだけ変わる。
   画面を読んで「PC で回答済み」を判定することはしない（pane が無いため）。
-- pi の open な質問は 10 分で期限切れ（05 §3.1: 拡張は最大5分待つ）。
+- pi の open な質問は 10 分で期限切れ（拡張は最大5分待つ）。
   cc のフックは最長 24 時間待つので，cc の質問は 24 時間で期限切れにする。
 """
 
@@ -21,9 +21,9 @@ from agent_link_web import store
 
 logger = logging.getLogger("agent_link_web")
 
-# pi の open な質問を期限切れにするまでの秒数（05 §3.1: 拡張は最大5分待つ）
+# pi の open な質問を期限切れにするまでの秒数（拡張は最大5分待つ）
 _PI_EXPIRE_SEC = 10 * 60
-# cc の open な質問を期限切れにするまでの秒数（フックは最長 24 時間待つ・U02）
+# cc の open な質問を期限切れにするまでの秒数（フックは最長 24 時間待つ）
 _CC_EXPIRE_SEC = 24 * 60 * 60
 
 # 同じ質問への回答を二重に処理しないためのロック（質問 ID が鍵）。
@@ -66,7 +66,7 @@ def register_question(
 def _notify_if_run(session_id: str) -> None:
     """そのセッションが agent-link の headless 実行なら「質問しています」を通知する．
 
-    手動で起動したエージェントには鳴らさない（00 §5）。通知の失敗で登録は止めない。
+    手動で起動したエージェントには鳴らさない。通知の失敗で登録は止めない。
     """
     from agent_link_web import notify, runs
 
@@ -84,7 +84,7 @@ def _notify_if_run(session_id: str) -> None:
 
 
 def refresh_question_state(session_id: str, pane_id: str | None = None, agent: str | None = None) -> None:
-    """headless では画面を読まないので何もしない（U03）．
+    """headless では画面を読まないので何もしない．
 
     質問の状態は，答えの記録・拡張からの `resolved` の通知・期限切れでだけ変わる。
     呼び出し元（`GET /api/questions`）の互換のために残す。
@@ -95,8 +95,8 @@ def refresh_question_state(session_id: str, pane_id: str | None = None, agent: s
 def expire_stale_questions() -> int:
     """期限切れの質問を expired にする．件数を返す．
 
-    - pi は 10 分（`_PI_EXPIRE_SEC`・05 §3.1）。
-    - cc は 24 時間（`_CC_EXPIRE_SEC`・フックの待ち時間に合わせる・U02）。
+    - pi は 10 分（`_PI_EXPIRE_SEC`）。
+    - cc は 24 時間（`_CC_EXPIRE_SEC`・フックの待ち時間に合わせる）。
     """
     return store.expire_stale_questions("pi", _PI_EXPIRE_SEC) + store.expire_stale_questions(
         "claude", _CC_EXPIRE_SEC
@@ -104,7 +104,7 @@ def expire_stale_questions() -> int:
 
 
 def resolve_on_terminal(qid: str) -> bool:
-    """pi の拡張から「PC で答えた」の知らせが来た（05 §3.1）．
+    """pi の拡張から「PC で答えた」の知らせが来た．
 
     その質問だけ「PC で回答済み」にする（既に回答済みなら変えない）．
     回答者は `terminal` になる（store.mark_resolved_elsewhere_qid）．
@@ -132,7 +132,7 @@ def answer_question(
     answered_by は答えた人の記録（None なら今の利用者・単独は user）．
 
     同じ質問へ同時に 2 つ処理しないよう，質問 ID ごとのロックを取る
-    （2 件目には「送信中です」と返す・計画書 B U08）．
+    （2 件目には「送信中です」と返す）．
     """
     lock = _answer_lock(qid)
     if not lock.acquire(blocking=False):
@@ -181,7 +181,7 @@ def _answer_question_locked(
             return (False, f"Question {i + 1} takes one choice.")
 
     # headless ではキーを送れない．記録するだけ（cc のフックと pi の拡張が取りに来る）
-    # 回答者は今の利用者（単独モードは user）．承認の記録（approval record）に使う（C8）
+    # 回答者は今の利用者（単独モードは user）．承認の記録（approval record）に使う
     who = answered_by if answered_by is not None else "user"
     store.mark_answered(qid, {"answers": answers}, who)
     return (True, "")

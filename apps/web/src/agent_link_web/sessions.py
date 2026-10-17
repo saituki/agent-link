@@ -1,10 +1,10 @@
 """会話記録ファイル（.jsonl）の読み取り・変換．
 
 読み込むのは Run の `transcript_path` 1件だけ（どのファイルを見るかは
-runs.py が agent-link の書き出しファイルから決める．02 §2.3）。
+runs.py が agent-link の書き出しファイルから決める．）。
 
 iPhone に出す形は4種類（user / agent / tool / event）にする．
-event は XML 風タグの特殊メッセージ（<task-notification> など）のカード（03 §3）。
+event は XML 風タグの特殊メッセージ（<task-notification> など）のカード。
 会話の中身は記録ファイルからのみ作る。
 pane の画面読み取りは使わない．
 （隣の枠線が混ざる・右端が切れる・流れた行は残らないため）
@@ -29,12 +29,12 @@ _CURSOR_SEP = ":"
 
 # 行の先頭がタグで始まるか（本文の途中にある < と誤判定しないよう，行単位で見る）
 _TAG_START_RE = re.compile(r"^<([a-z][a-z0-9-]*)>")
-# 画面に出さないタグ（人が書いていない前置き・注意書きのため・03 §3）
+# 画面に出さないタグ（人が書いていない前置き・注意書きのため）
 _HIDE_TAGS = frozenset({"system-reminder", "local-command-caveat"})
 # コマンド実行の記録．行の順序が入れ替わることがあるので1枚のカードにまとめる
 _COMMAND_TAGS = ("command-name", "command-message", "command-args")
 # 直前の項目の時刻（transcript のパス → 時刻）．
-# 行に timestamp が無い場合に「直前の項目の時刻」で補うための覚え書き（03 §2）
+# 行に timestamp が無い場合に「直前の項目の時刻」で補うための覚え書き
 _last_time_cache: dict[str, str] = {}
 
 
@@ -116,11 +116,11 @@ def _join_result(target: dict, plain: str) -> None:
     target["detail"] = f"{prev}\n---\n{plain}" if prev else plain
 
 
-# --- sai の CLI の呼び出し（Bash の道具・U17） ---
-# Bash の command が sai の CLI の呼び出しかを調べ、今の MCP の道具と同じ緑の
+# --- agent-link の CLI の呼び出し（Bash の道具） ---
+# Bash の command が agent-link の CLI の呼び出しかを調べ、今の MCP の道具と同じ緑の
 # 見出しで出す。見出しは「CLI の名前 + 命令の語（1〜2 語）」。
 
-# sai の CLI の名前（実行ファイル名。パスが付いていてもファイル名で見る）
+# agent-link の CLI の名前（実行ファイル名。パスが付いていてもファイル名で見る）
 _CLI_NAMES = frozenset({"agent-link", "agent-link-web"})
 # 下位の命令を持つ語（この語が 1 語目のときだけ 2 語目も見出しに付ける）。
 # 表に無い新しい命令は 1 語目までの見出しになり、壊れない。
@@ -136,9 +136,9 @@ _ASSIGN_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
 
 
 def _sai_cli_call(command: str) -> tuple[str, str, str] | None:
-    """Bash で実行した sai の CLI の呼び出しかを決める（U17）。
+    """Bash で実行した agent-link の CLI の呼び出しかを決める。
 
-    返すのは `(CLI の名前, 見出し, 引数の文)`。sai の CLI でなければ None。
+    返すのは `(CLI の名前, 見出し, 引数の文)`。agent-link の CLI でなければ None。
     引数の文は、命令の語より後ろの 1 行目の残りと 2 行目以降をつなげたもの
     （ヒアドキュメントの本文などもそのまま残す）。
     """
@@ -201,7 +201,7 @@ def _sai_cli_call(command: str) -> tuple[str, str, str] | None:
 
 
 def _tool_item(item_id: str, timestamp: str, name: str, args: dict) -> dict:
-    """tool の 1 項目を作る（cc と pi で同じ形・sai の CLI を見分ける・U17）。"""
+    """tool の 1 項目を作る（cc と pi で同じ形・agent-link の CLI を見分ける）。"""
     item = {
         "id": item_id,
         "kind": "tool",
@@ -263,8 +263,8 @@ def _tool_label(name: str, args: dict) -> str:
     if lower in ("task",):
         return "Delegated to another agent"
     if lower in ("askuserquestion", "ask_user", "ask_user_phone"):
-        # 05 §3.1-3: 閉じた状態のツール項目は「⚙ 質問」の1行（⚙ は app.js が付ける）。
-        # 古い名前 ask_user_phone も残す（古い会話の記録を同じ見出しで出すため・U17）。
+        # 閉じた状態のツール項目は「⚙ 質問」の1行（⚙ は app.js が付ける）。
+        # 古い名前 ask_user_phone も残す（古い会話の記録を同じ見出しで出すため）。
         return "Question"
     return f"Ran {name}"
 
@@ -282,7 +282,7 @@ def _text_of(blocks: object) -> str:
     return "\n".join(parts).strip()
 
 
-# --- 特殊メッセージ（XML 風タグ）の判定と整形（03 §3） ---
+# --- 特殊メッセージ（XML 風タグ）の判定と整形 ---
 
 
 def _scan_blocks(text: str) -> list[tuple[str, str, str]]:
@@ -290,7 +290,7 @@ def _scan_blocks(text: str) -> list[tuple[str, str, str]]:
 
     種類は "tag"（タグのブロック）か "text"（それ以外の行）。
     行の先頭が <タグ名> で始まるものだけをタグとして扱う
-    （本文の途中の < を誤判定しないため・03 §3）。
+    （本文の途中の < を誤判定しないため）。
     ``` で囲まれた部分はタグと見なさない（コード例の誤判定防止）。
     """
     lines = text.split("\n")
@@ -359,7 +359,7 @@ def _duration_jp(ms: int) -> str:
 
 
 def _usage_line(content: str) -> str | None:
-    """<usage> の中身を「トークン 12,345 · ツール 8 回 · 1分20秒」の1行にする（03 §3）．
+    """<usage> の中身を「トークン 12,345 · ツール 8 回 · 1分20秒」の1行にする．
 
     実物は <subagent_tokens>…</subagent_tokens> の形だが，
     JSON で来るものもあるので両方に対応する。取れなければ None（生の文字は出さない）。
@@ -412,7 +412,7 @@ def _new_event(
     detail: str = "",
     fields: list | None = None,
 ) -> dict:
-    """event カード（03 §2 の形）を作る．status は ok / error / info。"""
+    """event カードを作る．status は ok / error / info。"""
     return {
         "event_type": event_type,
         "title": title,
@@ -424,7 +424,7 @@ def _new_event(
 
 
 def _event_task_notification(content: str) -> dict:
-    """<task-notification> を event カードにする（03 §3 の表の1行目）．"""
+    """<task-notification> を event カードにする．"""
     status = _inner(content, "status")
     summary = _inner(content, "summary")
     output_file = _inner(content, "output-file")
@@ -460,7 +460,7 @@ def _event_task_notification(content: str) -> dict:
 
 
 def _event_for_block(name: str, content: str) -> dict | None:
-    """タグ1個から event カードを作る．表示しないタグは None（03 §3）．"""
+    """タグ1個から event カードを作る．表示しないタグは None．"""
     if name in _HIDE_TAGS:
         return None
     if name == "task-notification":
@@ -468,14 +468,14 @@ def _event_for_block(name: str, content: str) -> dict | None:
     if name == "local-command-stdout":
         return _new_event("command_output", "Command output", "info", "", content.strip())
     if name == "persisted-output":
-        # 中身は「Output too large …」の先頭だけdetailに入れる（03 §3）
+        # 中身は「Output too large …」の先頭だけdetailに入れる
         return _new_event("persisted_output", "Output saved", "info", "", content.strip()[:1000])
-    # 上記以外のタグはタグ名をそのまま見出しにした info カード（03 §3 の表の最後）
+    # 上記以外のタグはタグ名をそのまま見出しにした info カード
     return _new_event(name, name, "info", "", content.strip())
 
 
 def _command_line(cmd: dict[str, str]) -> str:
-    """<command-*> から1行の説明（名前と引数）を作る（03 §3）．"""
+    """<command-*> から1行の説明（名前と引数）を作る．"""
     name = (cmd.get("command-name") or "").strip()
     message = (cmd.get("command-message") or "").strip()
     args = (cmd.get("command-args") or "").strip()
@@ -484,7 +484,7 @@ def _command_line(cmd: dict[str, str]) -> str:
 
 
 def analyze_special(text: str) -> tuple[str, list[dict]]:
-    """特殊メッセージ（XML 風タグ）を判定する（03 §3）．
+    """特殊メッセージ（XML 風タグ）を判定する．
 
     戻り値は (画面に残す本文, event カードの並び)。
     - 行の先頭がタグで始まるものだけをタグとして扱う。
@@ -510,7 +510,7 @@ def analyze_special(text: str) -> tuple[str, list[dict]]:
                 plain_parts.append(line)
             continue
         if name in _HIDE_TAGS:
-            continue  # 表示しない（03 §3）
+            continue  # 表示しない
         if name in _COMMAND_TAGS:
             if cmd_pos < 0:
                 cmd_pos = len(events)
@@ -534,7 +534,7 @@ def analyze_special(text: str) -> tuple[str, list[dict]]:
 
 
 def _append_text_items(text: str, base_id: str, timestamp: str, items: list[dict]) -> None:
-    """user の文章1件を項目にする．タグがあれば event カードに分ける（03 §3）．"""
+    """user の文章1件を項目にする．タグがあれば event カードに分ける．"""
     plain, events = analyze_special(text)
     if plain:
         items.append({"id": base_id, "kind": "user", "time": timestamp, "text": plain})
@@ -619,7 +619,7 @@ def read_conversation(
     for item in items:
         if isinstance(item.get("detail"), str) and len(item["detail"]) > _DETAIL_LIMIT:
             item["detail"] = item["detail"][:_DETAIL_LIMIT]
-    # 時刻は全項目で必須（03 §2）．行に timestamp が無ければ直前の項目の時刻を使う
+    # 時刻は全項目で必須．行に timestamp が無ければ直前の項目の時刻を使う
     last_time = _last_time_cache.get(str(path), "")
     for item in items:
         t = item.get("time")
@@ -660,7 +660,7 @@ def _convert_claude_row(row: dict, items: list[dict], pending: dict[str, dict]) 
     """cc の1行を items に足す．表示しない行は捨てる．"""
     row_type = row.get("type")
     if row_type == "attachment":
-        # 実行中に送った文は cc が待ち行列に書く（03 §3・queued_command）
+        # 実行中に送った文は cc が待ち行列に書く（queued_command）
         _append_queued_prompt(row, items)
         return
     if row_type not in ("user", "assistant"):
@@ -673,10 +673,10 @@ def _convert_claude_row(row: dict, items: list[dict], pending: dict[str, dict]) 
     uid = row.get("uuid") or row.get("parentUuid") or ""
     timestamp = row.get("timestamp") or ""
     if row_type == "user" and row.get("isMeta") is True:
-        # スキル読み込みの前置きなど，人が書いていない文は出さない（03 §3）
+        # スキル読み込みの前置きなど，人が書いていない文は出さない
         return
     if isinstance(content, str):
-        # 素の文字列の user 行は指示文そのもの．先頭がタグの特殊メッセージもここに来る（03 §3）
+        # 素の文字列の user 行は指示文そのもの．先頭がタグの特殊メッセージもここに来る
         if row_type == "user" and content.strip():
             _append_text_items(content, uid, timestamp, items)
         return
@@ -693,10 +693,10 @@ def _convert_claude_row(row: dict, items: list[dict], pending: dict[str, dict]) 
             if not text.strip():
                 continue
             if row_type == "user":
-                # user の文章にもタグが混ざっていることがある（03 §3）
+                # user の文章にもタグが混ざっていることがある
                 _append_text_items(text, uid, timestamp, items)
             else:
-                # エージェントの発言は特殊メッセージに判定しない（03 §6）
+                # エージェントの発言は特殊メッセージに判定しない
                 items.append({"id": uid, "kind": "agent", "time": timestamp, "text": text})
         elif btype == "tool_use":
             tool_id = block.get("id") or ""
@@ -714,7 +714,7 @@ def _convert_claude_row(row: dict, items: list[dict], pending: dict[str, dict]) 
                 continue
             result_text = _text_of(block.get("content"))
             if result_text:
-                # タグがあれば整形して event に，残った本文だけを detail へ（03 §2・§3）
+                # タグがあれば整形して event に，残った本文だけを detail へ
                 plain, events = analyze_special(result_text)
                 _extend_events(events, tool_id or uid, timestamp, items)
                 if plain:
@@ -736,7 +736,7 @@ def _convert_pi_row(row: dict, items: list[dict], pending: dict[str, dict]) -> N
     if role == "user":
         text = _text_of(content)
         if text.strip():
-            # pi の行も cc と同じ特殊メッセージ判定に通す（03 §3）
+            # pi の行も cc と同じ特殊メッセージ判定に通す
             _append_text_items(text, uid, timestamp, items)
         return
     if role == "assistant":
@@ -769,7 +769,7 @@ def _convert_pi_row(row: dict, items: list[dict], pending: dict[str, dict]) -> N
             return
         result_text = _text_of(content)
         if result_text:
-            # タグがあれば整形して event に，残った本文だけを detail へ（03 §2・§3）
+            # タグがあれば整形して event に，残った本文だけを detail へ
             plain, events = analyze_special(result_text)
             _extend_events(events, tool_id or uid, timestamp, items)
             if plain:

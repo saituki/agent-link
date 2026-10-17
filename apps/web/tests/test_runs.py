@@ -1,4 +1,4 @@
-"""runs.py の日付まとめ処理の小さなテスト（assert だけ）・02 §5．
+"""runs.py の日付まとめ処理の小さなテスト（assert だけ）．
 
 実行:
     PYTHONPATH=src .venv/bin/python tests/test_runs.py
@@ -29,7 +29,7 @@ def make_run(
     project_name: str = "agent-link-web",
     **extra,
 ) -> dict:
-    """00 §3.2 の形のダミー実行を作る．"""
+    """ダミー実行を作る．"""
     run = {
         "schema_version": 1,
         "project_name": project_name,
@@ -55,7 +55,7 @@ def make_run(
 
 
 def test_jst_date_boundary() -> None:
-    """UTC 2026-09-22T23:30:00Z の実行は日本時間の 2026-09-23 に入る（00 §3.6）．"""
+    """UTC 2026-09-22T23:30:00Z の実行は日本時間の 2026-09-23 に入る．"""
     run = make_run(1, started_at="2026-09-22T23:30:00Z")
     assert runs.run_date(run) == "2026-09-23"
     assert runs.run_time(run) == "08:30"
@@ -73,7 +73,7 @@ def test_jst_date_boundary() -> None:
 
 
 def test_done_counts_and_cost() -> None:
-    """done の runner 別件数・running・failed・コスト合計（02 §1 の1番）．"""
+    """done の runner 別件数・running・failed・コスト合計．"""
     day = [
         make_run(
             1,
@@ -103,7 +103,7 @@ def test_done_counts_and_cost() -> None:
     assert d["running"] == 1
     assert d["failed"] == 1
     assert abs(d["cost_usd"] - 1.5) < 1e-9
-    # 概算の実行が1つでも混ざれば ≈ を付ける（02 §1 の1番）
+    # 概算の実行が1つでも混ざれば ≈ を付ける
     assert d["cost_is_estimate"] is True
 
     # runner の項目は常に "cc"
@@ -121,7 +121,7 @@ def test_done_counts_and_cost() -> None:
 
 
 def test_subtask_under_parent() -> None:
-    """サブタスクは親の直下に字下げして並ぶ（02 §1 の2番）．"""
+    """サブタスクは親の直下に字下げして並ぶ．"""
     parent = make_run(10, started_at="2026-09-23T00:00:00Z")
     other = make_run(12, started_at="2026-09-23T01:00:00Z")
     # サブタスクは親より後（時刻だけなら先頭）に始まっても親の直下に来る
@@ -146,7 +146,7 @@ def test_subtask_under_parent() -> None:
 
 
 def test_load_runs_filters() -> None:
-    """`.` 始まり・壊れた JSON・schema 違い・未実行は読み飛ばす（02 §2.1）．"""
+    """`.` 始まり・壊れた JSON・schema 違い・未実行は読み飛ばす．"""
     with tempfile.TemporaryDirectory() as tmp:
         base = Path(tmp)
         proj = base / "agent-link-web"

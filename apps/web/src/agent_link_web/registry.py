@@ -1,7 +1,7 @@
-"""登録簿 `~/.agent-link/registry.json` の読み込み（Project タブ・実装計画 C C1）。
+"""登録簿 `~/.agent-link/registry.json` の読み込み（Project タブ）。
 
-agent-link-web は他アプリの DB を直接開かない（00 §2）ため，ここもファイルと
-プロセスだけを見る。DB の中（実行中件数・最終実行日時）は `agent-link phone
+agent-link-web は他アプリの DB を直接開かないため，ここもファイルと
+プロセスだけを見る。DB の中（実行中件数・最終実行日時）は `agent-link project
 summary` に聞く（`control.list_projects`）。
 
 読み込むもの:
@@ -12,10 +12,10 @@ summary` に聞く（`control.list_projects`）。
   - `db_exists`  : `<root>/.agent-link/engine/agent-link.db` があるか
   - `daemon_alive`: `<root>/.agent-link/engine/daemon.pid` の PID が生きているか
 
-`agent-link` との共有契約（変えない）:
+`agent-link` との取り決め（変えない）:
 - DB と PID ファイルの位置は agent-link `project::sai_path` と同じ場所
   （`.agent-link/engine/agent-link.db` / `.agent-link/engine/daemon.pid`）
-- 登録簿の位置は `~/.agent-link/registry.json`（agent-link `phone_export.rs:237` と同じ）
+- 登録簿の位置は `~/.agent-link/registry.json`（agent-link の登録簿と同じ）
 
 `AGENT_LINK_HOME` を設定すれば登録簿の置き場（`$AGENT_LINK_HOME/registry.json`）を
 一時フォルダに変えられる（テストと手元確認のため）。
@@ -78,8 +78,7 @@ def daemon_alive(root: str) -> bool:
     """常駐が生きているか（`<root>/.agent-link/engine/daemon.pid` の PID が生きているか）。
 
     agent-link の `daemon::is_running()` は PID に加えてプロセス名まで確かめるが，
-    ここでは軽量の生死判定だけを行う。agent-link とずれる場合は報告に残すこと
-    （実装計画 C の追加指示）。
+    ここでは軽量の生死判定だけを行う。agent-link とずれる場合は報告に残すこと。
     """
     try:
         text = daemon_pid_path(root).read_text(encoding="utf-8").strip()
