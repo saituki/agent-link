@@ -109,6 +109,17 @@ pub struct PipelineConfig {
     pub pane_id: Option<String>,
     /// サブタスクとして実行中かどうか（true の場合、エージェントのプロセスに AGENT_LINK_IS_SUBTASK=1 を付与）
     pub is_subtask: bool,
+    /// 遠隔で動かす子の接続先（`None` は Mac で動かす）。`Some` のとき `cwd` は Mac のプロジェクトルート
+    pub remote: Option<RemoteTarget>,
+}
+
+/// 遠隔で動かす子の接続先（`task create` の `host` と遠隔の `cwd`）。
+#[derive(Debug, Clone, PartialEq)]
+pub struct RemoteTarget {
+    /// `~/.ssh/config` の Host 名
+    pub host: String,
+    /// 遠隔の機械のフォルダ（入力のまま。`~/` を含んでよい）
+    pub cwd: String,
 }
 
 impl Default for PipelineConfig {
@@ -142,6 +153,7 @@ impl Default for PipelineConfig {
             base_pane_id: None,
             pane_id: None,
             is_subtask: false,
+            remote: None,
         }
     }
 }
@@ -286,6 +298,9 @@ pub struct ExecutionOverrides {
     /// 作業フォルダ（サブタスクの `cwd`。絶対パス。None ならプロジェクトルート）
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cwd: Option<String>,
+    /// 遠隔で動かす子の ssh Host 名（`task create` の `host`）。`Some` のとき `cwd` は遠隔のフォルダ
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub host: Option<String>,
     /// デバッグ用にペインを維持するか（1.10 の修正: 全経路で伝播）
     #[serde(default)]
     pub keep_pane: bool,
@@ -1793,6 +1808,58 @@ fn write_run_task_md(
     let _ = std::fs::write(path, crate::kanban::render_card(&card));
 }
 
+/// 遠隔で動かす子の接続先を求める（`overrides.host` が空でなければ `Some`）。
+fn remote_target_of(overrides: &ExecutionOverrides) -> Option<RemoteTarget> {
+    let host = overrides.host.as_deref().map(str::trim).filter(|h| !h.is_empty())?;
+    Some(RemoteTarget {
+        host: host.to_string(),
+        cwd: overrides.cwd.clone().unwrap_or_default(),
+    })
+}
+
+/// パイプラインを動かす Mac 側の `cwd` と、遠隔の接続先を求める。
+///
+/// - `host` あり: 作業用コピーは作らず（ブロック定義の `worktree:` も無視）、`cwd` は Mac の
+///   プロジェクトルート。遠隔のフォルダは `RemoteTarget.cwd` に入れる。
+/// - `host` なし: 親が指定した作業フォルダ（無ければプロジェクトルート）。`worktree` 指定時は
+///   その中の作業用コピーへ変える。作業用コピーを作れなければ指定フォルダで続行する。
+fn resolve_pipeline_cwd(
+    overrides: &ExecutionOverrides,
+    worktree: Option<&str>,
+    block_id: &str,
+    run_id: i64,
+) -> (PathBuf, Option<RemoteTarget>) {
+    if let Some(remote) = remote_target_of(overrides) {
+        return (crate::project::project_root(), Some(remote));
+    }
+    let requested_cwd: PathBuf = overrides
+        .cwd
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(crate::project::project_root);
+    let cwd = if let Some(worktree_val) = worktree {
+        match resolve_worktree_branch(worktree_val, block_id, run_id) {
+            Some(branch) => match apply_worktree_for_cwd(&requested_cwd, &branch) {
+                Ok(path) => path,
+                Err(e) => {
+                    eprintln!(
+                        "[agent-link] 作業用コピーを作成できないため指定フォルダで実行します ({}): {}",
+                        requested_cwd.display(),
+                        e
+                    );
+                    requested_cwd.clone()
+                }
+            },
+            None => requested_cwd.clone(),
+        }
+    } else {
+        requested_cwd.clone()
+    };
+    (cwd, None)
+}
+
 /// 共通実行パイプラインの完全版（予約 run_id 付き・R302）。
 ///
 /// `reserved_run_id` が `Some` なら予約行を確定させて使い回す。
@@ -1888,31 +1955,7 @@ pub fn execute_block_pipeline_full(
     //    親が指定した作業フォルダ（overrides.cwd）を作業用コピーの基準にする。
     //    未指定ならプロジェクトルート。worktree は「指定された cwd を含む
     //    リポジトリ」に作る（親が別プロジェクトの cwd を指定できる）。
-    let requested_cwd: PathBuf = overrides
-        .cwd
-        .as_deref()
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .map(PathBuf::from)
-        .unwrap_or_else(crate::project::project_root);
-    let cwd = if let Some(ref worktree_val) = worktree {
-        match resolve_worktree_branch(worktree_val, &resolved.config.block_id(), run_id) {
-            Some(branch) => match apply_worktree_for_cwd(&requested_cwd, &branch) {
-                Ok(path) => path,
-                Err(e) => {
-                    eprintln!(
-                        "[agent-link] 作業用コピーを作成できないため指定フォルダで実行します ({}): {}",
-                        requested_cwd.display(),
-                        e
-                    );
-                    requested_cwd.clone()
-                }
-            },
-            None => requested_cwd.clone(),
-        }
-    } else {
-        requested_cwd.clone()
-    };
+    let (cwd, remote) = resolve_pipeline_cwd(&overrides, worktree.as_deref(), &resolved.config.block_id(), run_id);
 
     // 4. 完了監視チャネルの登録（デーモン連携時）
     //    ※ この時点で pi は未起動のため、自分の run_id の file_written 通知が
@@ -1939,6 +1982,7 @@ pub fn execute_block_pipeline_full(
         base_pane_id,
         pane_id,
         is_subtask: parent_run_id.is_some(),
+        remote,
     };
 
     let start = Instant::now();
@@ -2308,6 +2352,8 @@ pub struct SubtaskSettings {
     pub model: Option<String>,
     /// thinking（`None` はカードの thinking、無ければブロック定義に従う）
     pub thinking: Option<String>,
+    /// 遠隔で動かす子の ssh Host 名（`None` は Mac で動かす）
+    pub host: Option<String>,
 }
 
 /// サブタスクを実行する簡易パイプライン。
@@ -2428,6 +2474,7 @@ pub fn run_subtask(
         direction,
         worktree,
         cwd: task_cwd,
+        host: settings.host,
         keep_pane: false,
     };
 
@@ -4187,7 +4234,50 @@ mod tests {
             base_pane_id: None,
             pane_id: None,
             is_subtask: false,
+            remote: None,
         }
+    }
+
+    // ---- 遠隔で動かす子（host） ----
+
+    #[test]
+    fn remote_target_of_uses_host_and_cwd() {
+        let none = ExecutionOverrides::default();
+        assert_eq!(remote_target_of(&none), None);
+        let blank = ExecutionOverrides { host: Some("  ".into()), ..Default::default() };
+        assert_eq!(remote_target_of(&blank), None);
+        let o = ExecutionOverrides {
+            host: Some("wsl-server".into()),
+            cwd: Some("~/work/sai-tree".into()),
+            ..Default::default()
+        };
+        assert_eq!(
+            remote_target_of(&o),
+            Some(RemoteTarget { host: "wsl-server".into(), cwd: "~/work/sai-tree".into() })
+        );
+    }
+
+    /// host があるとき、cwd は Mac のプロジェクトルート・作業用コピーは作らない（isolation でも無視）。
+    #[test]
+    fn resolve_pipeline_cwd_with_host_stays_at_project_root() {
+        let o = ExecutionOverrides {
+            host: Some("wsl-server".into()),
+            cwd: Some("~/work/sai-tree".into()),
+            ..Default::default()
+        };
+        let (cwd, remote) = resolve_pipeline_cwd(&o, Some("isolation"), "worker", 1);
+        assert_eq!(cwd, crate::project::project_root());
+        assert_eq!(
+            remote,
+            Some(RemoteTarget { host: "wsl-server".into(), cwd: "~/work/sai-tree".into() })
+        );
+        assert!(!cwd.join(".worktrees").join("worker-1").exists());
+
+        // host なしは今まで通り（指定 cwd・remote なし）
+        let local = ExecutionOverrides { cwd: Some("/tmp".into()), ..Default::default() };
+        let (cwd, remote) = resolve_pipeline_cwd(&local, None, "worker", 1);
+        assert_eq!(cwd, PathBuf::from("/tmp"));
+        assert_eq!(remote, None);
     }
 
     // ---- PipelineConfig ----
@@ -5138,6 +5228,7 @@ mod tests {
             direction: Some(SplitDirection::Down),
             worktree: Some("isolation".to_string()),
             cwd: None,
+            host: None,
             keep_pane: false,
         };
         let resolved = resolve_execution_settings(&config, &overrides);

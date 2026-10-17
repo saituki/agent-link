@@ -110,6 +110,9 @@ pub struct TaskItem {
     /// 子の thinking（`task_create` の thinking。省略時はカード → ブロック定義に従う）
     #[serde(default)]
     pub thinking: Option<String>,
+    /// 遠隔で動かす子の ssh Host 名（`task_create` の host。`None` は Mac で動かす）。`cwd` は遠隔のフォルダ
+    #[serde(default)]
+    pub host: Option<String>,
     /// 前バッチで承認済み・内容変更なし（引き継ぎ）
     #[serde(default)]
     pub carried_over: bool,
@@ -582,6 +585,8 @@ impl TaskManager {
             // 子の model・thinking（task_create の引数）
             task.model = item.model.clone();
             task.thinking = item.thinking.clone();
+            // 遠隔で動かす子の ssh Host 名（task_create の host）
+            task.host = item.host.clone();
             // 承認情報付き（新形式）なら approved で直接保存（CLI approve 不要）
             if item.approval.is_some() {
                 task.status = "approved".to_string();
@@ -792,7 +797,9 @@ impl TaskManager {
         task: &Task,
         _allow_retry: bool,
     ) -> Result<PlacementResult, TaskManagerError> {
-        let pane = crate::headless::new_pane(task.cwd.as_deref())
+        // host 付きの子の cwd は遠隔のパスなので、Mac の pane（cwd.txt・tmux -c）には渡さない
+        let pane_cwd = if task.host.is_some() { None } else { task.cwd.as_deref() };
+        let pane = crate::headless::new_pane(pane_cwd)
             .map_err(|e| TaskManagerError::Herdr(format!("Failed to create the pseudo pane: {}", e)))?;
         Ok(PlacementResult::Placed(
             "headless".to_string(),
@@ -1348,6 +1355,7 @@ impl TaskManager {
             crate::orchestrator::SubtaskSettings {
                 model: task.model.clone(),       // 親が指定した子の model（None はカード → ブロック定義）
                 thinking: task.thinking.clone(), // 親が指定した子の thinking（None はカード → ブロック定義）
+                host: task.host.clone(),         // 遠隔で動かす子の ssh Host 名（None は Mac）
             },
             task.batch_id.clone(), // P3-A: タスクバッチID を実行レコードに伝播
             task.card_run_id,      // U2: todo のカードを自分の子として起こす場合の予約 run_id
@@ -2432,6 +2440,38 @@ mod tests {
         (manager, store)
     }
 
+    /// host 付きの子の pane には、遠隔の cwd を書かない（`cwd.txt` を作らない）。
+    /// host なしの子は今まで通り cwd を書く。
+    #[test]
+    fn pane_placement_does_not_write_remote_cwd() {
+        let _lock = crate::common::AGENT_LINK_ENV_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let root = std::env::temp_dir().join(format!("agent-link-tm-pane-{}", std::process::id()));
+        fs::create_dir_all(&root).unwrap();
+        std::env::set_var("AGENT_LINK_PROJECT_ROOT", &root);
+
+        let (manager, _store) = create_test_manager();
+        let mut task = Task::new(
+            1, "件名".into(), "説明".into(), None, None, None, "".into(), None, Some("W1".into()),
+        );
+        task.cwd = Some("~/work/sai-tree".into());
+        let place = |m: &TaskManager, t: &Task| match m.resolve_pane_placement(t).unwrap() {
+            PlacementResult::Placed(_, pane_id, _) => crate::headless::pane_dir(&pane_id),
+            PlacementResult::Waiting => panic!("waiting"),
+        };
+
+        let local_dir = place(&manager, &task);
+        assert_eq!(fs::read_to_string(local_dir.join("cwd.txt")).unwrap(), "~/work/sai-tree");
+
+        task.host = Some("wsl-server".into());
+        let remote_dir = place(&manager, &task);
+        assert!(!remote_dir.join("cwd.txt").exists(), "遠隔のパスを cwd.txt に書かない");
+
+        std::env::remove_var("AGENT_LINK_PROJECT_ROOT");
+        let _ = fs::remove_dir_all(&root);
+    }
+
     /// 外部キー制約を満たすためのダミー実行レコードを作成するヘルパー。
     fn create_dummy_execution(store: &SaiStore, run_id: i64) -> i64 {
         let block_id = store
@@ -2493,6 +2533,7 @@ mod tests {
                 timeout: None,
                 model: None,
                 thinking: None,
+                host: None,
                 carried_over: false,
                 card_run_id: None,
                 approval: None,
@@ -2535,6 +2576,7 @@ mod tests {
                 timeout: Some(600),
                 model: None,
                 thinking: None,
+                host: None,
                 carried_over: false,
                 card_run_id: None,
                 approval: None,
@@ -2573,6 +2615,7 @@ mod tests {
                     timeout: None,
                     model: None,
                     thinking: None,
+                    host: None,
                     carried_over: false,
                     card_run_id: None,
                     approval: None,
@@ -2589,6 +2632,7 @@ mod tests {
                     timeout: None,
                     model: None,
                     thinking: None,
+                    host: None,
                     carried_over: false,
                     card_run_id: None,
                     approval: None,
@@ -2627,6 +2671,7 @@ mod tests {
                 timeout: None,
                 model: None,
                 thinking: None,
+                host: None,
                 carried_over: false,
                 card_run_id: None,
                 approval: None,
@@ -2665,6 +2710,7 @@ mod tests {
                 timeout: None,
                 model: None,
                 thinking: None,
+                host: None,
                 carried_over: false,
                 card_run_id: None,
                 approval: None,
@@ -2721,6 +2767,7 @@ mod tests {
                 timeout: None,
                 model: None,
                 thinking: None,
+                host: None,
                 carried_over: false,
                 card_run_id: None,
                 approval: None,
@@ -2760,6 +2807,7 @@ mod tests {
                     timeout: None,
                     model: None,
                     thinking: None,
+                    host: None,
                     carried_over: false,
                     card_run_id: None,
                     approval: None,
@@ -2776,6 +2824,7 @@ mod tests {
                     timeout: None,
                     model: None,
                     thinking: None,
+                    host: None,
                     carried_over: false,
                     card_run_id: None,
                     approval: None,
@@ -2813,6 +2862,7 @@ mod tests {
                 timeout: None,
                 model: None,
                 thinking: None,
+                host: None,
                 carried_over: false,
                 card_run_id: None,
                 approval: None,
@@ -2853,6 +2903,7 @@ mod tests {
                 timeout: None,
                 model: None,
                 thinking: None,
+                host: None,
                 carried_over: false,
                 card_run_id: None,
                 approval: None,
@@ -2925,6 +2976,7 @@ mod tests {
                 timeout: None,
                 model: None,
                 thinking: None,
+                host: None,
                 carried_over: false,
                 card_run_id: None,
                 approval: None,
@@ -2977,6 +3029,7 @@ mod tests {
                     timeout: None,
                     model: None,
                     thinking: None,
+                    host: None,
                     carried_over: false,
                     card_run_id: None,
                     approval: Some(TaskApproval {
@@ -2996,6 +3049,7 @@ mod tests {
                     timeout: None,
                     model: None,
                     thinking: None,
+                    host: None,
                     carried_over: false,
                     card_run_id: None,
                     approval: Some(TaskApproval {
@@ -3040,6 +3094,7 @@ mod tests {
                 timeout: None,
                 model: None,
                 thinking: None,
+                host: None,
                 carried_over: false,
                 card_run_id: None,
                 approval: None,
@@ -3066,6 +3121,7 @@ mod tests {
                 timeout: None,
                 model: None,
                 thinking: None,
+                host: None,
                 carried_over: true,
                 card_run_id: None,
                 approval: Some(TaskApproval {
@@ -3114,6 +3170,7 @@ mod tests {
                     timeout: None,
                     model: None,
                     thinking: None,
+                    host: None,
                     carried_over: false,
                     card_run_id: None,
                     approval: Some(TaskApproval {
@@ -3133,6 +3190,7 @@ mod tests {
                     timeout: None,
                     model: None,
                     thinking: None,
+                    host: None,
                     carried_over: false,
                     card_run_id: None,
                     approval: Some(TaskApproval {
@@ -3208,6 +3266,7 @@ mod tests {
                 timeout: None,
                 model: None,
                 thinking: None,
+                host: None,
                 carried_over: false,
                 card_run_id: None,
                 approval: Some(TaskApproval {
@@ -3275,6 +3334,7 @@ mod tests {
                     timeout: None,
                     model: None,
                     thinking: None,
+                    host: None,
                     carried_over: false,
                     card_run_id: None,
                     approval: Some(TaskApproval {
@@ -3294,6 +3354,7 @@ mod tests {
                     timeout: None,
                     model: None,
                     thinking: None,
+                    host: None,
                     carried_over: false,
                     card_run_id: None,
                     approval: None, // 旧形式 → pending
@@ -3345,6 +3406,7 @@ mod tests {
                 timeout: None,
                 model: None,
                 thinking: None,
+                host: None,
                 carried_over: false,
                 card_run_id: None,
                 approval: Some(TaskApproval {
@@ -3776,6 +3838,7 @@ main "$@"
                 timeout: None,
                 model: None,
                 thinking: None,
+                host: None,
                 carried_over: false,
                 card_run_id: None,
                 approval: Some(TaskApproval {
@@ -3819,6 +3882,7 @@ main "$@"
                 timeout: None,
                 model: None,
                 thinking: None,
+                host: None,
                 carried_over: false,
                 card_run_id: None,
                 approval: None,

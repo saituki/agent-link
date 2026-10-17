@@ -1266,6 +1266,7 @@ pub fn handle_block_preview(
         direction: Some(parse_direction(direction)),
         worktree: None,
         cwd: None,
+        host: None,
         keep_pane: false,
     };
     let resolved = orchestrator::resolve_execution_settings(&parsed.config, &overrides);
@@ -1284,6 +1285,7 @@ pub fn handle_block_preview(
         base_pane_id: None, // U2・R4 案X: 分割基準ペインなし
         pane_id: None,      // U2・R4 案X: 分割済みペインなし
         is_subtask: false,
+        remote: None,
     };
     let prepared = orchestrator::prepare_pipeline(&pipeline_config)?;
 

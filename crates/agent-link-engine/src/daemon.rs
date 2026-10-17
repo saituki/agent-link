@@ -569,6 +569,7 @@ impl Daemon {
             direction: req.overrides.direction,
             worktree: req.overrides.worktree.clone(),
             cwd: req.overrides.cwd.clone(),
+            host: None, // 遠隔実行は task create の子だけ（block_run_request では受けない）
             keep_pane: req.overrides.keep_pane,
         };
 
@@ -1463,6 +1464,7 @@ mod tests {
                 timeout: Some(900),
                 worktree: None,
                 cwd: None,
+                host: None,
                 direction: Some(SplitDirection::Right),
                 keep_pane: true,
             },

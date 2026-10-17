@@ -163,6 +163,7 @@ pub fn init_sai_tables(conn: &Connection) -> Result<(), DbError> {
             cwd             TEXT,              -- サブタスクの作業フォルダ（絶対パス。NULL = プロジェクトルート）
             timeout         INTEGER,          -- 子の時間上限（秒）。超えると親へ stalled(timeout) を繰り返し通知する。NULL = ブロック定義に従う
             card_run_id     INTEGER,          -- 起こす todo カードの run_id（task_create の card 引数。NULL = カード無し）
+            host            TEXT,              -- 遠隔で動かす子の ssh Host 名（NULL = Mac）。cwd は遠隔のフォルダ
             execution_id    INTEGER REFERENCES execution_history(id),
             batch_id        TEXT,
             client_id       TEXT,              -- クライアント側一時ID（carried_over 照合・依存解決用）
@@ -317,6 +318,8 @@ pub fn init_sai_tables(conn: &Connection) -> Result<(), DbError> {
     // 子の model / thinking（task_create の引数。NULL はブロック定義・settings.json に従う）
     migrate_add_column(conn, "tasks", "model", "TEXT")?;
     migrate_add_column(conn, "tasks", "thinking", "TEXT")?;
+    // 遠隔で動かす子の ssh Host 名（task_create の host 引数。NULL = Mac）
+    migrate_add_column(conn, "tasks", "host", "TEXT")?;
 
     // tasks の新カラム（実行バッチ所属）
     migrate_add_column(conn, "tasks", "run_batch_id", "INTEGER")?;
@@ -538,6 +541,54 @@ mod tests {
         assert!(
             columns.contains(&"timeout".to_string()),
             "移行で tasks に timeout 列が足されること（実際: {:?}）",
+            columns
+        );
+    }
+
+    /// `host` 列の無い古い tasks テーブルでも、移行で列が足されること。
+    #[test]
+    fn test_migration_adds_tasks_host_column() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute(
+            "CREATE TABLE tasks(
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                parent_run_id   INTEGER NOT NULL REFERENCES execution_history(id),
+                subject         TEXT    NOT NULL,
+                description     TEXT    NOT NULL,
+                status          TEXT    NOT NULL DEFAULT 'pending',
+                block_type      TEXT,
+                inputs_json     TEXT,
+                depends_on_json TEXT,
+                worktree        TEXT    NOT NULL DEFAULT '',
+                cwd             TEXT,
+                execution_id    INTEGER REFERENCES execution_history(id),
+                batch_id        TEXT,
+                client_id       TEXT,
+                round           INTEGER NOT NULL DEFAULT 1,
+                supersedes_batch_id TEXT,
+                approval_comment TEXT,
+                finalized       INTEGER NOT NULL DEFAULT 0,
+                deleted_by      TEXT,
+                deleted_at      TEXT,
+                run_batch_id    INTEGER,
+                created_at      TEXT    NOT NULL DEFAULT (datetime('now')),
+                updated_at      TEXT    NOT NULL DEFAULT (datetime('now'))
+            )",
+            [],
+        )
+        .unwrap();
+
+        init_sai_tables(&conn).unwrap();
+
+        let mut stmt = conn.prepare("PRAGMA table_info(tasks)").unwrap();
+        let columns: Vec<String> = stmt
+            .query_map([], |row| row.get::<_, String>(1))
+            .unwrap()
+            .filter_map(|r| r.ok())
+            .collect();
+        assert!(
+            columns.contains(&"host".to_string()),
+            "移行で tasks に host 列が足されること（実際: {:?}）",
             columns
         );
     }

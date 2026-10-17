@@ -95,7 +95,7 @@ const TASK_SELECT_COLS: &str = "id, parent_run_id, subject, description, status,
      block_type, inputs_json, depends_on_json, worktree, \
      execution_id, batch_id, client_id, round, supersedes_batch_id, \
      approval_comment, finalized, deleted_by, deleted_at, run_batch_id, \
-     cwd, created_at, updated_at, timeout, card_run_id, model, thinking";
+     cwd, created_at, updated_at, timeout, card_run_id, model, thinking, host";
 
 /// `tasks` の行を `Task` に変換する共通マッパー。
 fn task_from_row(row: &Row) -> rusqlite::Result<Task> {
@@ -129,6 +129,7 @@ fn task_from_row(row: &Row) -> rusqlite::Result<Task> {
         card_run_id: row.get(23)?,
         model: row.get(24)?,
         thinking: row.get(25)?,
+        host: row.get(26)?,
     })
 }
 
@@ -2107,8 +2108,8 @@ impl SaiStore {
             "INSERT INTO tasks (parent_run_id, subject, description, status, \
              block_type, inputs_json, depends_on_json, worktree, batch_id, \
              client_id, round, supersedes_batch_id, approval_comment, finalized, \
-             deleted_by, deleted_at, cwd, timeout, card_run_id, model, thinking) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21)",
+             deleted_by, deleted_at, cwd, timeout, card_run_id, model, thinking, host) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22)",
             params![
                 task.parent_run_id,
                 task.subject,
@@ -2131,6 +2132,7 @@ impl SaiStore {
                 task.card_run_id,
                 task.model,
                 task.thinking,
+                task.host,
             ],
         )?;
 
@@ -2149,8 +2151,8 @@ impl SaiStore {
                 "INSERT INTO tasks (parent_run_id, subject, description, status, \
                  block_type, inputs_json, depends_on_json, worktree, batch_id, \
                  client_id, round, supersedes_batch_id, approval_comment, finalized, \
-                 deleted_by, deleted_at, cwd, timeout, card_run_id, model, thinking) \
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21)",
+                 deleted_by, deleted_at, cwd, timeout, card_run_id, model, thinking, host) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22)",
                 params![
                     task.parent_run_id,
                     task.subject,
@@ -2171,8 +2173,9 @@ impl SaiStore {
                     task.cwd,
                     task.timeout,
                     task.card_run_id,
-                        task.model,
+                    task.model,
                     task.thinking,
+                    task.host,
                 ],
             )?;
             ids.push(tx.last_insert_rowid());
@@ -4515,6 +4518,43 @@ mod tests {
         let b = store.get_task_by_id(ids[1]).unwrap();
         assert_eq!(b.model, None);
         assert_eq!(b.thinking, None);
+    }
+
+    /// `host` が insert_task / insert_tasks_batch → get_task_by_id で往復すること（未指定は None）。
+    #[test]
+    fn test_task_host_round_trip() {
+        let store = SaiStore::open_in_memory().unwrap();
+        let block_id = store.insert_block(&create_test_block("host-task")).unwrap();
+        let parent_run_id = store.create_execution(block_id, None).unwrap();
+        let make = |cid: &str| {
+            Task::new(
+                parent_run_id,
+                "件名".to_string(),
+                "説明".to_string(),
+                Some("host-task".to_string()),
+                None,
+                None,
+                "none".to_string(),
+                Some("batch_1".to_string()),
+                Some(cid.to_string()),
+            )
+        };
+        let mut remote = make("A");
+        remote.host = Some("wsl-server".to_string());
+        remote.cwd = Some("~/work/sai-tree".to_string());
+        let id = store.insert_task(&remote).unwrap();
+        let a = store.get_task_by_id(id).unwrap();
+        assert_eq!(a.host.as_deref(), Some("wsl-server"));
+        assert_eq!(a.cwd.as_deref(), Some("~/work/sai-tree"));
+
+        let mut remote_b = make("B");
+        remote_b.host = Some("wsl-server".to_string());
+        let ids = store.insert_tasks_batch(&[remote_b, make("C")]).unwrap();
+        assert_eq!(
+            store.get_task_by_id(ids[0]).unwrap().host.as_deref(),
+            Some("wsl-server")
+        );
+        assert_eq!(store.get_task_by_id(ids[1]).unwrap().host, None);
     }
 
     #[test]

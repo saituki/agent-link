@@ -258,6 +258,7 @@ fn task_to_json(t: &Task, defs: &[(PathBuf, BlockConfig)]) -> Value {
             .unwrap_or_default(),
         "worktree": t.worktree,
         "cwd": t.cwd,
+        "host": t.host,
         "timeout": t.timeout,
         "card": t.card_run_id,
         "worktree_info": worktree_info_json(t, defs),
@@ -281,6 +282,10 @@ fn task_to_json(t: &Task, defs: &[(PathBuf, BlockConfig)]) -> Value {
 /// - `repo_root`: 作業用コピーを作る対象リポジトリのルート
 /// - `path`: 作業用コピーの場所（`<repo_root>/.worktrees/<branch>`）
 fn worktree_info_json(t: &Task, defs: &[(PathBuf, BlockConfig)]) -> Value {
+    // 遠隔で動かす子は作業用コピーを作らない
+    if t.host.is_some() {
+        return Value::Null;
+    }
     // 親指定（空 = 未指定）が最優先。未指定ならブロック定義の `worktree:` に従う。
     let effective: String = if !t.worktree.trim().is_empty() {
         t.worktree.trim().to_string()
@@ -585,6 +590,8 @@ struct NormalizedTask {
     model: Option<String>,
     /// 子の thinking（`None` はカード → ブロック定義 → settings.json の順）
     thinking: Option<String>,
+    /// 遠隔で動かす子の ssh Host 名（`None` は Mac で動かす。`Some` のとき `cwd` は遠隔のフォルダ）
+    host: Option<String>,
 }
 
 /// todo のカード（`.agent-link/outputs/todo/<run_id>/task.md`）から取り出した値だけを並べたもの。
@@ -767,6 +774,35 @@ pub fn task_create(
             .get("cwd")
             .and_then(|v| v.as_str())
             .map(str::to_string);
+        // 遠隔で動かす子の ssh Host 名（省略・null・空は Mac）。書式の検査は remote 側（U03）。
+        // host があるとき cwd は遠隔のフォルダ。Mac では存在を確かめず、形だけ検査する。
+        let host = item
+            .get("host")
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|h| !h.is_empty())
+            .map(str::to_string);
+        let cwd_raw = if host.is_some() {
+            if !matches!(worktree.trim(), "" | "none") {
+                return Err(format!(
+                    "client_id '{}': worktree \"{}\" cannot be used with host. Leave it empty or use \"none\".",
+                    client_id,
+                    worktree.trim()
+                ));
+            }
+            let Some(raw) = cwd_raw else {
+                return Err(format!(
+                    "client_id '{}': cwd is required when host is set (a folder on the remote machine).",
+                    client_id
+                ));
+            };
+            match crate::task_cwd::check_remote_cwd(&raw) {
+                Ok(c) => Some(c),
+                Err(msg) => return Err(format!("client_id '{}': {}", client_id, msg)),
+            }
+        } else {
+            cwd_raw
+        };
         // 子の時間上限（秒。1 以上の整数だけ受け付ける）
         let timeout = match item.get("timeout") {
             None | Some(Value::Null) => None,
@@ -839,6 +875,7 @@ pub fn task_create(
             card_run_id,
             model,
             thinking,
+            host,
         });
     }
 
@@ -850,6 +887,11 @@ pub fn task_create(
     let mut cwd_errors: Vec<Value> = Vec::new();
     for t in &normalized {
         if let Some(ref raw) = t.cwd {
+            // host 付きの cwd は検査済みの遠隔パス。Mac では解決しない
+            if t.host.is_some() {
+                resolved_cwd.insert(t.client_id.clone(), raw.clone());
+                continue;
+            }
             match crate::task_cwd::resolve_task_cwd(raw, &project_root) {
                 Ok(path) => {
                     resolved_cwd.insert(t.client_id.clone(), path.to_string_lossy().to_string());
@@ -925,6 +967,7 @@ pub fn task_create(
                 "depends_on": t.depends_on,
                 "worktree": t.worktree,
                 "cwd": resolved_cwd.get(&t.client_id),
+                "host": t.host,
                 "timeout": t.timeout,
                 "model": t.model,
                 "thinking": t.thinking,
@@ -3328,6 +3371,99 @@ mod tests {
             .contains("is not a folder"));
 
         drop(guard);
+    }
+
+    /// host 付きの子は、Mac に無い遠隔の cwd（`~/` 始まり）を受け付け、通知 payload に host・cwd をそのまま載せること。
+    #[test]
+    fn task_create_accepts_host_with_remote_cwd() {
+        let guard = EnvGuard::new();
+        std::env::set_var("AGENT_LINK_PARENT_RUN_ID", "42");
+
+        let tasks = json!([
+            { "client_id": "W1", "subject": "W1", "task_text": "調べる",
+              "host": " wsl-server ", "cwd": "~/work/sai-tree" },
+            { "client_id": "W2", "subject": "W2", "task_text": "調べる",
+              "host": "wsl-server", "cwd": "/home/u/proj", "worktree": "none" },
+            { "client_id": "L1", "subject": "L1", "task_text": "Mac で動く", "host": "  " },
+        ]);
+        let result = task_create(&tasks, None, None, None).unwrap();
+        assert_eq!(result["status"], "approved");
+
+        let pending = crate::common::notify_pending_dir();
+        let entries: Vec<_> = std::fs::read_dir(&pending).unwrap().flatten().collect();
+        assert_eq!(entries.len(), 1);
+        let value: Value =
+            serde_json::from_str(&std::fs::read_to_string(entries[0].path()).unwrap()).unwrap();
+        let tasks_json = value["tasks"].as_array().unwrap();
+        let find = |id: &str| tasks_json.iter().find(|t| t["client_id"] == id).unwrap();
+        assert_eq!(find("W1")["host"], "wsl-server");
+        assert_eq!(find("W1")["cwd"], "~/work/sai-tree");
+        assert_eq!(find("W2")["cwd"], "/home/u/proj");
+        assert_eq!(find("L1")["host"], Value::Null, "空の host は Mac");
+        assert_eq!(find("L1")["cwd"], Value::Null);
+
+        drop(guard);
+    }
+
+    /// host 付きで cwd 無し・形の誤り・worktree 指定の組み合わせは、それぞれの文で断ること。
+    #[test]
+    fn task_create_rejects_bad_host_combinations() {
+        let guard = EnvGuard::new();
+        std::env::set_var("AGENT_LINK_PARENT_RUN_ID", "42");
+        let create = |extra: Value| {
+            let mut item = json!({ "client_id": "W1", "subject": "W1", "task_text": "x", "host": "wsl-server" });
+            for (k, v) in extra.as_object().unwrap() {
+                item[k] = v.clone();
+            }
+            task_create(&json!([item]), None, None, None).unwrap_err()
+        };
+
+        assert_eq!(
+            create(json!({})),
+            "client_id 'W1': cwd is required when host is set (a folder on the remote machine)."
+        );
+        for bad in ["relative/path", "/a/../b", "~", "/a'b"] {
+            assert_eq!(
+                create(json!({ "cwd": bad })),
+                format!("client_id 'W1': cwd with host must be an absolute path or start with ~/ on the remote machine: {}", bad)
+            );
+        }
+        assert_eq!(
+            create(json!({ "cwd": "~/x", "worktree": "isolation" })),
+            "client_id 'W1': worktree \"isolation\" cannot be used with host. Leave it empty or use \"none\"."
+        );
+
+        let pending = crate::common::notify_pending_dir();
+        let count = std::fs::read_dir(&pending).map(|d| d.flatten().count()).unwrap_or(0);
+        assert_eq!(count, 0, "断った入力は通知を書かない");
+
+        drop(guard);
+    }
+
+    /// `task_to_json` に host が出て、host があると worktree_info は null になること。
+    #[test]
+    fn task_to_json_shows_host_and_nulls_worktree_info() {
+        let mut t = Task::new(
+            1,
+            "件名".to_string(),
+            "説明".to_string(),
+            None,
+            None,
+            None,
+            "".to_string(),
+            None,
+            Some("W1".to_string()),
+        );
+        let local = task_to_json(&t, &[]);
+        assert_eq!(local["host"], Value::Null);
+        assert!(local["worktree_info"].is_object());
+
+        t.host = Some("wsl-server".to_string());
+        t.cwd = Some("~/work/sai-tree".to_string());
+        let remote = task_to_json(&t, &[]);
+        assert_eq!(remote["host"], "wsl-server");
+        assert_eq!(remote["cwd"], "~/work/sai-tree");
+        assert_eq!(remote["worktree_info"], Value::Null);
     }
 
     #[test]

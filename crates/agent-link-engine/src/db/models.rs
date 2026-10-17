@@ -552,6 +552,10 @@ pub struct Task {
     /// 子の thinking（`task_create` の thinking 引数。`None` はブロック定義・settings.json に従う）
     #[serde(default)]
     pub thinking: Option<String>,
+    /// 遠隔で動かす子の ssh Host 名（`task_create` の host 引数。`None` は Mac で動かす）。
+    /// `Some` のとき `cwd` は遠隔の機械のフォルダ（入力のまま。`~/` を含んでよい）
+    #[serde(default)]
+    pub host: Option<String>,
     /// バッチ確認用グループ ID
     pub batch_id: Option<String>,
     /// クライアント側の一時 ID（task_create で割り当て。carried_over 照合・依存解決用）
@@ -614,6 +618,7 @@ impl Task {
             card_run_id: None,
             model: None,
             thinking: None,
+            host: None,
             batch_id,
             client_id,
             round: 1,

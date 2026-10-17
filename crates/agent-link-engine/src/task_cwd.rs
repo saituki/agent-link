@@ -92,6 +92,25 @@ pub fn normalize_path(p: &Path) -> PathBuf {
     }
 }
 
+/// `host` 付きの子の `cwd`（遠隔の機械のフォルダ）を検査する。存在は見ない。
+///
+/// `/` か `~/` で始まり、`'`・改行・NUL・`..` の要素を含まなければ、trim した値を返す。
+/// 展開は起動のときに遠隔の `$HOME` で行う。
+pub fn check_remote_cwd(raw: &str) -> Result<String, String> {
+    let t = raw.trim();
+    let ok = (t.starts_with('/') || t.starts_with("~/"))
+        && !t.contains(['\'', '\n', '\r', '\0'])
+        && !t.split('/').any(|c| c == "..");
+    if ok {
+        Ok(t.to_string())
+    } else {
+        Err(format!(
+            "cwd with host must be an absolute path or start with ~/ on the remote machine: {}",
+            raw
+        ))
+    }
+}
+
 // ============================================================================
 // テスト
 // ============================================================================
@@ -201,5 +220,19 @@ mod tests {
             normalize_path(Path::new("/a/b/./c/../d")),
             PathBuf::from("/a/b/d")
         );
+    }
+
+    #[test]
+    fn remote_cwd_accepts_absolute_and_tilde() {
+        assert_eq!(check_remote_cwd(" ~/work/sai-tree ").unwrap(), "~/work/sai-tree");
+        assert_eq!(check_remote_cwd("/home/u/a..b").unwrap(), "/home/u/a..b");
+    }
+
+    #[test]
+    fn remote_cwd_rejects_bad_shapes() {
+        for bad in ["", "relative/path", "~", "~user/x", "/a/../b", "~/..", "/a'b", "/a\nb", "/a\rb", "/a\0b"] {
+            let err = check_remote_cwd(bad).unwrap_err();
+            assert!(err.starts_with("cwd with host must be an absolute path"), "{:?}: {}", bad, err);
+        }
     }
 }

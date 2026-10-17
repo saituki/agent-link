@@ -71,6 +71,7 @@ fn test_config() -> PipelineConfig {
         base_pane_id: None,
         pane_id: None,
         is_subtask: false,
+        remote: None,
     }
 }
 
@@ -203,6 +204,7 @@ fn test_pipeline_config_from_parsed_block() {
         base_pane_id: None,
         pane_id: None,
         is_subtask: false,
+        remote: None,
     };
 
     assert_eq!(config.block_config.name, "test-block");
@@ -252,6 +254,7 @@ fn test_pipeline_config_all_fields_set() {
         base_pane_id: None,
         pane_id: None,
         is_subtask: false,
+        remote: None,
     };
 
     // 各フィールドの検証
