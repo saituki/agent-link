@@ -1,10 +1,10 @@
 "use strict";
-// agent-link-web の共通部品（実装計画 U4・共有契約 C-F3）。
+// agent-link-web の共通部品。
 //
 // 端末（ターミナル）に慣れていない人が iPhone と PC のブラウザだけで
 // agent-link を使えるように、画面からすぐ使う部品を 1 か所にまとめたもの。
-// ここで定義するものは全部「一番外側の sai / AGENT_LINK_ で始まる名前」（C-F6）。
-// 外部ライブラリは使わない（docs/integration.md §3）。
+// ここで定義するものは全部「一番外側の sai / AGENT_LINK_ で始まる名前」。
+// 外部ライブラリは使わない（docs/integration.md §2）。
 //
 // 用意するもの:
 //   saiApi        … JSON を取る。つながらないときは日本語の Error を投げる
@@ -23,7 +23,7 @@
 // 画面ファイル（app.js より前）から読み込む。node からの読み込みは tests/test_ui.js
 // （DOM を使わない部分＝用語の表と「広いか」の境目だけ）。
 
-// --- 古い保存キーの移し替え（U17） ---
+// --- 古い保存キーの移し替え ---
 // 端末に残る旧名の保存キー（sai_phone_*）を新名（agent_link_web_*）に写し替える。
 // 合言葉と下書きを失わないよう、画面がキーを読むより前にここで 1 度だけ移す。
 // 新しいキーが既にあれば上書きしない。写したら古いキーは消す。
@@ -55,7 +55,7 @@ if (typeof window !== "undefined" && window.localStorage) {
 const AGENT_LINK_WIDE_PX = 900;
 
 /**
- * 用語の一覧（C-F5 の key 全部）。
+ * 用語の一覧（key 全部）。
  * label は札に出す既定の表示名、text はその語の説明（1〜3 文・日本語）。
  */
 const AGENT_LINK_TERMS = {
@@ -138,7 +138,7 @@ const AGENT_LINK_TERMS = {
     label: "Mind (mind.md)",
     text: "A note (mind.md) where the user writes the base of the research (initial ideas and constraints). Agents do not rewrite it directly.",
   },
-  // --- research-tree（U19・共有契約 C-14。U41 で今の用語に作り直した） ---
+  // --- research-tree（今の用語に作り直した） ---
   sci_research_tree: {
     label: "research-tree",
     text: "A tree made of the layers ROOT, seed (D), SPROUT, and BRANCH, and the diagram that draws it.",
@@ -500,7 +500,7 @@ function saiTermList() {
 }
 
 /**
- * 用語の札。key は C-F5 の用語、label を省くと既定の表示名。
+ * 用語の札。key は用語の一覧の key、label を省くと既定の表示名。
  * 押すと説明の小窓が出る。→ HTMLElement（span）
  */
 function saiTerm(key, label) {
@@ -575,7 +575,7 @@ function saiSplitShow(container, which) {
   container.classList.toggle("sai-split--list", which === "list");
 }
 
-// --- グラフの目盛りと値（U04） ---
+// --- グラフの目盛りと値 ---
 //
 // グラフはどの画面でも素の SVG を手描きする（外部ライブラリは入れない）。
 // 「目盛りをどの刻みで置くか」「その数字をどう書くか」「日ごとの棒の形」は
@@ -807,7 +807,7 @@ function saiDailyBars(opts) {
 
 // --- node からの読み込み（tests/test_ui.js） ---
 // DOM を使わない部分（用語の表・saiWideAt）は値を返す。
-// C-F3 の関数も「存在するか」を確かめられるよう形だけ出してある
+// 共通部品の関数も「存在するか」を確かめられるよう形だけ出してある
 //（これらを呼んでもブラウザの外では document を触らないので require してよい）。
 if (typeof module !== "undefined" && module.exports) {
   module.exports = {

@@ -1,19 +1,19 @@
-// agent-link-web の task.md 作成フォーム（計画 15 §1.5）の本体。
+// agent-link-web の task.md 作成フォームの本体。
 //
-// List 画面右上の ＋ で下から出る。TUI のウィザード（agent-link-tui の card_wizard.rs）と
-// 同じ順に 1 画面ずつ進み、スキップ・戻る・番号の飛び方も同じ規則にする:
+// List 画面右上の ＋ で下から出る。1 画面ずつ進み、スキップ・戻る・番号の飛び方は
+// 次の規則にする:
 //   1 Block → 2 Model → 3 Thinking
 //   → 4 task_text（🎤 音声入力・最近の文書を貼れる）→ 5 Confirm → 作成
 // 選択肢は `GET …/card/options`、作成は `POST …/card`
-// （値の検査はサーバー側でも行う・計画 15 §3.3）。
-// 入力ファイルの手順は無い（入力は task_text に統一した・U09）。
+// （値の検査はサーバー側でも行う）。
+// 入力ファイルの手順は無い（入力は task_text に統一した）。
 // 書きかけはプロジェクトごとに localStorage へ残し、作成に成功したら消す。
 // 進み方（DOM を使わない関数）は末尾で node に渡す（tests/test_cardform.js）。
 "use strict";
 
 // --- 定数 ---
 
-// 手順の地図（番号は手順の数で決まる。スキップや自動で飛んだ画面は番号が飛ぶ・計画 15 §1.5）
+// 手順の地図（番号は手順の数で決まる。スキップや自動で飛んだ画面は番号が飛ぶ）
 const CF_STEPS = [
   { id: "block", no: 1, title: "Block" },
   { id: "model", no: 2, title: "Model" },
@@ -21,7 +21,7 @@ const CF_STEPS = [
   { id: "task_text", no: 4, title: "task_text" },
   { id: "confirm", no: 5, title: "Confirm" },
 ];
-// 5 画面それぞれの見出しの下に出す説明（端末に慣れていない人向け・U5 §3）。
+// 5 画面それぞれの見出しの下に出す説明（端末に慣れていない人向け）。
 // 画面の流れ・スキップ・戻る・保存の動きは変えない（見出しの下に文言を足すだけ）。
 const CF_STEP_HINTS = {
   block: "An instruction sheet that says which files to read, in what order, and how to fix them.",
@@ -30,7 +30,7 @@ const CF_STEP_HINTS = {
   task_text: "The request text. The agent follows this text.",
   confirm: "Read the finished request (task.md) one last time. \"Create\" writes the file.",
 };
-// 書きかけの置き場（プロジェクトごとに分ける・計画 15 §1.5）
+// 書きかけの置き場（プロジェクトごとに分ける）
 const CF_DRAFT_KEY = "agent_link_web_card_draft";
 
 // --- 進み方（DOM を使わない・tests/test_cardform.js） ---
@@ -51,7 +51,7 @@ function cfStepEntry(id) {
   return CF_STEPS.find((s) => s.id === id) || CF_STEPS[0];
 }
 
-/** 今の手順の見出しの下に出す説明（端末に慣れていない人向け・U5 §3）。 */
+/** 今の手順の見出しの下に出す説明（端末に慣れていない人向け）。 */
 function cfStepHint(id) {
   return Object.prototype.hasOwnProperty.call(CF_STEP_HINTS, id) ? CF_STEP_HINTS[id] : "";
 }
@@ -150,7 +150,7 @@ function cfToggleRef(text, ref, on) {
 }
 
 /**
- * task_text の末尾に文を足す（`opts.taskText`・U10）。
+ * task_text の末尾に文を足す（`opts.taskText`）。
  * 空でなければ空行を 1 つはさむ。同じ文が既にあれば足さない。書きかけは消さない。
  */
 function cfAppendTaskText(text, add) {
@@ -163,7 +163,7 @@ function cfAppendTaskText(text, add) {
 }
 
 /**
- * 開くプロジェクト名を決める（`opts.project`・U10）。
+ * 開くプロジェクト名を決める（`opts.project`）。
  * `opts.project` があればそれを使い，`parseListHash` に頼らない。
  * 無ければ今の List の住所の名前，それも無ければ今の名前のまま。
  */
@@ -176,7 +176,7 @@ function cfTargetName(opts, hash, current) {
 }
 
 /**
- * フォームを閉じるか（U10）。
+ * フォームを閉じるか。
  * 開いたときが List の住所なら，List の住所でなくなったら閉じる（今までどおり）。
  * そうでなければ（論文の詳細などから開いたとき），開いたときの住所から変わったら閉じる。
  */
@@ -233,7 +233,7 @@ function cfSaveDraft(name, state) {
   } catch { /* 保存できなくても動く */ }
 }
 
-/** 作成に成功したら消す（計画 15 §1.5）。 */
+/** 作成に成功したら消す。 */
 function cfClearDraft(name) {
   if (!name) return;
   try {
@@ -254,7 +254,7 @@ let cfError = "";      // 手順の下に出す 1 行
 let cfWarn = "";       // options の warnings（settings.json の注意など）
 let cfBusy = false;    // 送信中
 let cfDocs = null;     // 最近の文書（`GET …/card/docs` の items・null＝未読）
-let cfOpenedHash = ""; // フォームを開いたときの住所（閉じ方を決める・U10）
+let cfOpenedHash = ""; // フォームを開いたときの住所（閉じ方を決める）
 
 function cfSheet() {
   return document.getElementById("cardform-wrap");
@@ -276,7 +276,7 @@ async function cfFetchJson(path) {
 }
 
 /**
- * ＋ を押した入口（書きかけがあれば続きから・計画 15 §1.5）。
+ * ＋ を押した入口（書きかけがあれば続きから）。
  * `opts.ref` があれば task_text にその参照行（`waggle:<tok>:path:<path>`）を足して開く（List の waggle の ＋）。
  */
 async function cfOpen(opts) {
@@ -292,7 +292,7 @@ async function cfOpen(opts) {
     cfError = "";
   }
   if (!cfName) return;
-  // 開いたときの住所を覚える（閉じ方を決める・U10）
+  // 開いたときの住所を覚える（閉じ方を決める）
   cfOpenedHash = location.hash;
 
   // 選択肢を取りに行く間も画面は開いたままにする（下から出る形のまま）
@@ -325,7 +325,7 @@ async function cfOpen(opts) {
     cfSaveDraft(cfName, cfState);
   }
   if (taskText) {
-    // 論文の詳細などから開いたときの 1 行を足す（書きかけは消さない・U10）
+    // 論文の詳細などから開いたときの 1 行を足す（書きかけは消さない）
     cfState.task_text = cfAppendTaskText(cfState.task_text, taskText);
     cfSaveDraft(cfName, cfState);
   }
@@ -455,7 +455,7 @@ function cfRenderBody() {
     });
     body.appendChild(ta);
     body.appendChild(cfDocsBox(state, ta));
-    // 🎤 は Agent タブの音声入力をそのまま使う（新しく作らない・計画 15 §1.5）
+    // 🎤 は Agent タブの音声入力をそのまま使う（新しく作らない）
     const mic = document.createElement("button");
     mic.className = "cf-mic";
     mic.id = "cf-mic";
@@ -630,7 +630,7 @@ async function cfCreate() {
     cfState = null;
     const sheet = cfSheet();
     if (sheet) sheet.hidden = true;
-    // 作成するとツリーの todo に出て，選ばれた状態で task 表示になる（計画 15 §1.5）
+    // 作成するとツリーの todo に出て，選ばれた状態で task 表示になる
     if (out.run_id != null && typeof listHash === "function") {
       location.hash = listHash(cfName, Number(out.run_id), "task");
     }
@@ -643,10 +643,10 @@ async function cfCreate() {
   }
 }
 
-// --- 画面の登録（ブラウザでのみ・計画 15 §1.5） ---
+// --- 画面の登録（ブラウザでのみ） ---
 
 if (typeof window !== "undefined") {
-  // 開くのは List のサイドバーの見出しの行の ＋（lvRenderDrawer が呼ぶ・U01 §4）
+  // 開くのは List のサイドバーの見出しの行の ＋（lvRenderDrawer が呼ぶ）
   const close = document.getElementById("cf-close");
   if (close) close.addEventListener("click", () => cfClose());
   const mask = document.getElementById("cf-mask");
@@ -666,13 +666,13 @@ if (typeof window !== "undefined") {
       cfRender();
     });
   }
-  // 開いたときの住所から離れたらフォームを閉じる（隠れた場所に残さない・U10）
+  // 開いたときの住所から離れたらフォームを閉じる（隠れた場所に残さない）
   window.addEventListener("hashchange", () => {
     if (cfState && cfShouldClose(cfOpenedHash, location.hash)) cfClose();
   });
 }
 
-// --- node からの読み込み（tests/test_cardform.js・計画 15 §7） ---
+// --- node からの読み込み（tests/test_cardform.js） ---
 if (typeof module !== "undefined" && module.exports) {
   module.exports = {
     CF_STEPS,

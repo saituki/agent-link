@@ -1,17 +1,17 @@
-// agent-link-web の List 画面（実装計画 14）の本体。
+// agent-link-web の List 画面の本体。
 //
 // 画面は 1 つ（住所は 2 つ）:
 //   List（run 未選択）  #/project/<name>/list
 //   List（run 選択済み） #/project/<name>/list/<run_id>/<表示>
 // Project 上部の Dashboard | List の切り替えもこのファイルが持つ
-// （Dashboard 側の帯の描き方も fillLinkSeg としてここに置く・計画 14 §1.1）。
-// ツリーは agent-link TUI の左サイドバーと同じ並び（`GET …/tree` のそのまま・計画 14 §1.2）。
+// （Dashboard 側の帯の描き方も fillLinkSeg としてここに置く）。
+// ツリーは 左サイドバーの並び（`GET …/tree` のそのまま）。
 // run の中身は 8 つの表示（Log / Stats / History / task / message / report / system / waggle）で、
-// 最後に見ていた表示をプロジェクトをまたいで覚える（別の run に切り替えても同じ表示・§1.3）。
-// データはすべて /api/projects/<name>/… 経由で，agent-link-web 自身は DB を開かない（00 §2）。
-// グラフ（Stats の推移・History の円）は SVG を手描きで作る（外部ライブラリは入れない・00 §2）。
+// 最後に見ていた表示をプロジェクトをまたいで覚える（別の run に切り替えても同じ表示）。
+// データはすべて /api/projects/<name>/… 経由で，agent-link-web 自身は DB を開かない。
+// グラフ（Stats の推移・History の円）は SVG を手描きで作る（外部ライブラリは入れない）。
 // md の整形は markdown.js の renderMarkdown，数字・SVG の作りは stats.js / project.js の
-// グローバル関数を使い回す（13 §5・14 §6）。
+// グローバル関数を使い回す。
 // DOM を使わない小さな関数は末尾で node に渡す（tests/test_linkview.js）。
 "use strict";
 
@@ -28,7 +28,7 @@ const LV_VIEWS = [
   ["task", "task"],
   ["message", "message"],
   ["report", "Report"],
-  // 固定部分（system prompt。起動時に run フォルダの system-prompt.md から渡す・U6）
+  // 固定部分（system prompt。起動時に run フォルダの system-prompt.md から渡す）
   ["system", "system"],
   ["waggle", "waggle"],
 ];
@@ -39,29 +39,29 @@ const LV_TABS = [
 ];
 // Outputs に入る表示（成果物と md）。それ以外は Summary（log）に入る。
 const LV_OUTPUT_VIEWS = ["outputs", "task", "message", "report", "system", "waggle"];
-// Project 上部の 4 つの切り替え（共有契約 C-F7）。
+// Project 上部の 4 つの切り替え。
 // 並びと表示名はここ 1 か所。dataset の値は変えない。
 const LV_MODES = [
   ["dashboard", "Dashboard"],
   ["workflow", "Workflow"],
   ["list", "List"],
   ["defs", "Settings"],
-  // 専用の画面（プロジェクトごとの命令・共有契約 C-F7）
+  // 専用の画面（プロジェクトごとの命令）
   ["sessions", "Session search"],
 ];
-// 最後に見ていた Project の画面をプロジェクトごとに覚える（localStorage・計画 14 §6・C-F7）
+// 最後に見ていた Project の画面をプロジェクトごとに覚える（localStorage）
 const LV_MODE_KEY = "agent_link_web_link_mode";
-// 最後に見ていた表示を覚える（localStorage・計画 14 §1.3）
+// 最後に見ていた表示を覚える（localStorage）
 const LV_VIEW_KEY = "agent_link_web_list_view";
 // Summary の下の切り替え（Per-message table かタイムライン）を覚える（localStorage）
 const LV_DETAIL_KEY = "agent_link_web_list_detail";
-// ツリーの開閉をプロジェクトごとに覚える（localStorage・計画 14 §1.2）
+// ツリーの開閉をプロジェクトごとに覚える（localStorage）
 const LV_FOLDS_KEY = "agent_link_web_list_folds";
 // History の種類別の色（5 色・project.js のドーナツと同じ考え方）。色は CSS 変数。
 const LV_TYPE_COLORS = ["var(--series-1)", "var(--series-2)", "var(--series-3)", "var(--series-4)", "var(--series-5)", "var(--series-6)"];
 // History の種類（表示順）
 const LV_TYPES = ["user", "agent", "toolCall", "toolResult", "thinking"];
-// Stats のグラフの種類（TUI の 1 / 2 / 3 と同じ・4 つ目の「表」は常に下に出す・計画 14 §1.3）
+// Stats のグラフの種類（1 / 2 / 3 の 3 種・4 つ目の「表」は常に下に出す）
 const LV_CHARTS = [
   ["turn", "Turn"],
   ["cumpct", "Cumulative %"],
@@ -96,7 +96,7 @@ function modeHash(name, mode) {
 }
 
 /**
- * List の住所（run と表示は付けなくてもよい・計画 14 §6）。
+ * List の住所（run と表示は付けなくてもよい）。
  * waggle の表示だけは、開く文書の waggle トークンも付けられる（`…/<run_id>/waggle/<トークン>`）。
  */
 function listHash(name, runId, view, waggleToken) {
@@ -125,7 +125,7 @@ function parseListHash(hash) {
   return out;
 }
 
-/** Agent タブのメッセージ画面の住所（session の表示から移るときに使う・U11）。 */
+/** Agent タブのメッセージ画面の住所（session の表示から移るときに使う）。 */
 function sessionHash(name, runId) {
   return `#/run/${encodeURIComponent(name)}/${encodeURIComponent(String(runId))}`;
 }
@@ -142,7 +142,7 @@ function loadModeMap() {
   }
 }
 
-/** 最後に見ていた Project の画面をプロジェクトごとに覚える（計画 14 §6・C-F7）。 */
+/** 最後に見ていた Project の画面をプロジェクトごとに覚える。 */
 function saveMode(name, mode) {
   try {
     const map = loadModeMap();
@@ -156,7 +156,7 @@ function rememberedMode(name) {
   return lvMode(loadModeMap()[name]);
 }
 
-/** このプロジェクトは List を選んでいたか（Dashboard の open が最初に見る・計画 14 §1.1）。 */
+/** このプロジェクトは List を選んでいたか（Dashboard の open が最初に見る）。 */
 function wantsListView(name) {
   return rememberedMode(name) === "list";
 }
@@ -175,7 +175,7 @@ function loadViewMemory() {
   }
 }
 
-/** 最後に見ていた表示を覚える（todo run では呼ばない・計画 14 §1.3）。Summary か Outputs に直して覚える。 */
+/** 最後に見ていた表示を覚える（todo run では呼ばない）。Summary か Outputs に直して覚える。 */
 function saveViewMemory(view) {
   try {
     localStorage.setItem(LV_VIEW_KEY, tabOf(view));
@@ -188,7 +188,7 @@ function lvLoadFolds(name) {
     const map = raw ? JSON.parse(raw) : null;
     if (!map || typeof map !== "object") return null;
     const list = map[name];
-    // 覚えが無ければ null（＝最初から全部開いた状態・計画 14 §1.2）
+    // 覚えが無ければ null（＝最初から全部開いた状態）
     return Array.isArray(list) ? list : null;
   } catch {
     return null;
@@ -216,7 +216,7 @@ function toggleFold(open, id) {
 
 // --- 表示の決め方（DOM を使わない・tests/test_linkview.js） ---
 
-/** 帯のタブ（Summary・Outputs の 2 つ）。todo run は Outputs だけ選べる（計画 14 §1.3）。 */
+/** 帯のタブ（Summary・Outputs の 2 つ）。todo run は Outputs だけ選べる。 */
 function viewTabs(todo) {
   return LV_TABS.map(([key, label]) => ({
     key,
@@ -226,7 +226,7 @@ function viewTabs(todo) {
 }
 
 /**
- * 開く表示を決める。todo run では task に固定する（表示は URL に残し，記憶は変えない・計画 14 §1.3）。
+ * 開く表示を決める。todo run では task に固定する（表示は URL に残し，記憶は変えない）。
  * stats・history は Summary（log）に直す。それ以外は覚えていた表示をそのまま使う。
  */
 function pickView(todo, remembered) {
@@ -235,14 +235,14 @@ function pickView(todo, remembered) {
   return LV_VIEWS.some((x) => x[0] === remembered) ? remembered : "log";
 }
 
-/** todo の run（lane / status が todo）か（▶ 実行と task 固定の判定・計画 14 §1.3）。 */
+/** todo の run（lane / status が todo）か（▶ 実行と task 固定の判定）。 */
 function isTodoRun(run) {
   if (!run || typeof run !== "object") return false;
   return run.lane === "todo" || run.status === "todo";
 }
 
 /**
- * エージェントが起こすカードか（`executer` が空でなく `human` でない・U1・U12）。
+ * エージェントが起こすカードか（`executer` が空でなく `human` でない）。
  * 人が起こす道（▶ 実行）では動かさないので、ボタンを出さない。
  * 古い書き出しに残った `professor` も同じく人が起こさないカードとして扱う。
  */
@@ -253,7 +253,7 @@ function isAgentRun(run) {
 }
 
 /**
- * ツリーを「今開いているフォルダ・run だけ」並べた行に組み替える（描き方の元・計画 14 §1.2）。
+ * ツリーを「今開いているフォルダ・run だけ」並べた行に組み替える（描き方の元）。
  * open === null は「全部開く」（探す処理用）。depth は行ごとの字下げの段。
  * run は子（children）を持てる。開閉の id は `run:<run_id>`（行の id と同じ）。
  */
@@ -338,7 +338,7 @@ function defaultOpenIds(items) {
   return ids;
 }
 
-/** Summary（run の log 表示）を「節 × 行（ラベル / 値の文字列）」に組み替える（計画 14 §1.3）。 */
+/** Summary（run の log 表示）を「節 × 行（ラベル / 値の文字列）」に組み替える。 */
 function logSections(d) {
   const data = d && typeof d === "object" ? d : {};
   const out = [];
@@ -420,7 +420,7 @@ function sessionStatRows(st) {
   return rows;
 }
 
-/** Stats の大きな数字（入力 / 出力 / 読 / 書 / 費用 / ヒット率・計画 14 §1.3）。 */
+/** Stats の大きな数字（入力 / 出力 / 読 / 書 / 費用 / ヒット率）。 */
 function statsCells(totals) {
   const t = totals && typeof totals === "object" ? totals : {};
   const cost = t.cost && typeof t.cost === "object" ? t.cost : {};
@@ -443,7 +443,7 @@ function statsCells(totals) {
   ];
 }
 
-/** Stats のグラフの系列（TUI の 1 / 2 / 3 と同じ 3 種・計画 14 §1.3）。 */
+/** Stats のグラフの系列（3 種）。 */
 function statsSeries(data, mode) {
   const d = data && typeof data === "object" ? data : {};
   const msgs = Array.isArray(d.messages) ? d.messages : [];
@@ -476,7 +476,7 @@ function statsSeries(data, mode) {
   ];
 }
 
-/** History の種類別（user / agent / toolCall / toolResult / thinking）の割合（計画 14 §1.3）。 */
+/** History の種類別（user / agent / toolCall / toolResult / thinking）の割合。 */
 function typeSlices(typeTokens) {
   const tt = typeTokens && typeof typeTokens === "object" ? typeTokens : {};
   const list = LV_TYPES.map((key) => ({ label: key, value: lvNum(tt[key]) })).filter(
@@ -543,7 +543,7 @@ function lvRenderMsg() {
   box.hidden = !lvMsg;
 }
 
-// --- データの読み込み（失敗しても画面は止めない・計画 14 §1.3） ---
+// --- データの読み込み（失敗しても画面は止めない） ---
 
 async function lvFetchJson(path) {
   const res = await apiFetch(path);
@@ -571,7 +571,7 @@ async function lvLoadTree(seq) {
   }
 }
 
-// --- List の入口（住所 → 状態 → 描画・計画 14 §6） ---
+// --- List の入口（住所 → 状態 → 描画） ---
 
 async function openList(params) {
   const seq = ++lvSeq;
@@ -579,10 +579,10 @@ async function openList(params) {
   if (!name) return;
   const nameChanged = name !== lvName;
   lvName = name;
-  // Dashboard | List の選択を List 側として覚える（計画 14 §6）
+  // Dashboard | List の選択を List 側として覚える
   saveMode(name, "list");
   fillLinkSeg("list-mode-seg", "list", name);
-  // 見出しのプロジェクト名を入れる（4 画面共通の見出し・U01 §3）
+  // 見出しのプロジェクト名を入れる（4 画面共通の見出し）
   const title = document.getElementById("list-title");
   if (title) title.textContent = name;
 
@@ -594,7 +594,7 @@ async function openList(params) {
   const todo = run ? isTodoRun(run) : false;
   let view = null;
   if (runId != null) {
-    // session は List には描かず，Agent タブのメッセージ画面へ移る（U11）。
+    // session は List には描かず，Agent タブのメッセージ画面へ移る。
     // location.replace にするのは，戻ると同じ session 住所に戻ってまた移ってしまうため。
     // todo run では session を選べないので、下の pickView で task に固定する。
     if (params.view === "session" && !todo) {
@@ -610,7 +610,7 @@ async function openList(params) {
     if (todo && params.view === "outputs") view = "outputs";
     // 文書の住所（waggle）にトークンが無ければ、成果物の一覧（Outputs）へ
     if (view === "waggle" && !(params.waggleToken)) view = "outputs";
-    // 覚えるのは「選んだ表示」だけ（todo で task に固定した分は覚えず・計画 14 §1.3）。
+    // 覚えるのは「選んだ表示」だけ（todo で task に固定した分は覚えず）。
     // 覚えるのは Summary か Outputs の 2 つ（saveViewMemory が直す）。
     if (!todo) saveViewMemory(view);
   }
@@ -636,7 +636,7 @@ async function openList(params) {
   lvFolds = lvLoadFolds(name);
 
   lvRenderHead();
-  // まだ何も選んでいないときは最初からツリーを開いた状態で見せる（計画 14 §1.2）
+  // まだ何も選んでいないときは最初からツリーを開いた状態で見せる
   lvApplyWide();
   lvSetDrawer(runId == null || lvWideOn === true);
 
@@ -654,13 +654,13 @@ async function openList(params) {
   await lvLoadContent(seq);
 }
 
-/** ↻ と開き直しで呼ぶ（住所のまま中身を取り直す・計画 14 §1.2）。 */
+/** ↻ と開き直しで呼ぶ（住所のまま中身を取り直す）。 */
 async function lvReload() {
   const p = parseListHash(location.hash);
   if (p) await openList(p);
 }
 
-// --- 見出しと帯（計画 14 §1.3） ---
+// --- 見出しと帯 ---
 
 function lvRenderHead() {
   const head = document.getElementById("lv-head");
@@ -700,7 +700,7 @@ function lvRenderHead() {
   lvRenderMsg();
 }
 
-// --- ▶ 実行（todo の run のみ・新 API POST …/runs/{run_id}/start を使う・計画 15） ---
+// --- ▶ 実行（todo の run のみ・新 API POST …/runs/{run_id}/start を使う） ---
 
 function lvRenderActions() {
   const box = document.getElementById("lv-actions");
@@ -717,11 +717,11 @@ function lvRenderActions() {
   };
   if (isTodoRun(lvRun)) {
     if (isAgentRun(lvRun)) {
-      // エージェントが起こすカードは人が動かさない（理由を出す・U1）。
+      // エージェントが起こすカードは人が動かさない（理由を出す）。
       const note = document.createElement("span");
       note.className = "lv-run-note";
       note.appendChild(document.createTextNode("Started by an agent "));
-      // 用語集に `agent` の項目があれば札を付け、無ければ付けない（U12）。
+      // 用語集に `agent` の項目があれば札を付け、無ければ付けない。
       if (
         typeof saiTerm === "function" &&
         typeof saiTermText === "function" &&
@@ -852,7 +852,7 @@ async function lvAdvance(adv) {
 async function lvRunTodo() {
   if (lvBusy || lvRunId == null) return;
   const label = (lvRun && lvRun.label) || `ID${lvRunId}`;
-  // 確認は既存の ▶ 実行と同じ動き（実行はエージェントを動かすため必ず聞く・計画 15）
+  // 確認は既存の ▶ 実行と同じ動き（実行はエージェントを動かすため必ず聞く）
   if (!confirm(`Run this card?\n\n${label}`)) return;
   lvBusy = true;
   lvRenderActions();
@@ -877,7 +877,7 @@ async function lvRunTodo() {
   }
 }
 
-// --- 中身（8 つの表示・計画 14 §1.3） ---
+// --- 中身（8 つの表示） ---
 
 async function lvLoadContent(seq) {
   const body = lvBody();
@@ -916,7 +916,7 @@ async function lvLoadContent(seq) {
 }
 
 /**
- * Summary（log・stats・history を 1 枚に・計画 14 §1.3 の改定）。
+ * Summary（log・stats・history を 1 枚に）。
  * 3 つは別々に取り、失敗した部分にだけ理由を 1 行出す。全部失敗なら呼び元が失敗を出す。
  */
 async function lvLoadSummary(seq, base) {
@@ -968,7 +968,7 @@ function lvCard(title) {
   return card;
 }
 
-// 1. Summary: Inputs / Settings / Connection / Outputs（計画 14 §1.3）
+// 1. Summary: Inputs / Settings / Connection / Outputs
 function lvRenderLog(data) {
   const body = lvBody();
   const sections = logSections(data);
@@ -979,7 +979,7 @@ function lvRenderLog(data) {
   for (const s of sections) {
     const card = lvCard(s.title);
     for (const item of s.items || []) {
-      // Connection の 1 件: 押すとその run の同じ表示へ飛ぶ（U01）
+      // Connection の 1 件: 押すとその run の同じ表示へ飛ぶ
       const row = el("div", "lv-conn");
       const btn = el("button", "lv-kv-link", item.head);
       btn.type = "button";
@@ -1053,7 +1053,7 @@ function lvCountsLine(data) {
   );
 }
 
-// 3. メッセージごとの推移（TUI の 1 / 2 / 3 と同じ 3 種・SVG 手描き）。
+// 3. メッセージごとの推移（3 種・SVG 手描き）。
 // 切り替えはこのカードの中だけ描き直す。
 function lvChartCard(data) {
   const chart = lvCard("Per-message trend");
@@ -1094,7 +1094,7 @@ function lvChartCard(data) {
   return chart;
 }
 
-/** Per-message table（表は横にはみ出す分だけスクロール・計画 14 §1.4）。 */
+/** Per-message table（表は横にはみ出す分だけスクロール）。 */
 function lvTableBody(data) {
   const msgs = Array.isArray(data.messages) ? data.messages : [];
   if (msgs.length === 0) return el("p", "st-note", "No data.");
@@ -1153,7 +1153,7 @@ function lvDetailCard(stats, hist) {
   return card;
 }
 
-/** 折れ線グラフ（外部ライブラリなしで SVG を手描く・計画 14 §6）。 */
+/** 折れ線グラフ（外部ライブラリなしで SVG を手描く）。 */
 function lvLineSvg(series) {
   const W = 320;
   const H = 130;
@@ -1432,7 +1432,7 @@ function lvCliCard(cli) {
   return card;
 }
 
-/** 呼び出しの全文を小窓で開く。押したときだけ取る（History の JSON を小さく保つ・U14）。 */
+/** 呼び出しの全文を小窓で開く。押したときだけ取る（History の JSON を小さく保つ）。 */
 async function lvOpenCall(ev) {
   const body = el("div", "lv-call");
   body.appendChild(el("p", "st-note", "Loading…"));
@@ -1546,7 +1546,7 @@ function lvCanEdit(view, run) {
   return view === "task" && isTodoRun(run);
 }
 
-// 4〜5. task / message: md の整形表示（13 §5 の renderMarkdown をそのまま）
+// 4〜5. task / message: md の整形表示（renderMarkdown をそのまま）
 // task（未実行の todo）は「編集」でその場で書き換えて保存できる。
 function lvRenderMd(data) {
   lvMdText = (data && data.text) || "";
@@ -1671,7 +1671,7 @@ function lvBackToOutputs() {
 }
 
 /**
- * Outputs（計画 14 §1.3 の改定）: system・task・message・Report と、waggle の成果物の一覧。
+ * Outputs: system・task・message・Report と、waggle の成果物の一覧。
  * todo の run では task だけ開ける。waggle の一覧は取りにいかない。
  */
 async function lvLoadOutputs(seq, base) {
@@ -1747,7 +1747,7 @@ async function lvLoadWaggleDoc(seq, base) {
   body.lastChild.innerHTML = renderMarkdown(data.text || "", { toolbar: true });
 }
 
-// --- 引き出し式ツリー（計画 14 §1.2） ---
+// --- 引き出し式ツリー ---
 
 function lvSetDrawer(open) {
   const wrap = document.getElementById("lv-drawer-wrap");
@@ -1766,7 +1766,7 @@ function lvRenderDrawer() {
   const nav = document.getElementById("lv-drawer");
   if (!nav) return;
   nav.innerHTML = "";
-  // ツリーの行より先に「実行［＋］［↻］」の見出しの行を出す（U01 §4）。
+  // ツリーの行より先に「実行［＋］［↻］」の見出しの行を出す。
   // ツリーが空・読み込み中・読み込み失敗のときも残す（↻ で読み直せるように）。
   nav.appendChild(lvSideHead());
   const rows = flattenTree(lvTree || [], lvFolds === null ? defaultOpenIds(lvTree) : lvFolds);
@@ -1819,14 +1819,14 @@ function lvRenderDrawer() {
       dot.setAttribute("aria-hidden", "true");
       b.appendChild(dot);
       b.appendChild(el("span", "lv-run-item-label", r.label));
-      // エージェントが起こす todo には短い印を出す（一覧で分かるように・U1）。
+      // エージェントが起こす todo には短い印を出す（一覧で分かるように）。
       if (r.lane === "todo" && isAgentRun(r)) {
         const mark = el("span", "lv-run-item-mark", "AI");
         mark.title = "Started by an agent";
         b.appendChild(mark);
       }
       b.addEventListener("click", () => {
-        // run を選ぶと閉じ，最後に見ていた表示のまま中身だけ変わる（計画 14 §1.3）
+        // run を選ぶと閉じ，最後に見ていた表示のまま中身だけ変わる
         const view = pickView(isTodoRun(r), lvView || loadViewMemory());
         location.hash = listHash(lvName, r.runId, view);
         lvSetDrawer(false);
@@ -1845,7 +1845,7 @@ function lvToggleFold(id) {
   lvRenderDrawer();
 }
 
-// --- サイドバーの見出しの行（実行・＋（task.md の作成）・↻（読み直し）・U01 §4） ---
+// --- サイドバーの見出しの行（実行・＋（task.md の作成）・↻（読み直し）） ---
 
 // 見出しの行を 1 本作る。毎回作り直されるので、ボタンは作るたびにイベントを付ける。
 // 狭い画面では引き出しの中、広い画面では左の列の一番上に出る。
@@ -1869,7 +1869,7 @@ function lvSideHead() {
   return row;
 }
 
-// --- Dashboard | Workflow | List | 設定 の切り替え帯（共有契約 C-F7） ---
+// --- Dashboard | Workflow | List | 設定 の切り替え帯 ---
 
 function fillLinkSeg(containerId, active, name) {
   const box = document.getElementById(containerId);
@@ -1882,7 +1882,7 @@ function fillLinkSeg(containerId, active, name) {
     if (key === active) b.className = "active";
     b.addEventListener("click", () => {
       const hash = modeHash(name, key);
-      saveMode(name, key); // 押した方を覚える（次に開いたときも同じ・C-F7）
+      saveMode(name, key); // 押した方を覚える（次に開いたときも同じ）
       if (location.hash !== hash) location.hash = hash;
     });
     seg.appendChild(b);
@@ -1943,7 +1943,7 @@ function lvApplyWide() {
   left.appendChild(nav);
   right.append(head, body);
   split.append(left, right);
-  // 見出し（.appbar）と接続切れの帯の後ろへ入れる。一番上には出さない（U01 §3）
+  // 見出し（.appbar）と接続切れの帯の後ろへ入れる。一番上には出さない
   const offline = sec.querySelector(".offline-bar");
   const anchor = offline || appbar;
   if (anchor && anchor.parentElement === sec) anchor.after(split);
@@ -1961,7 +1961,7 @@ function lvApplyWide() {
   lvRenderDrawer();
 }
 
-// --- 画面の登録（ブラウザでのみ・計画 14 §6） ---
+// --- 画面の登録（ブラウザでのみ） ---
 
 if (typeof window !== "undefined") {
   (window.SaiRoutes = window.SaiRoutes || []).push({
@@ -1972,7 +1972,7 @@ if (typeof window !== "undefined") {
     view: "view-list",
     tab: "project",
     hideTabbar: false,
-    interval: 0, // 定期更新はしない（↻ と開き直しで最新にする・計画 14 §1.2）
+    interval: 0, // 定期更新はしない（↻ と開き直しで最新にする）
     async open(params) {
       await openList(params);
     },
@@ -1982,7 +1982,7 @@ if (typeof window !== "undefined") {
   // ☰: ツリーを開く（未選択のときは最初から開いている）
   const menu = document.getElementById("list-menu");
   if (menu) menu.addEventListener("click", () => lvSetDrawer(true));
-  // ‹: プロジェクト一覧へ戻る（4 画面共通・U01 §3）
+  // ‹: プロジェクト一覧へ戻る（4 画面共通）
   const back = document.getElementById("list-back");
   if (back) back.addEventListener("click", () => { location.hash = "#/projects"; });
   // 暗い部分をタップすると閉じる
@@ -1994,7 +1994,7 @@ if (typeof window !== "undefined") {
     lvApplyWide();
     if (wasWide !== lvWideOn) lvSetDrawer(lvRunId == null || lvWideOn === true);
   });
-  // ＋（task.md の作成フォーム）はサイドバーの見出しの行の中（lvRenderDrawer・U01 §4）
+  // ＋（task.md の作成フォーム）はサイドバーの見出しの行の中（lvRenderDrawer）
 }
 
 // --- md の中の waggle リンク（`waggle:<トークン>`）を押したら、その文書の表示へ移る ---
@@ -2013,7 +2013,7 @@ if (typeof document !== "undefined") {
   });
 }
 
-// --- node からの読み込み（tests/test_linkview.js・計画 14 §6） ---
+// --- node からの読み込み（tests/test_linkview.js） ---
 if (typeof module !== "undefined" && module.exports) {
   module.exports = {
     listHash,

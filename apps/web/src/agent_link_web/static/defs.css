@@ -1,4 +1,4 @@
-/* 設定画面（defs.js）の見た目（実装計画 U5）。
+/* 設定画面（defs.js）の見た目。
    一覧（ブロック / テンプレート / 設定ファイル × このプロジェクト / 全プロジェクト共通）と、
    編集（編集 | プレビュー・保存・削除）を作る。
    md の色は markdown.css が使うのでここでは色を付けない。 */
@@ -6,7 +6,7 @@
 #defs-root { display: flex; flex-direction: column; min-height: 0; flex: 1; }
 
 /* --- 上の帯（← 戻る・題・置き場の札・Dashboard|Workflow|List|設定） ---
-   一覧の帯は 4 画面共通の .proj-bar（style.css）と同じ形（U01 §3）。
+   一覧の帯は 4 画面共通の .proj-bar（style.css）と同じ形。
    編集の帯は切り替えを出さないので .proj-bar ではない。 */
 .df-bar { gap: 6px; }
 .df-bar .df-back { flex: none; font-size: 20px; }

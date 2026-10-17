@@ -1,4 +1,4 @@
-// md の整形表示（実装計画 13 §1.4・§5）の共通部品。
+// md の整形表示の共通部品。
 //
 // - 見出し 6 段階・段落・太字 / 斜体・`コード`・リンク（http/https のみ有効）
 // - 箇条書き（入れ子・番号付き・チェックボックス）・引用・区切り線・表・コードの枠
@@ -13,7 +13,7 @@
 // index.html では app.js より前に読む。node からの読み込みは tests/test_markdown.js。
 //
 // U4 で足した物:
-//   - コードの色分け（mdHighlight・TUI と同じ base16-ocean.dark の色）
+//   - コードの色分け（mdHighlight・base16-ocean.dark の色）
 //   - 道具の行（全部たたむ / 全部開く / 目次）… renderMarkdown(text, {toolbar: true})
 //   - 長いコードの枠（21 行以上）は 12 行だけ出して「全部見る」で開く
 //   - 一番外側に .md-doc を付ける（道具の行は 1 つの文書の中だけに効く）
@@ -422,9 +422,9 @@ function renderBody(lines) {
   return wrapSections(parseBlocks(lines));
 }
 
-// --- コードの色分け（mdHighlight・U4） ---
+// --- コードの色分け（mdHighlight） ---
 //
-// TUI（agent-link-tui の base16-ocean.dark）と同じ色を、暗い地の上に置く。
+// base16-ocean.dark の色を、暗い地の上に置く。
 // 完全な文法解析はしない（正規表現の簡易版・崩れても読める程度でよい）。
 // 行をまたぐもの（C 式の複数行注釈・Python の 3 引用符の文字列）は状態として持ち回す。
 
@@ -767,8 +767,8 @@ function mdHighlight(code, lang) {
   return mdEscape(src);
 }
 
-// --- 長いコードの枠（U4） ---
-// 21 行以上のときははじめ 12 行だけ出して「全部見る」で開く（U4 §2）
+// --- 長いコードの枠 ---
+// 21 行以上のときははじめ 12 行だけ出して「全部見る」で開く
 const MD_CODE_LONG_LINES = 21;
 const MD_CODE_PEEK_LINES = 12;
 

@@ -1,5 +1,5 @@
 "use strict";
-// Chats の一覧から「新しいチャット」を始める（実装計画 U04 §5）。
+// Chats の一覧から「新しいチャット」を始める。
 //
 // プロジェクト・block・model・thinking・最初の文を選び、
 // カード（task.md）を作って実行し、その会話の画面へ移る。
@@ -61,7 +61,7 @@ function ncBuildPayload(state) {
 }
 
 /**
- * 入力の検査（U04 §5）。プロジェクト・block・最初の文が空でないこと。
+ * 入力の検査。プロジェクト・block・最初の文が空でないこと。
  *
  * @param {object|null|undefined} state
  * @returns {{ok: boolean, error?: string}}
@@ -287,7 +287,7 @@ async function ncOpen(preset) {
     state.notice = "";
     if (state.wantBlock) {
       if (ids.includes(state.wantBlock)) state.block = state.wantBlock;
-      else state.notice = `Block ${state.wantBlock} not found. Check "sai-ts init".`;
+      else state.notice = `Block ${state.wantBlock} not found. Check .agent-link/blocks/.`;
       state.wantBlock = "";
     }
     // block の既定（main があれば main、無ければ先頭）
@@ -340,7 +340,7 @@ if (typeof document !== "undefined") {
   if (btn) btn.addEventListener("click", () => void ncOpen());
 }
 
-// 住所 #/newchat?project=&block=（sai-ts の「Chats で開く」の行き先・G3-C3）。
+// 住所 #/newchat?project=&block=（外から「Chats で開く」ときの行き先）。
 // 一覧（#/ の days）を出してから、その project と block を選んだ欄を開く。
 // 住所は #/ に戻す（replaceState は hashchange を起こさないので route を直に呼ぶ）。
 if (typeof window !== "undefined") {

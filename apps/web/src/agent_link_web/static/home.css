@@ -1,11 +1,11 @@
-/* ホーム画面（static/home.js・U4）の見た目。
+/* ホーム画面（static/home.js）の見た目。
    共通部品（.sai-card / .sai-row / .sai-empty / .sai-term）は style.css にある。
    ここに書くのはホームだけの物（.hm-…）だけ。 */
 
 /* 中身の入れ物。どの幅でも 1 列に並べる */
 .hm-body {
   display: grid;
-  /* minmax(0, 1fr) にしないと、長い行が下限になり横にはみ出す（iPhone・U02 §3） */
+  /* minmax(0, 1fr) にしないと、長い行が下限になり横にはみ出す（iPhone） */
   grid-template-columns: minmax(0, 1fr);
   gap: var(--sp-3);
   padding: var(--sp-3) var(--sp-4) var(--sp-6);
@@ -14,7 +14,7 @@
   width: 100%;
 }
 
-/* 1. 全プロジェクトの合計（U02 §3-1） */
+/* 1. 全プロジェクトの合計 */
 .hm-overview { gap: var(--sp-2); }
 .hm-overview .dash-grid { margin-top: 4px; }
 .hm-overview .dash-sub { margin-top: 10px; }

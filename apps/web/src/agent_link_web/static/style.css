@@ -64,7 +64,7 @@
   --accent-mcp: #1d7a45;
   --input-bg: #f1f3f5;
 
-  /* --- U4: 共通部品（ui.js）で使う大きさ・色（共有契約 C-F3） --- */
+  /* --- U4: 共通部品（ui.js）で使う大きさ・色 --- */
   --sp-1: 4px;
   --sp-2: 8px;
   --sp-3: 12px;
@@ -73,7 +73,7 @@
   --sp-6: 32px;
   --radius: 12px;
   --radius-sm: 8px;
-  /* 広い画面（900px 以上）で左の縦のタブ幅。U4 §1 */
+  /* 広い画面（900px 以上）で左の縦のタブ幅 */
   --rail-w: 84px;
 }
 
@@ -150,7 +150,7 @@ html, body {
   min-height: 100dvh;
   display: flex;
   flex-direction: column;
-  /* 下の重ね部（タブバー等）に内容を隠されないための余白（05 §5） */
+  /* 下の重ね部（タブバー等）に内容を隠されないための余白 */
   padding-bottom: var(--bottom-stack-h, 0px);
 }
 /* hidden 属性を確実に効かせる（.view の display:flex が hidden を
@@ -187,7 +187,7 @@ html, body {
   padding: 4px 8px;
 }
 
-/* 実行画面の見出し（1行目 #run_id block_name，2行目に description・03 §1-7） */
+/* 実行画面の見出し（1行目 #run_id block_name，2行目に description） */
 .run-heading { flex: 1; min-width: 0; }
 .appbar .run-heading h1 { flex: none; font-size: 16px; margin: 0; }
 .run-desc {
@@ -219,7 +219,7 @@ html, body {
   color: var(--text-soft);
 }
 
-/* --- 日付一覧（iPhone のカレンダー風・02 §3.2） --- */
+/* --- 日付一覧（iPhone のカレンダー風） --- */
 
 .day-row {
   display: flex;
@@ -341,7 +341,7 @@ html, body {
 }
 .bubble-agent code { font-family: ui-monospace, monospace; }
 
-/* --- 全項目の折りたたみ（03 §4） ---
+/* --- 全項目の折りたたみ ---
    見出し（発言者＋時刻）を全項目に出し，タップで開閉する．
    開閉の状態は app.js が id で覚える（openIds） */
 .fold-head {
@@ -388,7 +388,7 @@ html, body {
 .fold-item.kind-tool .fold-who { color: inherit; font-weight: 500; }
 .fold-item.kind-tool.failed .fold-head { color: var(--danger); }
 
-/* --- 吹き出しの色分け（チャットの見た目・U01 §2） ---
+/* --- 吹き出しの色分け（チャットの見た目） ---
    相手は「左の丸いアイコン + 薄い角丸の吹き出し」、自分は「右の吹き出し」。
    箱（背景）は中の .fold-body / .fold-preview に付ける。見出し（.fold-head）は
    箱の外に出て、名前は最初の 1 行だけ・時刻は自分の発言なら下に出る。
@@ -485,7 +485,7 @@ html, body {
   margin: 14px 0 4px;
 }
 
-/* --- event カード（03 §4）：吹き出しではなく左に色の帯がある薄い箱 --- */
+/* --- event カード：吹き出しではなく左に色の帯がある薄い箱 --- */
 .event-card {
   background: var(--bg-soft);
   border-left: 4px solid var(--text-soft);
@@ -524,7 +524,7 @@ html, body {
 }
 
 /* 質問カード（会話の末尾に出る選択肢ボタン）．
-   折りたたまず常に開いた状態で目立たせる（03 §1-8，中身の修正は 05） */
+   折りたたまず常に開いた状態で目立たせる。 */
 .question-card {
   border: 1px solid var(--accent);
   border-radius: 16px;
@@ -569,7 +569,7 @@ html, body {
   font-weight: 600;
 }
 .question-card .q-submit:disabled { opacity: 0.4; }
-/* 質問を止める（答えずに取り下げる・U03）。送信より控えめな枠のボタン */
+/* 質問を止める（答えずに取り下げる）。送信より控えめな枠のボタン */
 .question-card .q-withdraw {
   border: 1px solid var(--line);
   border-radius: 12px;
@@ -596,7 +596,7 @@ html, body {
 .new-arrival {
   position: fixed;
   right: 16px;
-  /* タブバー・再生バーの上に出す（05 §5） */
+  /* タブバー・再生バーの上に出す */
   bottom: calc(96px + var(--bottom-stack-h, 0px));
   border: none;
   border-radius: 999px;
@@ -608,10 +608,10 @@ html, body {
 }
 
 /* 下部の入力欄（常に画面下に固定）。入力の入れ物は角丸の 20px。
-   🎤 と ➤ はその左右に置く（U01 §2）。 */
+   🎤 と ➤ はその左右に置く。 */
 .inputbar {
   position: sticky;
-  /* 再生バーが出ているときはその上に入力欄を置く（05 §5） */
+  /* 再生バーが出ているときはその上に入力欄を置く */
   bottom: var(--bottom-stack-h, 0px);
   display: flex;
   align-items: flex-end;
@@ -621,7 +621,7 @@ html, body {
   border-top: 1px solid var(--line);
 }
 
-/* 安全領域（env(safe-area-inset-bottom)）は一番下にある部品だけが持つ（05 §5）。
+/* 安全領域（env(safe-area-inset-bottom)）は一番下にある部品だけが持つ。
    タブバーも再生バーも見えないときだけ，入力欄が下端の余白を持つ（今のままの見た目） */
 body.tabbar-hidden:not(.mini-visible) .inputbar {
   padding-bottom: calc(10px + env(safe-area-inset-bottom));
@@ -659,7 +659,7 @@ body.tabbar-hidden:not(.mini-visible) .inputbar {
 /* 録音中はマイクの色を変える */
 #mic-button.recording { color: var(--danger); }
 
-/* 停止（エージェントの今の作業を止める・U03）。入力欄と送信の間に出す。タッチは 44px 以上 */
+/* 停止（エージェントの今の作業を止める）。入力欄と送信の間に出す。タッチは 44px 以上 */
 .inputbar .stop-button {
   width: 44px;
   height: 44px;
@@ -669,11 +669,11 @@ body.tabbar-hidden:not(.mini-visible) .inputbar {
 }
 #interrupt-button[hidden] { display: none; }
 
-/* --- 統計画面（実装計画 04） ---
+/* --- 統計画面 ---
    Apple のヘルス / スクリーンタイムに寄せた，角丸カード＋大きな数字．
-   グラフの4色はライト・ダークどちらでも見分けられる中間の明るさに絞る（04 §2）。 */
+   グラフの4色はライト・ダークどちらでも見分けられる中間の明るさに絞る。 */
 
-/* グラフの色（04 §2：色数を絞る）。系列の色は --series-* を借りる（対比は test_contrast.js が測る）。 */
+/* グラフの色（色数を絞る）。系列の色は --series-* を借りる（対比は test_contrast.js が測る）。 */
 :root {
   --st-in: var(--series-1);   /* 入力 */
   --st-out: var(--series-2);  /* 出力 */
@@ -696,7 +696,7 @@ body.tabbar-hidden:not(.mini-visible) .inputbar {
   gap: 14px;
 }
 
-/* 見出し（プロジェクト・runner・モデル・時刻・状態・04 §1-1） */
+/* 見出し（プロジェクト・runner・モデル・時刻・状態） */
 .st-head { display: flex; flex-direction: column; gap: 4px; padding: 2px 2px 0; }
 .st-head-line { font-size: 13px; color: var(--text-soft); }
 .st-status { font-size: 14px; font-weight: 600; margin-top: 2px; }
@@ -717,7 +717,7 @@ body.tabbar-hidden:not(.mini-visible) .inputbar {
   color: var(--text-soft);
 }
 
-/* 大きな数字3つ（iPhone の幅で3等分・04 §1-2） */
+/* 大きな数字3つ（iPhone の幅で3等分） */
 .st-bigs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
 .st-big {
   background: var(--st-card);
@@ -736,7 +736,7 @@ body.tabbar-hidden:not(.mini-visible) .inputbar {
 .st-big-label { font-size: 11px; color: var(--text-soft); margin-top: 4px; }
 .st-big-note { font-size: 10px; color: var(--text-soft); margin-top: 2px; }
 
-/* ドーナツ型の円グラフ（SVG 手描き・04 §1-2 の3番） */
+/* ドーナツ型の円グラフ（SVG 手描き） */
 .st-donut-wrap { position: relative; width: 170px; margin: 0 auto; }
 .st-donut { display: block; width: 100%; height: auto; }
 .st-seg {
@@ -772,7 +772,7 @@ body.tabbar-hidden:not(.mini-visible) .inputbar {
 .st-leg-num { font-variant-numeric: tabular-nums; font-size: 12px; }
 .st-leg-pct { color: var(--text-soft); font-size: 12px; width: 4em; text-align: right; }
 
-/* 横棒グラフ: ツール別使用回数（SVG 手描き・04 §1-2 の4番） */
+/* 横棒グラフ: ツール別使用回数（SVG 手描き） */
 .st-hint {
   font-size: 12px;
   color: var(--text-soft);
@@ -803,13 +803,13 @@ body.tabbar-hidden:not(.mini-visible) .inputbar {
   text-align: right;
 }
 
-/* 小さな補足行（ターン数・ツール総回数・コスト内訳・04 §1-2 の5番） */
+/* 小さな補足行（ターン数・ツール総回数・コスト内訳） */
 .st-foot { display: flex; flex-direction: column; gap: 8px; }
 .st-foot-line { font-size: 13px; color: var(--text-soft); line-height: 1.5; }
 .st-foot-line b { color: var(--text); font-weight: 600; }
 .st-foot-note { font-size: 12px; color: var(--text-soft); }
 
-/* 未集計・データ無しの表示（04 §1-3 / §1-4） */
+/* 未集計・データ無しの表示 */
 .st-note {
   font-size: 14px;
   color: var(--text-soft);
@@ -878,7 +878,7 @@ body.tabbar-hidden:not(.mini-visible) .inputbar {
   margin-top: 4px;
 }
 
-/* --- 下部の重ね部：再生バー＋タブバー（05 §4・§5） --- */
+/* --- 下部の重ね部：再生バー＋タブバー --- */
 .bottom-stack {
   position: fixed;
   left: 0;
@@ -890,11 +890,11 @@ body.tabbar-hidden:not(.mini-visible) .inputbar {
 }
 .bottom-stack[hidden] { display: none; }
 
-/* タブバー：3 等分の横並び，各ボタンは縦に アイコン → 文字（05 §5） */
+/* タブバー：3 等分の横並び，各ボタンは縦に アイコン → 文字 */
 .tabbar {
   display: flex;
   min-height: 49px;
-  /* 下端の余白は一番下にある部品だけが持つ（05 §5） */
+  /* 下端の余白は一番下にある部品だけが持つ */
   padding-bottom: env(safe-area-inset-bottom);
 }
 
@@ -913,19 +913,19 @@ body.tabbar-hidden:not(.mini-visible) .inputbar {
   cursor: pointer;
 }
 
-/* 今いるタブだけアクセント色（05 §5） */
+/* 今いるタブだけアクセント色 */
 .tabbar button.active { color: var(--accent); }
 .tabbar svg { width: 24px; height: 24px; display: block; }
 
 /* 小さな再生バー（見た目と中身は 09）。hidden のときは場所を取らない */
 .mini-player[hidden] { display: none; }
-/* タブバーを隠している間は再生バーが一番下になる（05 §5・09） */
+/* タブバーを隠している間は再生バーが一番下になる */
 body.tabbar-hidden .mini-player { padding-bottom: env(safe-area-inset-bottom); }
 
-/* --- Project タブ（実装計画 06） ---
-   新しいクラスはすべて .proj- / .dash- で始める（06 §4.3）。色は CSS 変数だけ。 */
+/* --- Project タブ ---
+   新しいクラスはすべて .proj- / .dash- で始める。色は CSS 変数だけ。 */
 
-/* 常駐のランプ（稼働中は緑・停止は輪郭のだけの円・06 §4.1） */
+/* 常駐のランプ（稼働中は緑・停止は輪郭のだけの円） */
 .proj-lamp {
   width: 10px;
   height: 10px;
@@ -940,7 +940,7 @@ body.tabbar-hidden .mini-player { padding-bottom: env(safe-area-inset-bottom); }
   border-color: var(--ok);
 }
 
-/* --- プロジェクト一覧（#/projects・06 §4.1） --- */
+/* --- プロジェクト一覧（#/projects） --- */
 .proj-row {
   display: flex;
   flex-direction: column;
@@ -973,11 +973,11 @@ body.tabbar-hidden .mini-player { padding-bottom: env(safe-area-inset-bottom); }
 .proj-chev { color: var(--text-soft); flex: none; }
 .proj-line2 { font-size: 13px; color: var(--text-soft); }
 
-/* 多人数モードの一覧（U11）: 行の外に起動 / 停止のボタンを置く */
+/* 多人数モードの一覧: 行の外に起動 / 停止のボタンを置く */
 .proj-item { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
 .proj-item .proj-row { margin-top: 0; }
 
-/* --- Dashboard（#/project/<name>・06 §4.2） --- */
+/* --- Dashboard（#/project/<name>） --- */
 .dash-body {
   flex: 1;
   padding: 16px;
@@ -987,7 +987,7 @@ body.tabbar-hidden .mini-player { padding-bottom: env(safe-area-inset-bottom); }
 }
 .dash-cards { display: flex; flex-direction: column; gap: 12px; }
 
-/* カード（余白の多い角丸の箱・06 §4.2） */
+/* カード（余白の多い角丸の箱） */
 .dash-card {
   background: var(--bg-soft);
   border-radius: 16px;
@@ -1268,7 +1268,7 @@ body.tabbar-hidden .mini-player { padding-bottom: env(safe-area-inset-bottom); }
   background: var(--bg-soft);
 }
 
-/* md の整形表示の規則は markdown.css に移した（U4）。
+/* md の整形表示の規則は markdown.css に移した。
    ここに残すのは md 以外の場所でも使う素の要素の規則だけ。 */
 hr { border: none; border-top: 1px solid var(--line); margin: 12px 0; }
 a { color: var(--accent); }
@@ -1281,10 +1281,10 @@ code {
   padding: 1px 4px;
 }
 
-/* --- Project の List 画面（計画 14） --- */
+/* --- Project の List 画面 --- */
 
 /* --- Project の 4 画面（Dashboard / Workflow / List / 設定）の共通の見出し ---
-   Workflow の形（‹ プロジェクト名 切り替え）を正として 4 画面で使い回す（U01 §3）。 */
+   Workflow の形（‹ プロジェクト名 切り替え）を正として 4 画面で使い回す。 */
 .proj-bar { gap: 6px; }
 .proj-bar .proj-back { flex: none; font-size: 20px; }
 .proj-bar .proj-title {
@@ -1304,7 +1304,7 @@ code {
 /* List 画面の見出しは ☰ が先頭（狭い画面だけ）。‹ とプロジェクト名のあとは共通。 */
 .list-bar #list-menu { flex: none; font-size: 18px; }
 
-/* run の見出しと 7 つの表示の帯（14 §1.3） */
+/* run の見出しと 7 つの表示の帯 */
 .lv-head { padding: 10px 16px 4px; border-bottom: 1px solid var(--line); }
 .lv-head[hidden] { display: none; }
 .lv-run-row { display: flex; align-items: baseline; gap: 8px; }
@@ -1315,7 +1315,7 @@ code {
 .lv-lane-workflow { color: var(--accent); }
 .lv-lane-todo { color: var(--text-soft); }
 
-/* 帯は横にスクロールできる（画面全体は横に動かない・14 §1.3） */
+/* 帯は横にスクロールできる（画面全体は横に動かない） */
 .lv-tabs { display: flex; gap: 6px; overflow-x: auto; padding: 10px 0 6px; scrollbar-width: none; }
 .lv-tabs::-webkit-scrollbar { display: none; }
 .lv-tab {
@@ -1335,7 +1335,7 @@ code {
 }
 .lv-tab:disabled { opacity: 0.35; }
 
-/* todo run の ▶ 実行と 1 行の知らせ（14 §1.3） */
+/* todo run の ▶ 実行と 1 行の知らせ */
 .lv-actions { padding-top: 2px; }
 .lv-actions:empty { display: none; }
 .lv-run-btn {
@@ -1353,7 +1353,7 @@ code {
 .lv-msg.err { color: var(--danger); }
 .lv-msg[hidden] { display: none; }
 
-/* 中身（Log / Stats / History / md / waggle・14 §1.3） */
+/* 中身（Log / Stats / History / md / waggle） */
 .lv-body { flex: 1; padding: 12px 16px 32px; }
 .lv-card {
   background: var(--bg-soft);
@@ -1369,7 +1369,7 @@ code {
 .lv-kv-value { flex: 1; min-width: 0; white-space: pre-wrap; word-break: break-word; }
 .lv-sub { font-size: 12px; color: var(--text-soft); margin: 0 0 12px; }
 
-/* Stats のグラフ（SVG 手描き）と一覧（14 §1.3・表は横にはみ出す分だけスクロール） */
+/* Stats のグラフ（SVG 手描き）と一覧（表は横にはみ出す分だけスクロール） */
 .lv-chart-seg { margin-bottom: 10px; }
 /* .dash-chart と同じ考えで上限を設ける（目盛りの文字が膨らまないように） */
 .lv-chart { display: block; width: 100%; max-width: 440px; height: auto; margin: 0 auto; }
@@ -1390,7 +1390,7 @@ code {
 .lv-table th { color: var(--text-soft); font-weight: 600; }
 .lv-table th:first-child, .lv-table td:first-child { text-align: left; }
 
-/* History の見出しとタイムライン（14 §1.3） */
+/* History の見出しとタイムライン */
 .lv-hist-head { margin-bottom: 10px; }
 .lv-hist-title { font-size: 14px; font-weight: 600; }
 .lv-hist-head .lv-sub { margin: 2px 0 0; }
@@ -1416,7 +1416,7 @@ button.lv-tl-preview { cursor: pointer; }
 .lv-call-label { margin: 10px 0 4px; font-size: 12px; font-weight: 600; color: var(--text-soft); }
 .lv-call-pre { margin: 0; padding: 8px; max-height: 50vh; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; background: var(--bg-soft); border-radius: 6px; }
 
-/* waggle（成果物の一覧と本文・14 §1.3） */
+/* waggle（成果物の一覧と本文） */
 .lv-md-back {
   border: 1px solid var(--line);
   background: var(--bg-soft);
@@ -1458,7 +1458,7 @@ button.lv-tl-preview { cursor: pointer; }
 .lv-waggle-desc { font-size: 12px; color: var(--text-soft); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .lv-waggle-text { font-size: 15px; }
 
-/* 引き出し式ツリー（☰ で左から・暗い部分タップで閉じる・14 §1.2） */
+/* 引き出し式ツリー（☰ で左から・暗い部分タップで閉じる） */
 .lv-drawer-wrap { position: fixed; inset: 0; z-index: 50; display: flex; }
 .lv-drawer-wrap[hidden] { display: none; }
 .lv-drawer-mask { position: absolute; inset: 0; background: rgba(0, 0, 0, 0.4); }
@@ -1473,7 +1473,7 @@ button.lv-tl-preview { cursor: pointer; }
   padding: calc(env(safe-area-inset-top, 0px) + 14px) 0 24px;
 }
 .lv-drawer-note { margin: 0; padding: 12px 16px; font-size: 13px; color: var(--text-soft); }
-/* --- サイドバーの見出しの行（実行・＋・↻・U01 §4） ---
+/* --- サイドバーの見出しの行（実行・＋・↻） ---
    VS Code のサイドバーのように、ツリーの行より前に 1 本だけ出す。
    ツリーが空・読み込み中・読み込み失敗のときも残す（↻ で読み直せるように）。 */
 .lv-side-head {
@@ -1527,8 +1527,8 @@ button.lv-tl-preview { cursor: pointer; }
 .lv-dot.lv-workflow { background: var(--accent); }
 .lv-dot.lv-todo { background: var(--text-soft); }
 
-/* ================= task.md 作成フォーム（計画 15 §1.5） =================
-   List 右上の ＋ で下から出る一枚。手順は 10 画面（番号の飛び方は TUI と同じ）。 */
+/* ================= task.md 作成フォーム =================
+   List 右上の ＋ で下から出る一枚。手順は 10 画面。 */
 .cf-wrap { position: fixed; inset: 0; z-index: 60; display: flex; align-items: flex-end; }
 .cf-wrap[hidden] { display: none; }
 .cf-mask { position: absolute; inset: 0; background: rgba(0, 0, 0, 0.35); }
@@ -1652,7 +1652,7 @@ button.lv-tl-preview { cursor: pointer; }
 .lv-edit-row { display: flex; gap: 8px; justify-content: flex-end; margin: 0 0 10px; }
 .lv-edit-row:last-child { margin: 10px 0 0; }
 
-/* --- Usage タブ（実装計画 42 §3.5） ---
+/* --- Usage タブ ---
    カード・切り替え・グラフは 06 の .dash-* をそのまま使い回す。
    ここは Usage だけの細かい見た目（メーター・1 行の文言・Logs の行）。 */
 .usage-line { margin-top: 6px; font-size: 14px; font-variant-numeric: tabular-nums; }
@@ -1696,7 +1696,7 @@ button.lv-tl-preview { cursor: pointer; }
 .usage-model-row .dash-bar-name { width: 100%; white-space: normal; overflow-wrap: anywhere; }
 #usage-updated { padding: 8px 16px 0; margin-bottom: 0; }
 
-/* --- 質問カードの読み上げ・音声回答（U01） --- */
+/* --- 質問カードの読み上げ・音声回答 --- */
 .va-bar {
   display: flex;
   align-items: center;
@@ -1746,7 +1746,7 @@ button.lv-tl-preview { cursor: pointer; }
 }
 
 /* ==========================================================================
-   U4: 共通部品（ui.js）の見た目と広い画面の土台（共有契約 C-F3）
+   U4: 共通部品（ui.js）の見た目と広い画面の土台
    既存の画面のクラス名は変えず、ここに足すのは新しい物だけ。
    ========================================================================== */
 
@@ -2036,7 +2036,7 @@ button.lv-tl-preview { cursor: pointer; }
   #view-stats { max-width: 900px; margin-left: auto; margin-right: auto; width: 100%; }
 }
 
-/* 使用量のカード（U4 §4：広い画面では 2〜3 列に並べる） */
+/* 使用量のカード（広い画面では 2〜3 列に並べる） */
 .usage-cards { display: flex; flex-direction: column; gap: 12px; }
 @media (min-width: 900px) {
   .usage-cards {
@@ -2051,7 +2051,7 @@ button.lv-tl-preview { cursor: pointer; }
   .usage-cards { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 
-/* 広い画面の「その日の実行」の左にある日付一覧（U4 §4）。
+/* 広い画面の「その日の実行」の左にある日付一覧。
    いま見ている日は背景で示し、1 行の高さを 44px にする。 */
 .day-row.current { background: var(--bg-soft); }
 .day-row.current .day-date { color: var(--accent); }
@@ -2065,14 +2065,14 @@ button.lv-tl-preview { cursor: pointer; }
 /* md の中の waggle 参照（押すとその文書へ） */
 .md-doc a.md-waggle { overflow-wrap: anywhere; }
 
-/* --- Web の「コマンド」画面（U10） --- */
+/* --- Web の「コマンド」画面 --- */
 /* Project 上部の切り替えは 6 つになった。狭い画面では横に送れるようにする。 */
 .proj-bar .list-mode .dash-seg { overflow-x: auto; }
 .proj-bar .list-mode .dash-seg button {
   flex: 0 0 auto; padding: 6px 8px; white-space: nowrap; font-size: 12px;
 }
 
-/* --- 会話の検索の画面（U10） --- */
+/* --- 会話の検索の画面 --- */
 .sess-body { padding: 12px 16px 24px; }
 .sess-form { display: flex; flex-direction: column; gap: 12px; }
 .sess-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
@@ -2105,7 +2105,7 @@ button.lv-tl-preview { cursor: pointer; }
   .sess-grid { grid-template-columns: repeat(3, 1fr); }
 }
 
-/* --- 生成中の文（U04 §1） ---
+/* --- 生成中の文 ---
    エージェントの吹き出しと同じ見た目で、点滅する印を付ける。
    折りたたみ（.fold-body は既定で隠す）は使わず、常に中身を出す。 */
 .fold-item.partial .fold-body { display: block; }
@@ -2123,7 +2123,7 @@ button.lv-tl-preview { cursor: pointer; }
   50% { opacity: 1; }
 }
 
-/* --- 新しいチャットのシート（U04 §5） --- */
+/* --- 新しいチャットのシート --- */
 .nc-body { display: flex; flex-direction: column; gap: 12px; padding: 4px 0 8px; }
 .nc-field { display: flex; flex-direction: column; gap: 4px; }
 .nc-label { font-size: 13px; font-weight: 600; color: var(--text-soft); }
@@ -2141,7 +2141,7 @@ button.lv-tl-preview { cursor: pointer; }
 .nc-loading { color: var(--text-soft); font-size: 14px; padding: 8px 0; }
 .nc-start { align-self: flex-start; }
 
-/* --- アカウント画面（Usage の区画の枠） --- */
+/* --- Usage の区画の枠 --- */
 /* 画面の幅に応じて中央に寄せる。iPhone では 1 列，PC では少し広げる。 */
 .ac-body { max-width: 760px; margin: 0 auto; padding: 16px; }
 .ac-card-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }

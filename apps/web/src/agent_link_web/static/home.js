@@ -1,5 +1,5 @@
 "use strict";
-// agent-link-web のホーム画面（実装計画 U4・住所 #/home・枠 view-home・タブ home・U02 で組み直し）。
+// agent-link-web のホーム画面（住所 #/home・枠 view-home・タブ home）。
 //
 // 端末（ターミナル）に慣れていない人が最初に開く画面。ここに
 //   1. 全プロジェクトの合計（今週 / 今月 / 全期間・実行数・成功率・token・料金・日ごとの棒）
@@ -19,7 +19,7 @@
 // 15 秒ごとに読み直す。DOM を使わない関数（hmSections など）は
 // 末尾で node に渡して tests/test_home.js で確かめる。
 // 共通部品は ui.js（saiApi / saiEmpty / saiTerm / saiIsWide）を使う。
-// 一番外側の名前は hm / HM_ で始める（C-F6）。
+// 一番外側の名前は hm / HM_ で始める。
 
 // --- 定数 ---
 
@@ -85,7 +85,7 @@ function hmAgo(value, nowMs) {
   return `${dt.getMonth() + 1}/${dt.getDate()}`;
 }
 
-/** 質問の 1 行の題（U4 §3-1）。 */
+/** 質問の 1 行の題。 */
 function hmWaitTitle(item) {
   return item.title || "(untitled question)";
 }
@@ -412,7 +412,7 @@ function hmWaitRow(item) {
   });
 }
 
-// --- 合計のダッシュボード（U02 §3-1） ---
+// --- 合計のダッシュボード ---
 
 /** SVG の要素を 1 つ作る（属性は {名前: 値}）。 */
 function hmSvg(tag, attrs) {
@@ -552,7 +552,7 @@ function hmUsageCard() {
   return card;
 }
 
-// --- 待ち・todo・アクティビティ（U02 §1〜4） ---
+// --- 待ち・todo・アクティビティ ---
 
 /** カードの中に 1 行だけの案内を出す。 */
 function hmNote(text) {

@@ -1,7 +1,7 @@
 "use strict";
-// agent-link-web の Workflow 盤面（実装計画 U5・住所 #/project/<name>/workflow）。
+// agent-link-web の Workflow 盤面（住所 #/project/<name>/workflow）。
 //
-// agent-link-tui の Workflow（実行の DAG）と Kanban（todo / running / review の
+// Workflow（実行の DAG）と Kanban（todo / running / review の
 // 3 レーン）を、図の盤面と同じ操作で見て、その場で操作できるようにしたもの。
 //   - 見える範囲（tx, ty, z）だけを動かし、札は agent-link が決めた場所に固定する
 //   - 盤面は overflow: hidden。札も線も帯や見出しにはみ出さない
@@ -13,11 +13,11 @@
 // 依存は足さない。札は HTML の div、線は同じ中の SVG。
 // canvaslayout.js の純関数（cvFitView / cvZoomAt）を全体表示と拡大に使わせてもらう。
 // DOM を使わない純関数は末尾で node に渡す（tests/test_workflow.js）。
-// 一番外側の名前は wf / WF_ で始める（C-F6）。
+// 一番外側の名前は wf / WF_ で始める。
 
 // --- 定数 ---
 
-// TUI の文字マスを px に直す（端末の文字は縦長なので横 1 マス = 縦 2 マス）
+// 文字マス（端末の文字は縦長なので横 1 マス = 縦 2 マス）を px に直す
 const WF_CELL_W = 10;
 const WF_CELL_H = 20;
 // 10 秒ごとに読み直す
@@ -55,7 +55,7 @@ const WF_KANBAN_KEY = "agent_link_web_wf_kanban";    // Kanban の帯の開閉�
 const WF_KINDS_KEY = "agent_link_web_wf_kinds";      // 線の種類の出し入れ（localStorage）
 const WF_SUBTASKS_KEY = "agent_link_web_wf_subtasks"; // 子の表示（localStorage・"1" で表示）
 
-// 選んだ札の枠の色（TUI と同じ黄色）
+// 選んだ札の枠の色（黄色）
 const WF_SEL_COLOR = "var(--sel)";
 
 // 線の種類（[kind, 表示名, 色, 破線か]）。
@@ -66,7 +66,7 @@ const WF_EDGE_KINDS = [
 // 表に無い種類の灰色
 const WF_EDGE_UNKNOWN = "var(--text-soft)";
 
-// Kanban の 3 レーン（TUI と同じ並び）
+// Kanban の 3 レーン
 const WF_LANES = ["todo", "running", "review"];
 
 // --- 状態 ---
@@ -594,7 +594,7 @@ function wfSaveSubtasks(on) {
 }
 
 // ============================================================================
-// index.html への読み込みの保険（C-F2）
+// index.html への読み込みの保険
 // ============================================================================
 // 共通部品の ui.js と、この画面の CSS は index.html から読む（U4 が足す）。
 // 読み込みがまだ無い環境でも画面が動くように、ここでも足してから開く。
@@ -664,7 +664,7 @@ function wfRenderBar() {
   if (!root) return;
   let bar = root.querySelector(".appbar");
   if (!bar) {
-    // 見出しは 4 画面共通の .proj-bar（← 戻る・プロジェクト名・切り替え・U01 §3）
+    // 見出しは 4 画面共通の .proj-bar（← 戻る・プロジェクト名・切り替え）
     bar = wfEl("header", "appbar proj-bar");
     bar.appendChild(wfEl("button", "proj-back", "‹"));
     bar.appendChild(wfEl("h1", "proj-title", wfName));

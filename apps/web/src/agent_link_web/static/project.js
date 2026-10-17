@@ -1,34 +1,34 @@
-// agent-link-web の Project タブ（実装計画 06）の本体。
+// agent-link-web の Project タブの本体。
 //
 // 画面は2つ:
 //   プロジェクト一覧   #/projects
 //   カード型 Dashboard #/project/<name>
 // 中身は Apple のヘルスケア / スクリーンタイムのように、余白の多いカードを
 // 縦に積んだ形（style.css の .dash-card）。グラフは SVG を手描きで作る
-// （外部ライブラリは入れない・00 §2）。データはすべて /api/projects/… 経由
-// で，agent-link-web 自身は DB を開かない（00 §2）。
+// （外部ライブラリは入れない）。データはすべて /api/projects/… 経由
+// で，agent-link-web 自身は DB を開かない。
 // DOM を使わない小さな関数は末尾で node に渡す（tests/test_project.js）。
 "use strict";
 
 // --- 定数 ---
 
-// 期間の選択をタブごとに覚える（06 §4.2）
+// 期間の選択をタブごとに覚える
 const DASH_PERIOD_KEY = "agent_link_web_dash_period";
 const DASH_PERIODS = [
   ["week", "Week"],
   ["month", "Month"],
   ["all", "All time"],
 ];
-// モデル別ドーナツの色（5色・06 §4.2-5）。色は CSS 変数。暗い画面では自動的に変わる。
+// モデル別ドーナツの色（5色）。色は CSS 変数。暗い画面では自動的に変わる。
 const MODEL_COLORS = ["var(--series-1)", "var(--series-2)", "var(--series-3)", "var(--series-4)", "var(--series-5)", "var(--series-6)"];
 const WEEKDAY_EN = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const MONTH_EN = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-// 一覧のランプ（稼働中は緑・停止は輪郭のみ・06 §4.1）
+// 一覧のランプ（稼働中は緑・停止は輪郭のみ）
 const LAMP_ON = "var(--ok)";
 
-// --- DOM を使わない小さな関数（node のテストからも使う・06 §4.4） ---
+// --- DOM を使わない小さな関数（node のテストからも使う） ---
 
-/** DB の文字列（タイムゾーン無し = UTC・00 §7）を時刻（ms）にする。読めなければ null。 */
+/** DB の文字列（タイムゾーン無し = UTC）を時刻（ms）にする。読めなければ null。 */
 function parseStamp(value) {
   if (!value) return null;
   let s = String(value).trim();
@@ -42,7 +42,7 @@ function parseStamp(value) {
   return Number.isNaN(t) ? null : t;
 }
 
-/** 「たった今」「5分前」「3時間前」「2日前」「9/12」（06 §4.1・§4.4）。 */
+/** 「たった今」「5分前」「3時間前」「2日前」「9/12」。 */
 function relativeTime(iso, nowMs) {
   const t = parseStamp(iso);
   if (t == null) return "";
@@ -60,7 +60,7 @@ function relativeTime(iso, nowMs) {
 }
 
 /**
- * ドーナツ用に上位 N 件＋「その他」へまとめる（06 §4.4）。
+ * ドーナツ用に上位 N 件＋「その他」へまとめる。
  * rows は {label, value}（または [label, value]）の配列（多い順でも入れてもよい）。
  * 返り値は {label, value, ratio}。合計が 0 なら空配列。
  */
@@ -85,7 +85,7 @@ function donutSlices(rows, topN) {
   return out;
 }
 
-/** 実行時間（秒は省く・「4時間45分」。06 §4.2-3）。 */
+/** 実行時間（秒は省く・「4時間45分」）。 */
 function shortDuration(ms) {
   const total = Math.floor(Number(ms) / 1000);
   if (!Number.isFinite(total) || total < 0) return "0";
@@ -103,7 +103,7 @@ function clockOf(stamp) {
   return new Date(t).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
 }
 
-/** 棒を押したときに出す1行（「9/22（月） 1.2M」・06 §4.2-4）。 */
+/** 棒を押したときに出す1行（「9/22（月） 1.2M」）。 */
 function chartNoteText(row, metric) {
   const date = String((row && row.date) || "");
   if (!date) return "";
@@ -117,7 +117,7 @@ function chartNoteText(row, metric) {
   return `${md} (${wd}) ${v}`;
 }
 
-/** 横軸ラベル（今週=曜日・今月=1/5/10/…・全期間=月が変わる所だけ・06 §4.2-4）。 */
+/** 横軸ラベル（今週=曜日・今月=1/5/10/…・全期間=月が変わる所だけ）。 */
 function axisLabels(period, daily) {
   const rows = daily || [];
   return rows.map((row, i) => {
@@ -135,7 +135,7 @@ function axisLabels(period, daily) {
   });
 }
 
-/** モデル名は `/` の後ろだけ（「xiaomi/mimo」→「mimo」・06 §4.2-5）。 */
+/** モデル名は `/` の後ろだけ（「xiaomi/mimo」→「mimo」）。 */
 function shortModel(name) {
   const s = String(name || "");
   const i = s.lastIndexOf("/");
@@ -143,7 +143,7 @@ function shortModel(name) {
 }
 
 /**
- * ツリー（`GET …/tree`）の todo フォルダの中身（新形式 todo の一覧・計画 15）。
+ * ツリー（`GET …/tree`）の todo フォルダの中身（新形式 todo の一覧）。
  * 旧形式カード（`card-*.md`）は見ない。無ければ空配列。
  */
 function todoFolderRuns(items) {
@@ -162,7 +162,7 @@ function todoFolderRuns(items) {
 
 let dashName = "";            // 開いているプロジェクト名
 let dashData = null;          // 最新の Dashboard（GET の応答そのまま）
-let todoRuns = [];            // 未実行の todo run（ツリーの todo フォルダの中身・計画 15）
+let todoRuns = [];            // 未実行の todo run（ツリーの todo フォルダの中身）
 let todoLoaded = false;       // todo を読んだか（描き直しの合図）
 let chartMetric = "tokens";   // 日ごとのグラフの指標（tokens | count）
 let chartNote = "";           // 棒を押して出した1行
@@ -192,9 +192,9 @@ function isDashScreen() {
   return location.hash.startsWith("#/project/");
 }
 
-// --- 一覧（#/projects・06 §4.1） ---
+// --- 一覧（#/projects） ---
 
-/** list === null は「読み込み中」（前の表示は消さない・06 §4.2）。 */
+/** list === null は「読み込み中」（前の表示は消さない）。 */
 function renderProjects(list) {
   const box = document.getElementById("projects-list");
   if (!box) return;
@@ -237,13 +237,13 @@ function projectRowFacts(p) {
 function projectRow(p) {
   const facts = projectRowFacts(p);
   // 多人数モードでは行の外に起動 / 停止のボタンを置くため、1 枚を包む
-  // （button の中に button は置けない・U11）
+  // （button の中に button は置けない）
   const item = document.createElement("div");
   item.className = "proj-item";
 
   const btn = document.createElement("button");
   btn.className = "proj-row";
-  // root か db が無い行は薄くして押せない（06 §4.1）
+  // root か db が無い行は薄くして押せない
   if (!facts.usable) btn.classList.add("dim");
 
   const line1 = document.createElement("div");
@@ -291,7 +291,7 @@ async function loadProjects() {
     if (!res.ok) throw new Error(body.detail || "Could not load.");
     data = body;
   } catch (e) {
-    // 失敗しても前の表示は残し，帯だけ出す（00 §9）
+    // 失敗しても前の表示は残し，帯だけ出す
     window.SaiShell.fail();
     return;
   }
@@ -299,7 +299,7 @@ async function loadProjects() {
   window.SaiShell.ok();
 }
 
-// --- Dashboard（#/project/<name>・06 §4.2） ---
+// --- Dashboard（#/project/<name>） ---
 
 function dashCardsBox() {
   return document.querySelector("#dashboard-body .dash-cards");
@@ -336,13 +336,13 @@ function cardTitle(text) {
 }
 
 async function openDashboard(name) {
-  // 最後に見ていた画面をプロジェクトごとに見る（C-F7）。
+  // 最後に見ていた画面をプロジェクトごとに見る。
   // List / Workflow / 設定を選んでいたプロジェクトはそちらへ移る（linkview.js が覚えておく）。
   if (typeof rememberedMode === "function" && rememberedMode(name) !== "dashboard") {
     location.replace(modeHash(name, rememberedMode(name)));
     return;
   }
-  // 上部の Dashboard | Workflow | List | 設定 の切り替えを置く（C-F7）
+  // 上部の Dashboard | Workflow | List | 設定 の切り替えを置く
   if (typeof fillLinkSeg === "function") fillLinkSeg("dash-mode-seg", "dashboard", name);
   dashName = name;
   dashData = null;
@@ -371,7 +371,7 @@ async function openDashboard(name) {
   body.append(msg, cards, todo);
   dashApplyWide();
 
-  // Dashboard と todo は同時に読む（todo は開いたときだけ読む・06 §4.2）
+  // Dashboard と todo は同時に読む（todo は開いたときだけ読む）
   await Promise.all([loadDashboard(), loadTodo()]);
 }
 
@@ -404,7 +404,7 @@ async function loadDashboard() {
     if (!res.ok) throw new Error(body.detail || "Could not load.");
     data = body;
   } catch (e) {
-    // 失敗は detail をカードの位置に出す（06 §4.2）
+    // 失敗は detail をカードの位置に出す
     showDashMessage(e && e.message ? e.message : "Could not load.");
     window.SaiShell.fail();
     return;
@@ -418,7 +418,7 @@ async function loadTodo() {
   if (!dashName || !isDashScreen()) return;
   let items;
   try {
-    // todo 一覧は `GET …/tree` の todo フォルダの中身（別 CLI は使わない・計画 15）
+    // todo 一覧は `GET …/tree` の todo フォルダの中身（別 CLI は使わない）
     const res = await apiFetch(`/api/projects/${encodeURIComponent(dashName)}/tree`);
     const body = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(body.detail || "Could not load.");
@@ -554,7 +554,7 @@ function summaryCard(d) {
   }
   card.appendChild(grid);
 
-  // 費用・失敗・実行中（0 の項目は省く・06 §4.2-3）
+  // 費用・失敗・実行中（0 の項目は省く）
   const parts = [];
   const cost = Number(s.cost_usd) || 0;
   if (cost > 0) parts.push(`cost ${formatMoney(cost)}`);
@@ -729,7 +729,7 @@ function recentCard(d) {
 function recentRow(r) {
   const btn = document.createElement("button");
   btn.className = "dash-recent";
-  // 書き出しが無い実行はメッセージ画面が開けない（06 §4.2-7）
+  // 書き出しが無い実行はメッセージ画面が開けない
   const linkable = r.linkable === true;
   if (!linkable) btn.classList.add("dim");
 
@@ -768,7 +768,7 @@ function renderTodo() {
 
   const alive = !!(dashData && dashData.daemon_alive);
   if (!alive) {
-    // 常駐が止まっているときは実行ボタンを押せない（06 §4.2-8）
+    // 常駐が止まっているときは実行ボタンを押せない
     card.appendChild(el("div", "dash-hint", "The daemon is stopped. Press \"Start\" above."));
   }
   if (todoRuns.length === 0) {
@@ -807,7 +807,7 @@ function todoRow(c, alive) {
 async function onRunCardClick(c) {
   if (runBusy || c.run_id == null) return;
   const label = c.label || `ID${c.run_id}`;
-  // 確認は既存の動きと同じ（実行はエージェントを動かすため必ず聞く・計画 15）
+  // 確認は既存の動きと同じ（実行はエージェントを動かすため必ず聞く）
   const question = `Run this card?\n\n${label}`;
   if (!confirm(question)) return;
   runBusy = true;
@@ -821,7 +821,7 @@ async function onRunCardClick(c) {
     if (!res.ok) throw new Error(body.detail || "Could not send.");
     showDashMessage(body.message || "Asked to run the card");
     window.SaiShell.ok();
-    // todo と Dashboard を読み直す（計画 15）
+    // todo と Dashboard を読み直す
     await Promise.all([loadDashboard(), loadTodo()]);
   } catch (e) {
     showDashMessage(e && e.message ? e.message : "Could not send.");
@@ -853,7 +853,7 @@ if (typeof window !== "undefined") {
       },
     },
     {
-      // カード型 Dashboard（/list は linkview.js の List 画面が受け持つ・計画 14）
+      // カード型 Dashboard（/list は linkview.js の List 画面が受け持つ）
       match(hash) {
         const m = hash.match(/^#\/project\/([^/]+)$/);
         return m ? { name: decodeURIComponent(m[1]) } : null;
@@ -866,19 +866,19 @@ if (typeof window !== "undefined") {
         await openDashboard(params.name);
       },
       async poll() {
-        await loadDashboard(); // todo は開いたときと実行後だけ読む（06 §4.2）
+        await loadDashboard(); // todo は開いたときと実行後だけ読む
       },
     }
   );
 
-  // 戻るボタンは一覧へ（履歴に頼らない・02 §3.1）
+  // 戻るボタンは一覧へ（履歴に頼らない）
   const back = document.getElementById("dash-back");
   if (back) back.addEventListener("click", () => { location.hash = "#/projects"; });
   // 画面幅が変わったら 2 列 / 1 列を切り替える
   window.addEventListener("resize", dashApplyWide);
 }
 
-// --- node からの読み込み（tests/test_project.js・06 §5） ---
+// --- node からの読み込み（tests/test_project.js） ---
 if (typeof module !== "undefined" && module.exports) {
   module.exports = { relativeTime, donutSlices, shortDuration, axisLabels, chartNoteText, todoFolderRuns, projectRowFacts };
 }
