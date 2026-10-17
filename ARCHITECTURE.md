@@ -101,10 +101,11 @@
 3. **外から来る値は、CLI を呼ぶ前に Web が検査する。** 名前の形・大きさ・種類の一覧を Web が先に確かめる。通らない値では CLI を 1 度も呼ばない（400）。ファイルのパスは iPhone から受け取らない。置き場はコアが名前から決める。
 4. **依存を増やさない。** サーバは FastAPI と標準ライブラリ、画面は素の JavaScript（フレームワーク・ビルド無し）。グラフと Workflow の線は SVG を手で描く。md の色分けも自前の簡易版で行う。
 5. **入口を守る。** 合言葉は無い。127.0.0.1 でだけ待ち受け、フックの住所（`POST /api/register` など）は `require_internal` で Mac 自身（127.0.0.1 / ::1）だけに絞る。Tailscale serve は、tailnet が自分だけのときだけ使う（他の人が届くと全機能を使われる。`docs/switch-over.md` の 6）。
-6. **エラーは英語でそのまま画面に出す。** 何が起きたか、次に何をすればよいかが分かる文にする。CLI の標準エラーの最後の行と Web の `detail` は英語で書く（文書とエージェント向けの文は日本語のまま）。
-7. **iPhone と PC の両方を前提にする。** 幅 900px（`ui.js` の `AGENT_LINK_WIDE_PX`）を境に、狭い画面は下のタブの 1 列、広い画面は左の縦のタブと 2 列にする。
-8. **言葉で迷わせない。** 画面の文言は英語にする（音声の言語は日本語。`data-tab` や住所などの識別子も英語）。独自の言葉は `saiTerm` の札で説明する。空の画面には Next Action を出す（`saiEmpty`）。
-9. **答えは先着。** 質問は PC と iPhone の両方に同時に出し、先に答えた方を採用する。
+6. **遠隔の機械からは門番だけが入る。** 遠隔の機械（`task create` の `host`）からは、強制コマンドの鍵（`~/.ssh/authorized_keys` の `command="… agent-link remote-gate",restrict …`）で `agent-link remote-gate` だけが入る。通す命令は `crates/agent-link-engine/src/remote.rs` の `gate_plan` が決める（フックと `doc`・`task report` だけ）。手順は `docs/remote.md`。
+7. **エラーは英語でそのまま画面に出す。** 何が起きたか、次に何をすればよいかが分かる文にする。CLI の標準エラーの最後の行と Web の `detail` は英語で書く（文書とエージェント向けの文は日本語のまま）。
+8. **iPhone と PC の両方を前提にする。** 幅 900px（`ui.js` の `AGENT_LINK_WIDE_PX`）を境に、狭い画面は下のタブの 1 列、広い画面は左の縦のタブと 2 列にする。
+9. **言葉で迷わせない。** 画面の文言は英語にする（音声の言語は日本語。`data-tab` や住所などの識別子も英語）。独自の言葉は `saiTerm` の札で説明する。空の画面には Next Action を出す（`saiEmpty`）。
+10. **答えは先着。** 質問は PC と iPhone の両方に同時に出し、先に答えた方を採用する。
 
 ---
 
@@ -266,6 +267,7 @@ agent-link/
 │   ├── integration.md        # Web の API と画面の住所・各 API が呼ぶ CLI の命令
 │   ├── for-developers.md     # CLI の約束と Web が読む JSON の項目
 │   ├── switch-over.md        # sai-moon と並べて使う手順書
+│   ├── remote.md             # 遠隔の機械（wsl-server など）で子の claude を動かす手順書
 │   └── plan/                 # 実装計画書。読むだけ
 ├── .agent-link/              # このプロジェクト自身の中のデータ（.gitignore 済み）
 ├── CONCEPT.md                # 概念と用語の定義

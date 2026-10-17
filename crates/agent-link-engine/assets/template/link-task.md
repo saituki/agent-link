@@ -13,7 +13,7 @@ agent-link def list --parent <自分の block> → agent-link task create → ag
 | 命令 | 使いどころ |
 |---|---|
 | `agent-link def list --parent <自分の block>` | 呼べる子ブロックの id を確かめる。`agent-link task create` の前に必ず実行する |
-| `agent-link task create` | 子を作る。標準入力に子の配列の JSON を渡す（`[ { client_id, subject, block_type, task_text, depends_on, worktree, cwd, timeout, model, thinking } ]`）。`model`（省略可。`opus` / `sonnet` / `haiku` / `inherit` / `claude…`）と `thinking`（省略可。`none` / `low` / `medium` / `high` / `xhigh` / `max`）は、省くと block の frontmatter の値が使われる。`cwd` は別のプロジェクトで動かすとき、`timeout`（秒）は「この時間を超えたら様子を見たい」目安があるときに付ける。実行すると子の run フォルダに task.md（description と task_text）ができ、TUI と Web で見られる。出力は `batch_id` と、子ごとの `tasks[]`（`client_id`・`status`・`task_id`） |
+| `agent-link task create` | 子を作る。標準入力に子の配列の JSON を渡す（`[ { client_id, subject, block_type, task_text, depends_on, worktree, cwd, host, timeout, model, thinking } ]`）。`model`（省略可。`opus` / `sonnet` / `haiku` / `inherit` / `claude…`）と `thinking`（省略可。`none` / `low` / `medium` / `high` / `xhigh` / `max`）は、省くと block の frontmatter の値が使われる。`cwd` は別のプロジェクトで動かすとき、`host` は遠隔の機械で動かすとき（Mac の `~/.ssh/config` の Host 名と、遠隔のフォルダの `cwd` を付ける。`worktree` は使えない。下の「遠隔の機械で動かす子」）、`timeout`（秒）は「この時間を超えたら様子を見たい」目安があるときに付ける。実行すると子の run フォルダに task.md（description と task_text）ができ、TUI と Web で見られる。出力は `batch_id` と、子ごとの `tasks[]`（`client_id`・`status`・`task_id`） |
 | `agent-link task execute --batch <batch_id>` / `--task <task_id>` | 実行する（`--batch` で一括、`--task` で 1 件）。すぐ戻る |
 | `agent-link task wait <task_id>… [--timeout-ms N]` | 子を待つ。1 回の待ちは最大 90 秒（`--timeout-ms` はそれを超えても 90 秒に切り詰められる。既定も 90 秒。`--timeout-ms 0` なら即時に返る）。完了なら `report`（短い報告）と `outputs`（子が保存した文書の `waggle:<tok>: <description>` 一覧）を返す。止まった・長引いたときは完了前でも `stalled` で戻る。複数の子は `agent-link task wait <task_id> <task_id> …` で 1 回にまとめて待つ（下の「子を待つ・見張る」） |
 | `agent-link task show <task_id>` / `agent-link task list` | 状態を見る。`worktree_info` にマージ用のブランチ名と作業用コピーの場所が入っている |
@@ -81,6 +81,14 @@ git worktree unlock <絶対パス>
 git worktree remove <絶対パス>
 git branch -d <ブランチ名>
 ```
+
+### 遠隔の機械で動かす子
+
+`host` を付けた子は、遠隔の機械の claude で動く。git の流れは次のとおり。詳しくは `docs/remote.md`。
+
+1. 親が `git push <host>:<repo> HEAD:refs/heads/al/<ID>` で遠隔へ送る。
+2. `task_text` に「ブランチ `al/<ID>` に switch して作業し、コミットせよ」と書く。
+3. 終わったら親が `git fetch <host>:<repo> al/<ID>` → `git merge FETCH_HEAD` で取り込む。
 
 ## 子を待つ・見張る
 

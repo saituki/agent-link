@@ -168,8 +168,11 @@ Web の Projects → Dashboard からも起動・停止できます。
 | `AGENT_LINK_IDLE_TIMEOUT_MS` | `60000` | 子タスクが止まったとみなす時間（ミリ秒） |
 | `AGENT_LINK_LONG_RUN_ALERT_MS` | 20 分 | 長時間アラートの間隔（ミリ秒） |
 | `AGENT_LINK_CC_QUESTION_MODE` | （空） | `deny` で、cc の質問フックが答えを拒否の形で返す |
+| `AGENT_LINK_SSH_BIN` | `ssh` | 試験用。Mac 側の ssh（`remote setup`・遠隔の子の起動）を差し替える |
 
 `AGENT_LINK_PARENT_RUN_ID`・`AGENT_LINK_BLOCK_NAME`・`AGENT_LINK_IS_SUBTASK` のほか、`doc write` の検査（`write_check`）に渡す `AGENT_LINK_WRITE_FILENAME`・`AGENT_LINK_WRITE_DESCRIPTION`、tmux の session に入れる `AGENT_LINK_AGENT_TRANSPORT`（と、daemon の値を渡す `AGENT_LINK_WEB_URL`・`AGENT_LINK_HOME`）は、agent-link が自分で入れる値です。利用者は設定しません。
+
+遠隔の機械（`wsl-server` など）で子の claude を動かす手順は [`docs/remote.md`](./docs/remote.md) にあります。
 
 ## iPhone からつなぐ（Tailscale）
 

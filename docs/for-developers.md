@@ -344,6 +344,61 @@ Web が `recent[]` に**追加で足す**項目: `description`（文字列）・
 
 **文字出力**（JSON ではない）。Web は終了コードだけで成否を見る。
 
+#### `remote setup <host> [--mac <addr>] [--json]` / `remote check <host> [--json]`
+
+遠隔の機械（Mac の `~/.ssh/config` の Host 名）で claude を動かす準備と確認。手順は [`remote.md`](./remote.md)。`host` の書式は `task create` の `host` と同じ（違えば終了コード 2・`host must be an ssh host name (letters, digits, '.', '_', '-'; 1-63 chars): <値>`）。プロジェクトを要らない。
+
+- `remote setup`: 一度だけの準備。遠隔の `~/.agent-link-remote/` に中継（`bin/agent-link`）・ssh の設定（`ssh_config`）・鍵（`id_ed25519`）を置き、Mac の `~/.ssh/authorized_keys` に `command="<agent-link の絶対パス> remote-gate",restrict <公開鍵>` の行を 1 行足し、`remote check` と同じ 4 項目を確かめる。何度実行しても行は増えない。`--mac` は、遠隔から見た Mac の住所（省略時は ssh の接続から読む。読めなければ終了コード 2・`Cannot tell this Mac's address from …. Pass --mac <addr>.`）。
+- `remote check`: 4 項目を順に確かめ、落ちた項目で止める。
+
+`--json` の形（標準出力）:
+
+```json
+{"host": "wsl-server", "mac": "100.94.91.98", "authorized_keys": "added", "ok": true,
+ "checks": [{"name": "mac_to_remote", "ok": true, "detail": "ssh works"},
+            {"name": "claude", "ok": true, "detail": "2.1.0 (Claude Code)"},
+            {"name": "relay", "ok": true, "detail": "relay is installed"},
+            {"name": "remote_to_mac", "ok": true, "detail": "agent-link-remote-ok"}]}
+```
+
+- `remote check --json` は `{"host", "ok": true, "checks": [...]}`（`mac`・`authorized_keys` は無い）。
+- `authorized_keys` は `added` / `updated`（パスが変わった行を入れ替えた）/ `unchanged`。
+- 落ちた項目があれば、標準出力は空・**終了コード 1**。標準エラーに各項目を `ok   <name>: <detail>` / `FAIL <name>: <detail>` で 1 行ずつ、最後の行に `Remote check failed: <name>: <detail>` を出す。`setup` で落ちても、`authorized_keys` に足した行は残る。
+- `remote setup`・`remote check` は `schema --json` に出るが、`web` は `false`（Web の「コマンド」画面には出さない。`remote setup` は利用者の `~/.ssh` を書き換える）。Web の画面は呼ばない。
+
+#### `remote-gate`（隠した命令。遠隔の機械から Mac への入口）
+
+`agent-link --help` と `schema --json` に出ない。`authorized_keys` の強制コマンド（`command="… remote-gate"`）だけが起こす。利用者・エージェント・Web は呼ばない。
+
+遠隔の中継（`~/.agent-link-remote/bin/agent-link`）と門番の通信の形（C3）:
+
+- 中継は `ssh -F "$HOME/.agent-link-remote/ssh_config" agent-link-mac <tok> <tok> …` を実行する。sshd は送られた文字列を `SSH_ORIGINAL_COMMAND` に入れて門番を起こす。
+- `<tok>` は `e<hex>`（環境変数 `KEY=VALUE` の UTF-8 を 16 進の小文字にした物）か `a<hex>`（引数 1 つ。空の引数は `a` だけ）。`e` をすべて並べたあとに `a` を並べる。
+- 空・壊れた tok は終了コード 2・`Remote gate needs hex tokens.`。
+- 通す環境変数（違えば終了コード 2・`Remote gate refused the environment variable <KEY>.`）:
+
+  | KEY | 値の規則 |
+  |---|---|
+  | `HERDR_PANE_ID` | `hl-` のあとに 16 進の小文字 1〜32 文字 |
+  | `AGENT_LINK_PROJECT_ROOT` | 絶対パスで、`<値>/.agent-link` がフォルダ |
+  | `AGENT_LINK_PARENT_RUN_ID` | 数字 1〜18 文字 |
+  | `AGENT_LINK_BLOCK_NAME` | 英数字・`_`・`-` で 1〜64 文字 |
+  | `AGENT_LINK_IS_SUBTASK` | `1` |
+  | `AGENT_LINK_WEB_URL` | `http://127.0.0.1:<1〜5 桁>` |
+  | `AGENT_LINK_HOME` | 絶対パスでフォルダ |
+
+- 通す命令（引数の先頭の語）。ほかは終了コード 2・`Remote gate does not allow this command: <先頭 2 語>`。
+
+  | 引数 | 門番がすること |
+  |---|---|
+  | `cc-state-hook <working\|idle\|blocked\|tool>`・`cc-prompt-hook`・`cc-permission-hook`・`cc-statusline` | Mac の `agent-link` をその引数で実行する |
+  | `doc write …`・`doc read …`・`doc list …`・`task report …` | 同上 |
+  | `web-hook cc_register`・`web-hook cc_question` | `web_hooks_dir()` の `<名>.py` を実行する（フォルダかファイルが無ければ何もせず 0） |
+  | `remote-ping` | 標準出力に `agent-link-remote-ok` を 1 行出して 0 |
+
+- 実行の仕方: `current_exe()` を引数の配列で起こす（シェルを通さない）。標準入出力はそのまま渡し、子の終了コードを返す。門番の環境から `AGENT_LINK_*`・`HERDR_PANE_ID` を消してから、検査を通った物だけを入れる。PATH の先頭に `current_exe()` のフォルダを足す。
+- 通す命令の一覧は `crates/agent-link-engine/src/remote.rs` の `gate_plan` が決める。足すときは `crates/agent-link-cli/tests/remote_gate.rs` と `remote_host.rs` も直す。
+
 #### `task create`（標準入力に子の配列の JSON）→ `{"batch_id", "round", "supersedes_batch_id", "status", "tasks"}`（この `round` は子の batch の版で、廃止した run の round とは別）
 
 検査に通らない子があれば、標準出力は空・**終了コード 2**。標準エラーに子ごとの理由を 1 行ずつ、最後の行に「Input validation of task_create failed. …」を出す。run の外（`AGENT_LINK_PARENT_RUN_ID` が無い）で呼ぶと終了コード 2。
@@ -354,8 +409,14 @@ Web が `recent[]` に**追加で足す**項目: `description`（文字列）・
 |---|---|---|
 | `model` | 文字列（省略可） | `opus` / `sonnet` / `haiku` / `inherit` / `claude…`。それ以外は断る |
 | `thinking` | 文字列（省略可） | `none` / `low` / `medium` / `high` / `xhigh` / `max`。それ以外は断る |
+| `host` | 文字列（省略可） | 遠隔の機械で動かすとき、Mac の `~/.ssh/config` の Host 名。省略・`null`・空文字は Mac で動かす。書式は 1〜63 文字、先頭は英数字、2 文字目からは英数字・`.`・`_`・`-`。違えば `client_id '<id>': host must be an ssh host name (letters, digits, '.', '_', '-'; 1-63 chars): <値>`（終了コード 2） |
 | `runner` | （無視） | 廃止した項目。書いてあっても値が何でもエラーにせず無視する。出力の JSON にも無い |
 
+- `host` があるとき:
+  - `cwd` は必須。遠隔の機械のフォルダで、`/` か `~/` で始まる（`'`・改行・NUL・`..` の要素は不可。Mac では存在を確かめない）。無ければ `client_id '<id>': cwd is required when host is set (a folder on the remote machine).`、形が違えば `client_id '<id>': cwd with host must be an absolute path or start with ~/ on the remote machine: <値>`（どちらも終了コード 2）。
+  - `worktree` は `""` か `"none"` だけ。ほかは `client_id '<id>': worktree "<値>" cannot be used with host. Leave it empty or use "none".`。ブロック定義の `worktree:` は無視する（作業用コピーを作らない）。
+  - 出力: `task show`・`task list` の `tasks[]` に `"host": <文字列|null>` が入る。`host` があるとき `worktree_info` は `null`（`apps/web` は `worktree_info` を読まない）。`cwd` は入力のまま保存する（`~/` を含んでよい）。
+  - 手順は [`remote.md`](./remote.md)。
 - 優先順位は「要素 > Card の task.md > block の frontmatter > settings.json」。省いた項目は、次の順で決まる。
 - `tasks[]` の子ごとの形は `{"client_id", "status": "approved", "task_id": int | null}`。`task_id` が null のときは `task list` の `server_id` で確かめる（`task_id` が無いことは、子が作られていないことを意味しない）。
 

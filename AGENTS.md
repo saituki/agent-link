@@ -56,7 +56,7 @@
 ```bash
 cd ~/workdir/Sai/agent-link
 
-# Rust（797 件。--no-fail-fast は最初の失敗で止めず、全部の本数を数えるため）
+# Rust（837 件。--no-fail-fast は最初の失敗で止めず、全部の本数を数えるため）
 perl -e 'alarm 1800; exec @ARGV' cargo test --workspace --no-fail-fast
 
 # Web（JS 22 本）
@@ -68,7 +68,7 @@ for f in apps/web/tests/test_*.py; do PYTHONPATH=apps/web/src apps/web/.venv/bin
 
 | 対象 | 本数 | CI のジョブ |
 |---|---|---|
-| Rust（`cargo test --workspace --no-fail-fast`） | 797 件（ほかに ignored 3 件） | Rust（ubuntu） |
+| Rust（`cargo test --workspace --no-fail-fast`） | 837 件（ほかに ignored 3 件） | Rust（ubuntu） |
 | Web の JS | 22 本 | Web（ubuntu） |
 | Web の Python | 18 本 | Web（ubuntu） |
 
