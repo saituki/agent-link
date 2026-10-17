@@ -10,18 +10,18 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="default" />
   <meta name="theme-color" content="#ffffff" />
   <!-- 画面ファイルの版（サフィックスの数字）は sw.js の CACHE の版と揃えて上げる（iPhone に古いファイルを使わせないため） -->
-  <link rel="stylesheet" href="/style.css?v=138" />
+  <link rel="stylesheet" href="/style.css?v=139" />
   <!-- md の色・ホーム・Workflow・設定の見た目（U4〜U6）。style.css の後に読む -->
-  <link rel="stylesheet" href="/markdown.css?v=138" />
-  <link rel="stylesheet" href="/home.css?v=138" />
-  <link rel="stylesheet" href="/workflow.css?v=138" />
-  <link rel="stylesheet" href="/defs.css?v=138" />
+  <link rel="stylesheet" href="/markdown.css?v=139" />
+  <link rel="stylesheet" href="/home.css?v=139" />
+  <link rel="stylesheet" href="/workflow.css?v=139" />
+  <link rel="stylesheet" href="/defs.css?v=139" />
 </head>
 <body>
   <!-- 日付一覧画面（#/） -->
   <section id="view-days" class="view">
     <header class="appbar">
-      <!-- 見出しはタブ名に合わせる（05 §4） -->
+      <!-- 見出しはタブ名に合わせる -->
       <h1>Chats</h1>
       <button id="newchat-button" aria-label="New chat">＋</button>
       <button id="version-button" aria-label="Show version">ⓘ</button>
@@ -42,7 +42,7 @@
       <h1 id="day-title">Date</h1>
     </header>
     <div id="offline-bar-day" class="offline-bar" hidden>Cannot connect</div>
-    <!-- 広い画面では左に日付一覧・右にその日の実行（U4 §4）。
+    <!-- 広い画面では左に日付一覧・右にその日の実行。
          狭い画面では左（sai-split-list）は隠して右だけを出す。 -->
     <div class="sai-split" id="day-split">
       <div class="sai-split-list" id="day-side"></div>
@@ -54,7 +54,7 @@
   <section id="view-run" class="view" hidden>
     <header class="appbar">
       <button id="back-button" aria-label="Back">‹</button>
-      <!-- 見出し1行目 #run_id block_name，2行目に description（03 §1-7） -->
+      <!-- 見出し1行目 #run_id block_name，2行目に description -->
       <div class="run-heading">
         <h1 id="run-title">Run</h1>
         <div id="run-desc" class="run-desc"></div>
@@ -62,7 +62,7 @@
       <span id="run-lamp" class="lamp" aria-label="Status"></span>
       <!-- ■ 終了（実行中のメインブロックだけ出す・計画書 A の D2） -->
       <button id="finalize-button" aria-label="End run" hidden>■</button>
-      <!-- 統計画面へのボタン（中身は 04。住所だけは 03 で用意・03 §1-7） -->
+      <!-- 統計画面へのボタン（中身は 04。住所だけは 03 で用意） -->
       <button id="stats-button" aria-label="Stats">📊</button>
     </header>
     <div id="offline-bar-run" class="offline-bar" hidden>Cannot connect</div>
@@ -71,7 +71,7 @@
     <footer class="inputbar">
       <button id="mic-button" aria-label="Voice input">🎤</button>
       <textarea id="chat-input" rows="1" placeholder="Type a message"></textarea>
-      <!-- 停止（working と blocked のときだけ出す・U03）。文字は ■ だけ（幅 390px で入力欄を狭くしすぎないため） -->
+      <!-- 停止（working と blocked のときだけ出す）。文字は ■ だけ（幅 390px で入力欄を狭くしすぎないため） -->
       <button id="interrupt-button" class="stop-button" aria-label="Stop" title="Stop the agent's current work (the chat continues)" hidden>■</button>
       <button id="send-button" aria-label="Send">➤</button>
     </footer>
@@ -91,7 +91,7 @@
     <main class="stats-body">
       <!-- 見出し（#58 sai2・description・プロジェクト・runner・モデル・時刻・状態） -->
       <div id="stats-head" class="st-head"></div>
-      <!-- 大きな数字3つ・円グラフ・棒グラフ・補足行（中身は stats.js・04 §1） -->
+      <!-- 大きな数字3つ・円グラフ・棒グラフ・補足行（中身は stats.js） -->
       <div id="stats-cards"></div>
     </main>
   </section>
@@ -107,7 +107,7 @@
 
   <!-- Project のカード型 Dashboard（#/project/<name>・06） -->
   <section id="view-dashboard" class="view" hidden>
-    <!-- 見出しは ‹ プロジェクト名 Dashboard|Workflow|List|設定（4 画面共通・U01 §3） -->
+    <!-- 見出しは ‹ プロジェクト名 Dashboard|Workflow|List|設定（4 画面共通） -->
     <header class="appbar proj-bar">
       <button id="dash-back" class="proj-back" aria-label="Back to projects">‹</button>
       <h1 id="dash-title" class="proj-title">Project</h1>
@@ -119,11 +119,11 @@
     <main id="dashboard-body" class="dash-body"></main>
   </section>
 
-  <!-- Project の List 画面（#/project/<name>/list・計画 14 §1.2） -->
+  <!-- Project の List 画面（#/project/<name>/list） -->
   <section id="view-list" class="view" hidden>
-    <!-- 見出しは ☰（狭い画面だけ）‹ プロジェクト名 切り替え（4 画面共通・U01 §3） -->
+    <!-- 見出しは ☰（狭い画面だけ）‹ プロジェクト名 切り替え（4 画面共通） -->
     <header class="appbar proj-bar list-bar">
-      <!-- ☰ で左から引き出しツリー（計画 14 §1.2） -->
+      <!-- ☰ で左から引き出しツリー -->
       <button id="list-menu" aria-label="Open tree">☰</button>
       <button id="list-back" class="proj-back" aria-label="Back to projects">‹</button>
       <h1 id="list-title" class="proj-title"></h1>
@@ -131,28 +131,28 @@
       <div class="list-mode" id="list-mode-seg"></div>
     </header>
     <div class="offline-bar" hidden>Cannot connect</div>
-    <!-- 選んだ run の見出しと 7 つの表示の帯（run を選ぶまで隠す・計画 14 §1.3） -->
+    <!-- 選んだ run の見出しと 7 つの表示の帯（run を選ぶまで隠す） -->
     <div class="lv-head" id="lv-head" hidden>
       <div class="lv-run-row">
         <span class="lv-run-label" id="lv-run-label"></span>
         <span class="lv-run-state" id="lv-run-state"></span>
       </div>
-      <!-- 帯は横にスクロールできる（計画 14 §1.3） -->
+      <!-- 帯は横にスクロールできる -->
       <div class="lv-tabs" id="lv-tabs"></div>
-      <!-- todo の run の ▶ 実行と 1 行の知らせ（計画 14 §1.3） -->
+      <!-- todo の run の ▶ 実行と 1 行の知らせ -->
       <div class="lv-actions" id="lv-actions"></div>
       <div class="lv-msg" id="lv-msg" hidden></div>
     </div>
-    <!-- 選んだ中身（Log / Stats / History / task / review / message / waggle・計画 14） -->
+    <!-- 選んだ中身（Log / Stats / History / task / review / message / waggle） -->
     <main class="lv-body" id="lv-body"></main>
-    <!-- 引き出し式ツリー（暗い部分タップで閉じる・計画 14 §1.2） -->
+    <!-- 引き出し式ツリー（暗い部分タップで閉じる） -->
     <div class="lv-drawer-wrap" id="lv-drawer-wrap" hidden>
       <div class="lv-drawer-mask" id="lv-drawer-mask"></div>
       <nav class="lv-drawer" id="lv-drawer" aria-label="Run tree"></nav>
     </div>
   </section>
 
-  <!-- 会話の検索の画面（#/project/<name>/sessions・U10） -->
+  <!-- 会話の検索の画面（#/project/<name>/sessions） -->
   <section id="view-sessions" class="view" hidden>
     <header class="appbar proj-bar">
       <button id="sess-back" class="proj-back" aria-label="Back to projects">‹</button>
@@ -164,27 +164,27 @@
   </section>
 
 
-  <!-- ホーム（#/home。中身は home.js・U4） -->
+  <!-- ホーム（#/home。中身は home.js） -->
   <section id="view-home" class="view" hidden><div id="home-root"></div></section>
 
-  <!-- Workflow 盤面（#/project/<name>/workflow。中身は workflow.js・U5） -->
+  <!-- Workflow 盤面（#/project/<name>/workflow。中身は workflow.js） -->
   <section id="view-workflow" class="view" hidden><div id="workflow-root"></div></section>
 
-  <!-- 設定（#/project/<name>/defs…・中身は defs.js・U5） -->
+  <!-- 設定（#/project/<name>/defs…・中身は defs.js） -->
   <section id="view-defs" class="view" hidden><div id="defs-root"></div></section>
 
-  <!-- task.md 作成フォーム（下から出る一枚・計画 15 §1.5。中身は cardform.js） -->
+  <!-- task.md 作成フォーム（下から出る一枚。中身は cardform.js） -->
   <div id="cardform-wrap" class="cf-wrap" hidden>
     <div class="cf-mask" id="cf-mask"></div>
     <div class="cf-sheet" role="dialog" aria-modal="true" aria-label="Create task.md">
       <div class="cf-head">
         <div class="cf-head-text">
-          <!-- 手順番号は 10 固定で，スキップすると番号が飛ぶ（TUI と同じ・計画 15 §1.5） -->
+          <!-- 手順番号は 10 固定で，スキップすると番号が飛ぶ -->
           <span class="cf-step" id="cf-step"></span>
           <span class="cf-title" id="cf-name">Create task.md</span>
         </div>
         <div class="cf-head-actions">
-          <!-- 書きかけを消して最初から（計画 15 §1.5） -->
+          <!-- 書きかけを消して最初から -->
           <button class="cf-text-btn" id="cf-restart">Restart</button>
           <button id="cf-close" aria-label="Close">×</button>
         </div>
@@ -201,7 +201,7 @@
     </div>
   </div>
 
-  <!-- 画面下の重ね部：小さな再生バー＋タブバー（05 §4） -->
+  <!-- 画面下の重ね部：小さな再生バー＋タブバー -->
   <div id="bottom-stack" class="bottom-stack">
     <!-- 小さな再生バー（中身と表示の切り替えは 09） -->
     <div id="mini-player" class="mini-player" hidden></div>
@@ -215,7 +215,7 @@
         </svg>
         <span>Home</span>
       </button>
-      <!-- アイコンは絵文字ではなく線で描いた SVG（05 §4） -->
+      <!-- アイコンは絵文字ではなく線で描いた SVG -->
       <button data-tab="project" aria-label="Projects">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <!-- 四角が並んだ形（グリッド） -->
@@ -237,36 +237,36 @@
     </nav>
   </div>
 
-  <!-- md の整形表示（13 §1.4）。呼び出す画面部品より先に読み込む -->
-  <script src="/markdown.js?v=138"></script>
-  <!-- 共通部品（saiApi・saiToast など・U4）。markdown.js の直後、各画面の JS より先に読む -->
-  <script src="/ui.js?v=138"></script>
+  <!-- md の整形表示。呼び出す画面部品より先に読み込む -->
+  <script src="/markdown.js?v=139"></script>
+  <!-- 共通部品（saiApi・saiToast など）。markdown.js の直後、各画面の JS より先に読む -->
+  <script src="/ui.js?v=139"></script>
   <!-- stats.js を先に読み，app.js の route() が統計画面を開けるようにする -->
-  <script src="/stats.js?v=138"></script>
+  <script src="/stats.js?v=139"></script>
   <!-- Project タブの中身（06）。app.js より前に読み込む（stats.js の関数を共有するため） -->
-  <script src="/project.js?v=138"></script>
-  <!-- List 画面（Dashboard | List の切り替え・引き出しツリー・7 つの表示・計画 14）。 -->
-  <!-- project.js より後に読み，app.js より前に読む（登録は window.SaiRoutes・計画 14 §6） -->
-  <script src="/linkview.js?v=138"></script>
-  <!-- task.md 作成フォーム（＋ で下から出る・計画 15）。app.js より前に読む
+  <script src="/project.js?v=139"></script>
+  <!-- List 画面（Dashboard | List の切り替え・引き出しツリー・7 つの表示）。 -->
+  <!-- project.js より後に読み，app.js より前に読む（登録は window.SaiRoutes） -->
+  <script src="/linkview.js?v=139"></script>
+  <!-- task.md 作成フォーム（＋ で下から出る）。app.js より前に読む
        （🎤 は app.js の attachVoiceInput を実行時に呼ぶ） -->
-  <script src="/cardform.js?v=138"></script>
-  <!-- 会話の検索（U10） -->
-  <script src="/sessionsearch.js?v=138"></script>
+  <script src="/cardform.js?v=139"></script>
+  <!-- 会話の検索 -->
+  <script src="/sessionsearch.js?v=139"></script>
   <!-- 会話に行・回答済みカードを置く位置を決める関数（CP3 の直し）。app.js より前に読み込む -->
-  <script src="/chatorder.js?v=138"></script>
-  <!-- 新しいチャット（U04 §5）。app.js より前に読み込む（#newchat-button に結び付ける） -->
-  <script src="/newchat.js?v=138"></script>
+  <script src="/chatorder.js?v=139"></script>
+  <!-- 新しいチャット。app.js より前に読み込む（#newchat-button に結び付ける） -->
+  <script src="/newchat.js?v=139"></script>
   <!-- 質問カードの読み上げ・音声回答（U01・voiceask.js）。app.js より前に読み込む -->
-  <script src="/voiceask.js?v=138"></script>
+  <script src="/voiceask.js?v=139"></script>
   <!-- 配置・全体表示・拡大の純関数（canvaslayout.js）。workflow.js より先に読む -->
-  <script src="/canvaslayout.js?v=138"></script>
+  <script src="/canvaslayout.js?v=139"></script>
   <!-- ホーム画面（U4・home.js）。app.js より前に読み込む（画面の登録は window.SaiRoutes） -->
-  <script src="/home.js?v=138"></script>
+  <script src="/home.js?v=139"></script>
   <!-- Workflow 盤面（U5・workflow.js）。U4 では空のファイルを作っただけ。canvaslayout.js の関数を使うので canvaslayout.js より後 -->
-  <script src="/workflow.js?v=138"></script>
+  <script src="/workflow.js?v=139"></script>
   <!-- 設定画面（U5・defs.js）。U4 では空のファイルを作っただけ -->
-  <script src="/defs.js?v=138"></script>
-  <script src="/app.js?v=138"></script>
+  <script src="/defs.js?v=139"></script>
+  <script src="/app.js?v=139"></script>
 </body>
 </html>

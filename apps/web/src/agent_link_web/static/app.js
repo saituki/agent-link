@@ -1,6 +1,6 @@
 // agent-link-web PWA本体．素のJS（フレームワークなし）．
 //
-// 画面は URL の # 部分で切り替える（02 §3.1，統計は 04）:
+// 画面は URL の # 部分で切り替える（統計は別の画面）:
 //   日付一覧   #/
 //   日の実行一覧 #/day/2026-09-23
 //   実行（メッセージ） #/run/agent-link-web/58
@@ -21,7 +21,7 @@ let offline = false;
 
 function setOffline(value) {
   offline = value;
-  // 画面ごとに帯の id が違ったが，クラスでまとめて出し入れする（05 §3.2-6）
+  // 画面ごとに帯の id が違ったが，クラスでまとめて出し入れする
   document.querySelectorAll(".offline-bar").forEach((el) => { el.hidden = !value; });
 }
 
@@ -34,7 +34,7 @@ let routeSeq = 0;                 // 画面切り替えの連番（古い route 
 
 function parseRoute(hashArg) {
   const hash = hashArg || location.hash || "#/";
-  // タブのファイルが登録した画面を先に判定する（05 §3.2-1）。合えばパラメータ，
+  // タブのファイルが登録した画面を先に判定する。合えばパラメータ，
   //合わなければ今までの判定へ進む。
   for (const def of window.SaiRoutes || []) {
     if (!def || typeof def.match !== "function") continue;
@@ -48,7 +48,7 @@ function parseRoute(hashArg) {
     if (i > 0) {
       let idPart = rest.slice(i + 1);
       let stats = false;
-      // 統計画面の住所（…/stats）は ID から分ける（中身は 04・03 §1-7）
+      // 統計画面の住所（…/stats）は ID から分ける（中身は 04）
       if (idPart.endsWith("/stats")) {
         stats = true;
         idPart = idPart.slice(0, -"/stats".length);
@@ -71,12 +71,12 @@ function showView(id) {
 }
 
 function baseInterval() {
-  // 登録された画面は自分の間隔を持つ（05 §3.2-3）。0 は更新しない画面
+  // 登録された画面は自分の間隔を持つ。0 は更新しない画面
   if (current.name === "ext") return current.def.interval || 0;
-  // 更新間隔は一覧5秒・実行2秒（02 §3.1）．統計画面は10秒（04 §3）
+  // 更新間隔は一覧5秒・実行2秒．統計画面は10秒
   if (current.name === "run" && current.stats) return 10000;
   if (current.name === "run") {
-    // 生成中（live が working）は 1 秒ごとに読む（U04 §2）
+    // 生成中（live が working）は 1 秒ごとに読む
     return currentRun && currentRun.live === "working" ? 1000 : 2000;
   }
   return 5000;
@@ -85,7 +85,7 @@ function baseInterval() {
 function rearm() {
   if (refreshTimer) clearInterval(refreshTimer);
   refreshTimer = null;
-  // 間隔 0 は定期更新をしない画面（05 §3.2-2）
+  // 間隔 0 は定期更新をしない画面
   if (intervalMs <= 0) return;
   refreshTimer = setInterval(tick, intervalMs);
 }
@@ -97,7 +97,7 @@ function tick() {
   }
   if (current.name === "days") void loadDays();
   else if (current.name === "day") void loadDay();
-  else if (current.name === "run" && current.stats) void SaiStats.poll(); // 統計画面（04 §3）
+  else if (current.name === "run" && current.stats) void SaiStats.poll(); // 統計画面
   else if (current.name === "run") void pollRun();
 }
 
@@ -108,7 +108,7 @@ function onFail() {
   rearm();
 }
 
-// タブのファイル（project.js など）が使う共通の入口（05 §3.2-5）。
+// タブのファイル（project.js など）が使う共通の入口。
 // 通信に成功したら ok()，失敗したら fail() を呼ぶ。
 window.SaiShell = {
   ok() { setOffline(false); onOk(); },
@@ -117,9 +117,9 @@ window.SaiShell = {
 
 async function route() {
   // 連番をとっておく。途中で別の route（location.replace や hashchange）が始まったら、
-  // 古い route はタブの保存などをしない（U01 §5）
+  // 古い route はタブの保存などをしない
   const seq = ++routeSeq;
-  // 住所なしで開かれたときはホームにする（# は今までどおり Agent の日付一覧・C-F1）
+  // 住所なしで開かれたときはホームにする（# は今までどおり Agent の日付一覧）
   if (!location.hash) {
     location.replace(HOME_URL);
     return;
@@ -135,7 +135,7 @@ async function route() {
   setOffline(false);
   intervalMs = baseInterval();
   if (r.name === "ext") {
-    // タブのファイルが登録した画面（05 §3.2-2）
+    // タブのファイルが登録した画面
     showView(r.def.view);
     if (typeof r.def.open === "function") await r.def.open(r.params);
     if (r.def.interval > 0) rearm();
@@ -145,7 +145,7 @@ async function route() {
     rearm();
   } else if (r.name === "day") {
     showView("view-day");
-    // 狭い画面では右（その日の実行）だけを出す。広い画面は左の日付一覧も出す（U4 §4）
+    // 狭い画面では右（その日の実行）だけを出す。広い画面は左の日付一覧も出す
     saiSplitShow(document.getElementById("day-split"), "main");
     await loadDay();
     rearm();
@@ -160,19 +160,19 @@ async function route() {
     rearm();
   }
   // 読み込みのあいだに別の route が始まっていたら何もしない（古い route が
-  // タブの「最後の住所」を上書きしないため・U01 §5）
+  // タブの「最後の住所」を上書きしないため）
   if (seq !== routeSeq) return;
-  // タブバーの見た目を今の画面に合わせる（05 §3.2-7）
+  // タブバーの見た目を今の画面に合わせる
   updateTabbar();
-  // 今の画面を知らせる（小さな再生バーの出し入れに使う・09 §4.1）
+  // 今の画面を知らせる（小さな再生バーの出し入れに使う）
   window.dispatchEvent(new CustomEvent("sai-route", { detail: { hash: location.hash } }));
 }
 
 window.addEventListener("hashchange", route);
 
-// --- タブバー（05 §3.3） ---
+// --- タブバー ---
 
-// 各タブの「最初の画面」（U4: 先頭にホームを足した。U06 で実験を足し，U14 で Research に替えた。U05 で Papers を Research に入れ，Usage を Account に入れた）
+// 各タブの「最初の画面」（タブは home / project / agent）
 const TAB_FIRST_URL = {
   home: "#/home",
   project: "#/projects",
@@ -196,21 +196,21 @@ function saveTabLast(obj) {
   catch { /* 保存できなくても動く */ }
 }
 
-// 今の画面の所属タブ。既存の4画面（days / day / run / stats）はすべて Agent（05 §3.2-4）
+// 今の画面の所属タブ。既存の4画面（days / day / run / stats）はすべて Agent
 function currentTab() {
   if (current.name === "ext") return current.def.tab || "agent";
   return "agent";
 }
 
 // 住所からその画面のタブを求める。タブの「最後の住所」をどこへ入れるかの判定に使う
-// （表示中の current ではなく住所その物を見るので、どの route から呼ばれても正しい・U01 §5）
+// （表示中の current ではなく住所その物を見るので、どの route から呼ばれても正しい）
 function routeTab(hash) {
   const r = parseRoute(hash);
   if (r.name === "ext") return r.def.tab || "agent";
   return "agent";
 }
 
-// 画面が広いか（900px 以上）。左の縦のタブ帯を出すかどうかに使う（U4 §1）
+// 画面が広いか（900px 以上）。左の縦のタブ帯を出すかどうかに使う
 function isWide() {
   if (typeof window === "undefined") return false;
   return window.innerWidth >= 900;
@@ -223,7 +223,7 @@ function tabbarHidden() {
   return current.name === "run"; // メッセージ画面と統計画面
 }
 
-// 下に重なる部品の高さを CSS 変数 --bottom-stack-h に入れる（05 §5）
+// 下に重なる部品の高さを CSS 変数 --bottom-stack-h に入れる
 function updateBottomStack() {
   const stack = document.getElementById("bottom-stack");
   if (!stack) return;
@@ -234,8 +234,8 @@ function updateBottomStack() {
   // 両方見えないときは重ね部ごと隠す（線が余計に残らないように）
   stack.hidden = !barVisible && !miniVisible;
   document.body.classList.toggle("mini-visible", miniVisible);
-  // 中身が隠れて高さ 0 のときは 0px（05 §5）
-  // 広い画面ではタブが左の縦の帯で下に重ならないので 0px にする（U4 §1）
+  // 中身が隠れて高さ 0 のときは 0px
+  // 広い画面ではタブが左の縦の帯で下に重ならないので 0px にする
   const h = stack.hidden || isWide() ? 0 : stack.offsetHeight;
   document.documentElement.style.setProperty("--bottom-stack-h", `${h}px`);
 }
@@ -250,16 +250,16 @@ function updateTabbar() {
       b.classList.toggle("active", b.dataset.tab === currentTab());
     });
   }
-  // 今のタブの「最後に開いた URL」を今の住所で更新する（05 §3.3）。
+  // 今のタブの「最後に開いた URL」を今の住所で更新する。
   // 保存先は「その住所が属するタブ」（表示中の current ではない）。こうすると
-  // 古い route が後から updateTabbar を呼んでも、違うタブの住所を入れ替えない（U01 §5）。
+  // 古い route が後から updateTabbar を呼んでも、違うタブの住所を入れ替えない。
   const last = loadTabLast();
   last[routeTab(location.hash)] = location.hash || "#/";
   saveTabLast(last);
   updateBottomStack();
 }
 
-// タブを押す（05 §3.3）：別のタブへは最後に見た画面，同じタブへは最初の画面
+// タブを押す：別のタブへは最後に見た画面，同じタブへは最初の画面
 document.querySelectorAll("#tabbar button").forEach((btn) => {
   btn.addEventListener("click", () => {
     const tab = btn.dataset.tab;
@@ -279,7 +279,7 @@ if (bottomStackEl && "ResizeObserver" in window) {
   new ResizeObserver(() => updateBottomStack()).observe(bottomStackEl);
 }
 
-// 画面の幅が変わったら（広い⇔狭い）タブの出しかたと余白を取り直す（U4 §1）
+// 画面の幅が変わったら（広い⇔狭い）タブの出しかたと余白を取り直す
 if (typeof window !== "undefined") {
   let wideTimer = null;
   window.addEventListener("resize", () => {
@@ -304,7 +304,7 @@ function runLamp(run) {
   return RUN_LAMP[run.status] || "⚪";
 }
 
-// 行に並べる状態表示（U4 §4：日本語にする。記号は今までと同じ）
+// 行に並べる状態表示（日本語にする）
 function runStatusText(run) {
   switch (run.status) {
     case "running": return { text: "●Running", cls: "st-running" };
@@ -349,7 +349,7 @@ async function loadDays() {
 }
 
 function dayLabel(d) {
-  // 2026-09-23 Tue → 2026/09/23 Tue（日付はサーバーが日本時間で切っている・00 §3.6）
+  // 2026-09-23 Tue → 2026/09/23 Tue（日付はサーバーが日本時間で切っている）
   return `${String(d.date).replace(/-/g, "/")} ${d.weekday || ""}`.trim();
 }
 
@@ -372,7 +372,7 @@ function renderDays(searchResults) {
   const box = document.getElementById("days-list");
   box.innerHTML = "";
   if (searchResults) {
-    // 検索中は日付をまたいで一致した実行を直接並べる（02 §3.2）
+    // 検索中は日付をまたいで一致した実行を直接並べる
     if (searchResults.length === 0) {
       box.appendChild(
         saiEmpty({
@@ -418,7 +418,7 @@ function renderDays(searchResults) {
   }
 }
 
-// 広い画面の「その日の実行」画面の左に置く日付一覧（U4 §4）
+// 広い画面の「その日の実行」画面の左に置く日付一覧
 async function loadDaySide() {
   const box = document.getElementById("day-side");
   if (!box) return;
@@ -530,7 +530,7 @@ function runRow(run, showDate) {
   blockSpan.textContent = run.block_name || "";
   const descSpan = document.createElement("span");
   descSpan.className = "rdesc";
-  // 長い説明は1行で省略（02 §1 の2番）
+  // 長い説明は1行で省略
   descSpan.textContent = run.description || "";
   const st = runStatusText(run);
   const statusSpan = document.createElement("span");
@@ -539,7 +539,7 @@ function runRow(run, showDate) {
   btn.append(timeSpan, idSpan, blockSpan, descSpan, statusSpan);
 
   if (run.show_parent && run.parent_run_id != null) {
-    // 親の実行がこの日の一覧に無いサブタスク（02 §1 の2番）
+    // 親の実行がこの日の一覧に無いサブタスク
     const parentSpan = document.createElement("span");
     parentSpan.className = "rparent";
     parentSpan.textContent = `↳ #${run.parent_run_id}`;
@@ -552,13 +552,13 @@ function runRow(run, showDate) {
 }
 
 // --- 実行（メッセージ）画面（#/run/…） ---
-// 全項目を折りたたみで表示し，開閉は画面内で id で覚える（03 §4）。
+// 全項目を折りたたみで表示し，開閉は画面内で id で覚える。
 // 見出しは全項目に出し（発言者＋時刻），日付が変わると区切り線を入れる。
 
 let currentRun = null;   // Run（サーバーが返した現在の1件）
 let chatCursor = null;   // どこまで読んだか（サーバーが返す目印）
 let knownIds = new Set(); // 既に描いた発言のID（重複防止）
-let openIds = new Set();  // 開いている項目のID（自動更新で描き直しても保持・03 §4）
+let openIds = new Set();  // 開いている項目のID（自動更新で描き直しても保持）
 let chatRowEls = [];      // 会話の行の要素（時刻順・日付区切り線は含まない・CP3）
 let chatRowTimes = [];    // その行の時刻（ISO 文字列・chatRowEls と同じ並び）
 let stickToBottom = true; // 下端にいるか（自動追従の要否）
@@ -585,7 +585,7 @@ async function openRun(r) {
   // 前の実行で覚えた「カードの中身」は捨てる（同じ実行を開いたときに
   // カードが描かれなくなるのを防ぐため，描き直せるようにしておく・CP3）
   cardsSignature = "";
-  openIds = new Set();    // 別の実行に移ったら開閉状態は忘れてよい（03 §4）
+  openIds = new Set();    // 別の実行に移ったら開閉状態は忘れてよい
   chatRowEls = [];
   chatRowTimes = [];
   chatLastAgentAt = 0;   // 別の実行に移ったら「続けて書かれた」の判定は切り直す
@@ -607,7 +607,7 @@ async function openRun(r) {
 }
 
 // 新しいチャット（newchat.js）から来た実行かどうかの見分け。
-// sessionStorage に run_id と時刻を覚えておき，60 秒までは書き出しを待つ（U04 §5）。
+// sessionStorage に run_id と時刻を覚えておき，60 秒までは書き出しを待つ。
 const NEWCHAT_RUN_KEY = "agent_link_web_newchat_run";
 const NEWCHAT_WAIT_MS = 60000;
 
@@ -632,7 +632,7 @@ function clearNewChatWaiting(runId) {
   } catch { /* 消せなくてもよい */ }
 }
 
-// 入力欄の出し入れ（U04 §4）: live が null（終わった）のときだけ使えなくする。
+// 入力欄の出し入れ: live が null（終わった）のときだけ使えなくする。
 // 起動待ちのあいだも使えなくする。status が completed でも live があれば送れる（C6）。
 function updateComposer() {
   const live = currentRun ? currentRun.live : null;
@@ -643,7 +643,7 @@ function updateComposer() {
   const mic = document.getElementById("mic-button");
   if (ta) {
     ta.disabled = waiting || finished;
-    // 質問中に送ると質問は取り下げられる（U03・計画 4）
+    // 質問中に送ると質問は取り下げられる
     const asking = live === "blocked";
     ta.placeholder = waiting ? "Waiting to start…" : finished ? "This chat has ended" : asking ? "Send without answering (the question will be withdrawn)" : "Type a message";
   }
@@ -674,22 +674,22 @@ async function loadRunMeta() {
     runStarting = false;
     currentRun = data;
     setOffline(false);
-    // 見出し1行目は #run_id block_name，2行目に description（03 §1-7）
+    // 見出し1行目は #run_id block_name，2行目に description
     document.getElementById("run-title").textContent =
       `#${data.run_id} ${data.block_name || ""}`.trim();
     document.getElementById("run-desc").textContent = data.description || "";
     document.getElementById("run-lamp").textContent = runLamp(data);
-    // 実験タブの run の表への小さなリンク（#run-desc の後ろに 1 つだけ置く・U08）
+    // 実験タブの run の表への小さなリンク（#run-desc の後ろに 1 つだけ置く）
     // ■ 終了は「実行中のメインブロック」のときだけ出す（子ブロックは task_report で完了する）
     document.getElementById("finalize-button").hidden = !(
       data.status === "running" && !data.parent_run_id
     );
-    // 停止は入力欄の横に出す（U03）。live は状態ファイルの都合で working とずれるため，
-    // 終わった（null）ときだけ隠す。idle に esc を送っても入力欄が空なら何も起きない（U04 §3）。
+    // 停止は入力欄の横に出す。live は状態ファイルの都合で working とずれるため，
+    // 終わった（null）ときだけ隠す。idle に esc を送っても入力欄が空なら何も起きない。
     // blocked（質問中）に押すと質問が取り下げられる
     document.getElementById("interrupt-button").hidden = data.live == null;
     updateComposer();
-    // live が変わったら更新の間隔を取り直す（生成中は 1 秒ごと・U04 §2）
+    // live が変わったら更新の間隔を取り直す（生成中は 1 秒ごと）
     if (prevLive !== data.live) { intervalMs = baseInterval(); rearm(); }
     // 起動待ちはここまで（見分けの印を消す）
     clearNewChatWaiting(data.run_id);
@@ -731,14 +731,14 @@ async function loadChatMore() {
 // 表示中の画面だけ更新する（実行画面は Meta → 会話 の順で2秒ごと）
 async function pollRun() {
   await loadRunMeta();
-  // 起動待ちのあいだは会話を読みに行かない（まだ書き出されていない・U04 §5）
+  // 起動待ちのあいだは会話を読みに行かない（まだ書き出されていない）
   if (runStarting) return;
   await loadChatMore();
 }
 
 // --- 質問カード ---
 // 未解決の質問（cc / pi 共通の見た目）を会話の末尾に
-// 常に開いた状態で出す（05 §1）。
+// 常に開いた状態で出す。
 // - open: 選ぶ → 送信 の2段階。全問に答えられるまで送信ボタンは押せない。
 // - answered: 「回答済み: …」の1行に変わる。
 // - resolved_elsewhere: 「PC で回答済み」の1行に変わる（先にPCで答えた）。
@@ -866,12 +866,12 @@ function answeredCard(q) {
 }
 
 function questionCard(q) {
-  // 回答済みは選択肢を残して選んだものを強調，PC で回答済みは1行だけ表示（05 §1 の2番）
+  // 回答済みは選択肢を残して選んだものを強調，PC で回答済みは1行だけ表示
   if (q.state === "answered") return answeredCard(q);
   if (q.state === "resolved_elsewhere") {
     return settledCard(q, "q-elsewhere", "Answered on the PC");
   }
-  // 取り下げ（U03）。入力欄から送った文があれば 40 字まで見せる
+  // 取り下げ。入力欄から送った文があれば 40 字まで見せる
   if (q.state === "withdrawn") {
     const sent = q.answer && q.answer.text ? [...q.answer.text].slice(0, 40).join("") : "";
     return settledCard(q, "q-withdrawn", sent ? `Question withdrawn, sent: ${sent}` : "Question withdrawn");
@@ -883,7 +883,7 @@ function questionCard(q) {
   const qs = q.questions || [];
   // 各問の回答状態．null は未回答．{choice_index} / {choice_indices} / {text} が入る．
   const state = new Array(qs.length).fill(null);
-  // 問ごとの部品（読み上げ・音声回答から .click() と input で触るため・U01）
+  // 問ごとの部品（読み上げ・音声回答から .click() と input で触るため）
   const controls = [];
 
   const submitBtn = document.createElement("button");
@@ -898,7 +898,7 @@ function questionCard(q) {
     return a.choice_index != null || !!(a.text && a.text.trim());
   };
   const updateSubmit = () => {
-    // 全問に答えているまで押せない（05 §1 の2番）
+    // 全問に答えているまで押せない
     submitBtn.disabled = qs.some((_, qi) => !answered(qi));
   };
 
@@ -985,7 +985,7 @@ function questionCard(q) {
   submitBtn.addEventListener("click", () => submitAnswers(q, state, card, submitBtn));
   card.appendChild(submitBtn);
 
-  // 質問を止める（U03）。答えずに質問だけ取り下げる
+  // 質問を止める。答えずに質問だけ取り下げる
   const withdrawBtn = document.createElement("button");
   withdrawBtn.className = "q-withdraw";
   withdrawBtn.textContent = "Withdraw question";
@@ -1035,7 +1035,7 @@ async function submitAnswers(q, state, card, submitBtn) {
       submitBtn.disabled = true;
       return;
     }
-    // 送信後は「回答済み: …」の1行に変わる（05 §1 の2番）
+    // 送信後は「回答済み: …」の1行に変わる
     openQuestions = openQuestions.map((x) =>
       x.id === q.id
         ? { ...x, state: "answered", answer: { answers: state } }
@@ -1047,7 +1047,7 @@ async function submitAnswers(q, state, card, submitBtn) {
   }
 }
 
-// 質問を止める（U03）。成功したら「質問を取り下げました」の 1 行に変える
+// 質問を止める。成功したら「質問を取り下げました」の 1 行に変える
 async function withdrawQuestion(q, card) {
   card.querySelectorAll("button, input").forEach((el) => { el.disabled = true; });
   try {
@@ -1078,7 +1078,7 @@ function appendItems(items) {
   for (const item of toAdd) {
     knownIds.add(item.id);
     const node = renderItem(item);
-    // 開いていた項目は自動更新で描き直されても開いたまま（03 §4）
+    // 開いていた項目は自動更新で描き直されても開いたまま
     if (openIds.has(item.id)) node.classList.add("open");
     // 時刻順の位置に挿む（ふつうは末尾．古い時刻の行が混じっても並びが崩れない・CP3）
     const idx = firstIndexAfter(chatRowTimes, item.time);
@@ -1094,7 +1094,7 @@ function appendItems(items) {
   if (stickToBottom) window.scrollTo(0, document.body.scrollHeight);
 }
 
-// --- 生成中の文と error（U04 §1） ---
+// --- 生成中の文と error ---
 
 // 生成中の文を 1 つだけ吹き出しとして出す（扱いは chatPartialPlan が決める）。
 // 確定した行やカードより後ろ（末尾）に置き直す。
@@ -1120,7 +1120,7 @@ function applyPartial(partial) {
     const who = document.createElement("span");
     who.className = "fold-who";
     who.textContent = agentName();
-    // 点滅する印（生成中を示す・U04 §1）
+    // 点滅する印（生成中を示す）
     const dot = document.createElement("span");
     dot.className = "partial-dot";
     dot.setAttribute("role", "img");
@@ -1136,7 +1136,7 @@ function applyPartial(partial) {
   if (stickToBottom) window.scrollTo(0, document.body.scrollHeight);
 }
 
-// error の文を 1 回だけ赤い帯で出す（同じ文は 2 回出さない・U04 §1）。
+// error の文を 1 回だけ赤い帯で出す（同じ文は 2 回出さない）。
 function applyError(error) {
   const next = typeof error === "string" ? error.trim() : "";
   const box = document.getElementById("chat-list");
@@ -1166,7 +1166,7 @@ function applyError(error) {
   if (stickToBottom) window.scrollTo(0, document.body.scrollHeight);
 }
 
-// --- 日付の区切り線（── 9月23日(火) ──・03 §4） ---
+// --- 日付の区切り線（── 9月23日(火) ──） ---
 
 function dateKey(iso) {
   if (!iso) return "";
@@ -1181,7 +1181,7 @@ function dateSepLabel(iso) {
   return `${wd}, ${d.getMonth() + 1}/${d.getDate()}`;
 }
 
-// 会話の行から日付の区切り線を作り直す（03 §4）。
+// 会話の行から日付の区切り線を作り直す。
 // 行を時刻順に置いたりカードが移動したりしても崩れないように毎回作り直す。
 // 区切り線だけなので高さは変わらず，スクロールの位置も動かない。
 function rebuildDateSeps() {
@@ -1253,7 +1253,7 @@ function placeOverlays() {
   for (const div of pending) box.appendChild(div);
 }
 
-// --- チャットのまとまり（U01 §2） ---
+// --- チャットのまとまり ---
 
 // 直前のエージェント発言の時刻。続けて 5 分以内に書かれたものは
 // 同じまとまりとして、名前とアイコンを繰り返さない（Slack と同じ）
@@ -1268,7 +1268,7 @@ function chatAgentGrouped(iso) {
   return t >= prev && t - prev <= 5 * 60 * 1000;
 }
 
-// --- 折りたたみ（全項目共通・03 §4） ---
+// --- 折りたたみ（全項目共通） ---
 
 // 見出し（発言者＋時刻）の付いた折りたたみ箱を作る．タップで開閉し，
 // 開閉の状態は openIds に id で覚えておく（自動更新でも保持するため）。
@@ -1280,7 +1280,7 @@ function foldItem(id, iso) {
   head.className = "fold-head";
   const who = document.createElement("span");
   who.className = "fold-who";
-  // 時刻は Slack のように灰色で小さく（03 §4）
+  // 時刻は Slack のように灰色で小さく
   const tm = document.createElement("span");
   tm.className = "fold-time";
   tm.textContent = timeLabel(iso);
@@ -1294,7 +1294,7 @@ function foldItem(id, iso) {
   return { wrap, who };
 }
 
-// 閉じている時に見せる1行目．Markdown の記号は取り，続きがあれば … を付ける（03 §4）
+// 閉じている時に見せる1行目．Markdown の記号は取り，続きがあれば … を付ける
 function previewLine(text) {
   const lines = String(text || "").split("\n").map((s) => s.trim()).filter(Boolean);
   if (lines.length === 0) return "";
@@ -1321,8 +1321,8 @@ function foldBody(wrap, preview, body) {
   wrap.appendChild(body);
 }
 
-// MCP の道具かどうか（cc は mcp__donsetch__web_search、pi は adapter の mcp / mcp__…・U12）。
-// sai の CLI を Bash で呼んだ項目も同じ緑系で出す（item.cli が入る・U17）。
+// MCP の道具かどうか（cc は mcp__donsetch__web_search、pi は adapter の mcp / mcp__…）。
+// sai の CLI を Bash で呼んだ項目も同じ緑系で出す（item.cli が入る）。
 function isMcpTool(item) {
   if (item && item.cli) return true;
   const tool = (item && item.tool) || "";
@@ -1358,9 +1358,9 @@ function renderItem(item) {
     foldBody(fold.wrap, previewLine(item.text), body);
     return fold.wrap;
   }
-  // tool：見出しはツール名（失敗は ⚠ と色）．中身はタップで開く（03 §1）
+  // tool：見出しはツール名（失敗は ⚠ と色）．中身はタップで開く
   fold.wrap.classList.add("kind-tool");
-  // MCP の道具と sai の CLI の呼び出しだけは緑系にする（cc は mcp__…、pi は mcp / mcp__…・U12・U17）
+  // MCP の道具と sai の CLI の呼び出しだけは緑系にする（cc は mcp__…、pi は mcp / mcp__…）
   if (isMcpTool(item)) fold.wrap.classList.add("mcp");
   if (item.ok === false) fold.wrap.classList.add("failed");
   fold.who.textContent = (item.ok === false ? "⚠ " : "⚙ ") + (item.label || item.tool || "Tool");
@@ -1370,7 +1370,7 @@ function renderItem(item) {
   return fold.wrap;
 }
 
-// event カード：吹き出しではなく，左に色の帯がある薄い箱（03 §4）。
+// event カード：吹き出しではなく，左に色の帯がある薄い箱。
 // ok=緑，error=赤，info=灰。閉じた時の見出しは title（＋ summary の1行目）。
 function renderEvent(item) {
   const fold = foldItem(item.id, item.time);
@@ -1412,7 +1412,7 @@ function agentName() {
   return "Claude";
 }
 
-// md の整形表示は static/markdown.js の renderMarkdown にまとめた（計画 13 §1.4）．
+// md の整形表示は static/markdown.js の renderMarkdown にまとめた．
 // 見出し・箇条書き・表・コードの枠・frontmatter まで同じ部品で出せる．
 
 // 上にいる間のみ「新着 ↓」を出す
@@ -1433,7 +1433,7 @@ document.getElementById("new-arrival").addEventListener("click", () => {
   window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" });
 });
 
-// 戻るボタン：1つ上の階層のURLへ（履歴に頼らない・02 §3.1）
+// 戻るボタン：1つ上の階層のURLへ（履歴に頼らない）
 document.getElementById("day-back").addEventListener("click", () => {
   location.hash = "#/";
 });
@@ -1473,7 +1473,7 @@ document.getElementById("finalize-button").addEventListener("click", async () =>
   await loadRunMeta();
 });
 
-// 停止（U04 §3・U03 で入力欄の横へ）。headless の実行に止まれと伝える。
+// 停止（入力欄の横）。headless の実行に止まれと伝える。
 document.getElementById("interrupt-button").addEventListener("click", async () => {
   if (!currentRun) return;
   const res = await apiFetch(`${runApiBase()}/interrupt`, { method: "POST" });
@@ -1488,7 +1488,7 @@ document.getElementById("interrupt-button").addEventListener("click", async () =
   } else {
     saiToast(out.status || "Stopped");
   }
-  // 質問中に押すと質問が取り下げられるので，質問の一覧も読み直す（U03）
+  // 質問中に押すと質問が取り下げられるので，質問の一覧も読み直す
   await loadRunMeta();
   await loadQuestions();
 });
@@ -1741,7 +1741,7 @@ document.getElementById("send-button").addEventListener("click", async () => {
       else alert(err.detail || "Could not send.");
       return;
     }
-    // 質問中に送った文は質問への答えとして取り下げられた（U03）。会話の発言としては残らないので「反映待ち」にしない
+    // 質問中に送った文は質問への答えとして取り下げられた。会話の発言としては残らないので「反映待ち」にしない
     const out = await res.json().catch(() => ({}));
     if (out.status === "withdrawn") {
       saiToast("Question withdrawn and message sent");
@@ -1771,7 +1771,7 @@ function autoGrow() {
 
 document.getElementById("chat-input").addEventListener("input", autoGrow);
 
-// --- 検索（日付一覧に付ける・02 §3.2） ---
+// --- 検索（日付一覧に付ける） ---
 
 document.getElementById("search-toggle").addEventListener("click", () => {
   const row = document.getElementById("search-row");
@@ -1789,10 +1789,10 @@ document.getElementById("search-input").addEventListener("input", (e) => {
   if (current.name === "days") void loadDays();
 });
 
-// --- 音声入力（Web Speech API・Agent の入力欄と task_text で使い回す部品・計画 15 §1.5） ---
+// --- 音声入力（Web Speech API・Agent の入力欄と task_text で使い回す部品） ---
 
 /**
- * 🎤 ボタンとテキスト欄を音声入力で結ぶ（部品・新しくは作らない・計画 15 §1.5）。
+ * 🎤 ボタンとテキスト欄を音声入力で結ぶ（部品・新しくは作らない）。
  * 聞き取った文字はテキスト欄に追記するだけで自動送信はしない。
  * 使えない環境ではボタンを隠し，エラーで画面を止めない。
  * 戻り値は部品に仕込んだ recognizer（使わなければ null）。
@@ -1841,7 +1841,7 @@ function attachVoiceInput(btn, ta, onGrow) {
 }
 window.attachVoiceInput = attachVoiceInput;
 
-// Agent タブの入力欄への結び付け（cardform.js は自分で呼ぶ・計画 15 §1.5）
+// Agent タブの入力欄への結び付け（cardform.js は自分で呼ぶ）
 function setupMic() {
   attachVoiceInput(
     document.getElementById("mic-button"),

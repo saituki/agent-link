@@ -1,4 +1,4 @@
-/* Workflow 盤面（workflow.js）の見た目（実装計画 U5）。
+/* Workflow 盤面（workflow.js）の見た目。
    - 盤面は overflow: hidden。札も線も帯や見出しにはみ出さない
    - 札は HTML の div、線は同じ中の SVG（外部ライブラリは使わない）
    - 色は CSS 変数と #rrggbb だけを使い、暗い画面でも読めるようにする */

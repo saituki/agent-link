@@ -2,7 +2,7 @@
 // 図の配置・全体表示・拡大の純関数（研究方針の図と Workflow が使う）。
 // 読み込みは index.html で行う（workflow.js と scigraph.js より先に読む）。
 //
-// 共有契約 C-E（cvlLayoutBoard）:
+// 取り決め（cvlLayoutBoard）:
 //   cvlLayoutBoard(nodes, edges) → [{id, x, y, width, height}, …]
 //     nodes: {id, type: "card"|"group"|"text", x, y, width, height, group: string|null}
 //     edges: {from, to}
@@ -295,7 +295,7 @@ function cvlLayoutCluster(input, edges) {
 }
 
 /**
- * Canvas の札を自動的に並べる（計画 U05）。
+ * Canvas の札を自動的に並べる。
  * @param nodes 配列。各要素 {id, type: "card"|"group"|"text", x, y, width, height, group: string|null}
  *              （C-C の show の nodes をそのまま渡してよい。余分な欄は無視する）
  * @param edges 配列。各要素 {from, to}（C-C の edges をそのまま渡してよい）

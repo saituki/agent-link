@@ -1,5 +1,5 @@
 "use strict";
-// agent-link-web の設定画面（実装計画 U5・共有契約 C-F1）。
+// agent-link-web の設定画面。
 //
 // 住所は 2 つ:
 //   一覧   #/project/<name>/defs
@@ -7,12 +7,12 @@
 // 中身は .agent-link/blocks/*.md・.agent-link/template/*.md・.agent-link/settings.json を、
 // このプロジェクトと全プロジェクト共通（~/.agent-link）の両方で一覧・編集・
 // 新規作成・削除できるもの。壊れた定義は保存されない（検査は agent-link がする・
-// main.py の phone_def_write）。画面では名前の規則だけ見る。
+// main.py の cli_def_write）。画面では名前の規則だけ見る。
 //
 // 画面は素の JavaScript。md の整形は markdown.js の renderMarkdown。
 // DOM を使わない純関数（dfValidName / dfTemplate / dfGroups / dfHash / dfParseHash）は
 // 末尾で node に渡す（tests/test_defs.js）。
-// 一番外側の名前は df / DF_ で始める（C-F6）。
+// 一番外側の名前は df / DF_ で始める。
 
 // --- 定数 ---
 
@@ -192,7 +192,7 @@ function dfItemApi(name, kind, scope, defName) {
 }
 
 // ============================================================================
-// index.html への読み込みの保険（C-F2）
+// index.html への読み込みの保険
 // ============================================================================
 // 共通部品の ui.js と、この画面の CSS は index.html から読む（U4 が足す）。
 // 読み込みがまだ無い環境でも画面が動くように、ここでも足してから開く。
@@ -245,7 +245,7 @@ function dfBuild() {
     back.setAttribute("aria-label", "Back to list");
     back.addEventListener("click", () => dfLeave(dfListHash(dfName)));
   } else {
-    // 一覧の画面は 4 画面共通の見出し（‹ プロジェクト名 切り替え・U01 §3）
+    // 一覧の画面は 4 画面共通の見出し（‹ プロジェクト名 切り替え）
     back.setAttribute("aria-label", "Back to projects");
     back.addEventListener("click", () => { location.hash = "#/projects"; });
   }

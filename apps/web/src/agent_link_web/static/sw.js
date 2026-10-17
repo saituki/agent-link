@@ -3,13 +3,13 @@
    会話データはキャッシュしない（古い会話が残ると状況を誤解して危険なため）．
 
    画面ファイル（index.html / app.js / style.css など）は
-   **ネットワーク優先・失敗したらキャッシュ**（02 §3.3）。
+   **ネットワーク優先・失敗したらキャッシュ**。
    以前はキャッシュ優先でキャッシュ名が固定のため，サーバーを直しても
    iPhone に古い app.js が残っていた。キャッシュ名はバージョンを上げ，
    activate 時に古いバージョンを消す（04 で /stats.js，05 で v4，06 で /project.js と v5，
    07 で /papers.js と v6，08 で v7＝Discover と過去の検索結果，09 で /radio.js と v8＝Radio）。
    09 からダウンロードした音声は別々の倉庫（agent-link-web-radio-audio）に保存し，
-   再生用に Range の部分取り（206）もここで返す（09 §4.9）。 */
+   再生用に Range の部分取り（206）もここで返す。 */
 
 // バージョンを上げたら ASSETS も見直す（09 で radio.js を追加，10 で pcm-worklet.js を追加し v9，
 // 10 の文字の質問の直し（radio.js の ID 判定）で v10 に。古い radio.js が端末に残らないように。
@@ -27,7 +27,7 @@
 // Agent の ⓘ で版の確認と入れ替えをできるようにして v22 に（index.html の ?v= も 22）
 // 調べもの用の記録（通知の飛び先）を消して v23 に
 // Usage タブ（usage.js 追加と index.html / style.css / app.js の更新）で v24，見た目の手直しで v25 に
-// ■ 終了（U02）・List の session と 📊 の行き先（U11）・MCP の道具の色（U12）で v26 に（index.html の ?v= も 26）
+// ■ 終了・List の session と 📊 の行き先・MCP の道具の色で v26 に（index.html の ?v= も 26）
 // 質問の読み上げ（U01・voiceask.js）と図の配置の純関数（U05・canvaslayout.js）で v27 に（index.html の ?v= も 27）
 // U4（画面の土台・md の色・ホーム画面）：ui.js と markdown.css / home.js / home.css を追加し、
 // U5・U6 用の空のファイル（workflow.js / defs.js / paperimport.js とそれぞれの CSS）も先に登録して v28 に
@@ -51,7 +51,7 @@
 // （index.html の ?v= も 44。ASSETS は変えない・<linkview.js> は入っていた）
 // U04（defs.js の新規ブロックのひな形。依頼の古い記法を消して「# 指示」の 1 行にした）で v46 に
 // （index.html の ?v= も 46。ASSETS は変えない・defs.js は入っていた）
-// research-tree の専門語を英語の大文字に統一した（U22）で v47 に
+// research-tree の専門語を英語の大文字に統一したで v47 に
 // （index.html の ?v= も 47。ASSETS は変えない・足したファイルは無い）
 // リモートブラウザの画面（当時の 2 ファイル）と日本語 PDF ボタンで v48 に
 // （index.html の ?v= も 48。ASSETS に 2 ファイルを足した。この 2 ファイルは U05 で削除した）
@@ -113,7 +113,7 @@
 // Dashboard の文書の検索を会話検索の画面に統合（Dashboard の検索カードを消し、ASSETS から外した）で v111 に（index.html の ?v= も 111）
 // research-tree の図の道具に step の札（◀ 番号 /総数 ▶）を足して過去の step を表示する（scitree.js・scigraph.js・scitree.css）で v116 に（index.html の ?v= も 116。ASSETS は変えない）
 // Chats の反映待ち・Usage の Claude のカード・Runs の失敗の分類（app.js・usage.js・linkview.js）で v117 に（index.html の ?v= も 117。ASSETS は変えない）
-// feat/rt-engine-guide2（SEED の削除・move_node・regroup・seed の 5 状態など・v118）と sai-ts の UI 刷新（v119）を main で合わせて v120 に。
+// feat/rt-engine-guide2（SEED の削除・move_node・regroup・seed の 5 状態など・v118）と別製品の UI 刷新（v119）を main で合わせて v120 に。
 // seed の問いと sprout の回答（U02・v121。index.html の ?v= も 121。ASSETS は変えない）
 // seed と SPROUT の並びを ROOT の真ん中に寄せた（scigraph.js・v122。index.html の ?v= も 122。ASSETS は変えない）
 // seed を S の選択で濃く残し、seed から top_Q へ線を引いた（scigraph.js・v123。index.html の ?v= も 123。ASSETS は変えない）
@@ -128,16 +128,16 @@
 // agent-link: 画面の文言を英語にした（A 組。v135）
 // agent-link: カードの作成で block を必須にした（v137。index.html の ?v= も 136。ASSETS は変えない）
 // agent-link: Workflow の札のドラッグ位置の二重加算を直した（v138。index.html の ?v= も 138。ASSETS は変えない）
-const CACHE = "agent-link-web-v138";
+const CACHE = "agent-link-web-v139";
 const ASSETS = ["/", "/index.html", "/style.css", "/markdown.css", "/home.css", "/workflow.css", "/defs.css", "/markdown.js", "/ui.js", "/app.js", "/chatorder.js", "/newchat.js", "/stats.js", "/project.js", "/linkview.js", "/cardform.js", "/sessionsearch.js", "/voiceask.js", "/canvaslayout.js", "/home.js", "/workflow.js", "/defs.js", "/manifest.json"];
 
 self.addEventListener("install", (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(ASSETS)).then(() => self.skipWaiting()));
 });
 
-// 古い倉庫かどうかを 1 か所で決める（U17）。
+// 古い倉庫かどうかを 1 か所で決める。
 // sai-moon の倉庫（`sai-phone-` で始まる名前と `sai-web-v` で始まる名前）はすべて古い。
-// `agent-link-web-v` で始まり今の版でない倉庫も古い。通知の飛び先（agent-link-web-open）は版の名前ではないので消さない（05 §6）。
+// `agent-link-web-v` で始まり今の版でない倉庫も古い。通知の飛び先（agent-link-web-open）は版の名前ではないので消さない。
 function swIsOldCache(name, current) {
   if (name.startsWith("sai-phone-") || name.startsWith("sai-web-v")) return true;
   return name.startsWith("agent-link-web-v") && name !== current;

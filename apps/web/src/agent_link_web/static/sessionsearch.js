@@ -1,4 +1,4 @@
-// 会話の検索の画面（U10）。
+// 会話の検索の画面。
 //
 // `agent-link session search`（エージェントの会話の履歴）と、文書（task / message / waggle）の本文検索を
 // Web から使う。住所は `#/project/<name>/sessions`（Project の上部の切り替えの 1 つ）。
@@ -12,7 +12,7 @@
 // DOM を使わない純関数で、tests/test_sessionsearch.js が確かめる。
 "use strict";
 
-// 選べる状態と種類（共有契約「会話の検索の口」）
+// 選べる状態と種類
 const SESS_STATUSES = ["todo", "pending", "running", "completed", "failed", "cancelled"];
 const SESS_TYPES = ["user", "agent", "thinking", "tool_call", "tool_name", "tool_result", "tool"];
 // 文書の種類（`GET /api/projects/{name}/search` の category）

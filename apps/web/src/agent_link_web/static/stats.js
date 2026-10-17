@@ -1,13 +1,13 @@
-// agent-link-web の統計画面（実装計画 04）の本体．
+// agent-link-web の統計画面の本体．
 //
 // app.js は「…/stats の住所への分岐」と「10秒ごとの読み直し」だけを担当し，
 // 画面の中身はすべてこのファイルにまとめてある（同時に 05 が app.js の
 // 質問カード部分を触るため，衝突を避けるため・04 の依頼の指定）。
-// グラフは SVG を手描きで作る（外部ライブラリは入れない・04 §2）。
-// データは GET /api/runs/{project}/{run_id} の stats をそのまま使う（04 §3）。
+// グラフは SVG を手描きで作る（外部ライブラリは入れない）。
+// データは GET /api/runs/{project}/{run_id} の stats をそのまま使う。
 "use strict";
 
-// --- 数字の整形（node のテストからも使う・04 §5） ---
+// --- 数字の整形（node のテストからも使う） ---
 
 /** トークン数を短く表示する（606000 → 606K，1234567 → 1.2M）． */
 function formatTokens(n) {
@@ -41,7 +41,7 @@ function formatDuration(ms) {
   return `${s}s`;
 }
 
-/** そのままの数を桁区切りで（凡例では 606,000 と正確に出す・04 §1-2）． */
+/** そのままの数を桁区切りで（凡例では 606,000 と正確に出す）． */
 function formatCount(n) {
   const v = Number(n);
   if (!Number.isFinite(v)) return "0";
@@ -72,7 +72,7 @@ function num(v) {
   return Number.isFinite(x) ? x : 0;
 }
 
-/** stats はあるが全部 0 のとき true（「統計データがありません」表示・04 §1-4）． */
+/** stats はあるが全部 0 のとき true（「統計データがありません」表示）． */
 function isEmptyStats(stats) {
   if (!stats || typeof stats !== "object") return true;
   const t = stats.tokens || {};
@@ -97,7 +97,7 @@ function tokenParts(tokens) {
   ];
 }
 
-/** 棒グラフの行：多い順に上位 limit 個，残りは「その他」にまとめる（04 §1-2 の4番）． */
+/** 棒グラフの行：多い順に上位 limit 個，残りは「その他」にまとめる． */
 function toolBarRows(stats, limit = 10) {
   const byName = (stats && stats.tool_calls_by_name) || {};
   const entries = Object.entries(byName)
@@ -121,9 +121,9 @@ const STATUS_LABEL = {
   cancelled: { text: "⚠ Cancelled", cls: "st-failed" },
 };
 
-// 表示中の実行の住所（戻るボタンでメッセージ画面に戻るため・04 §1-1）
+// 表示中の実行の住所（戻るボタンでメッセージ画面に戻るため）
 const STATS_POS = { project: "", id: "" };
-// 読み終わった実行は10秒ごとに読み直さない（04 §3：開いたときに1回だけ）
+// 読み終わった実行は10秒ごとに読み直さない（開いたときに1回だけ）
 let statsFinished = false;
 // 同じ内容を描き直してグラフが毎回動き直さないようにする
 let statsLastJson = "";
@@ -166,7 +166,7 @@ async function loadStats() {
     if (!res.ok) throw new Error("bad");
     data = await res.json();
   } catch {
-    // 切れている間も他の画面と同じく帯だけ出して次に回す（04 §3）
+    // 切れている間も他の画面と同じく帯だけ出して次に回す
     setOffline(true);
     onFail();
     return;
@@ -178,7 +178,7 @@ async function loadStats() {
   renderStats(data);
 }
 
-/** 10秒ごとに呼ばれる読み直し（実行中のみ・04 §3）． */
+/** 10秒ごとに呼ばれる読み直し（実行中のみ）． */
 async function pollStats() {
   if (statsFinished) return;
   await loadStats();
@@ -187,7 +187,7 @@ async function pollStats() {
 // --- 描画 ---
 
 function renderStats(data) {
-  // 見出し（04 §1-1）は実行中でも出す
+  // 見出しは実行中でも出す
   document.getElementById("stats-title").textContent =
     `#${data.run_id} ${data.block_name || ""}`.trim();
   document.getElementById("stats-desc").textContent = data.description || "";
@@ -196,7 +196,7 @@ function renderStats(data) {
   const cards = document.getElementById("stats-cards");
   cards.innerHTML = "";
 
-  // 実行中は「未集計」（00 §5 / 04 §1-3）
+  // 実行中は「未集計」
   if (data.status === "running") {
     statsFinished = false;
     cards.appendChild(
@@ -208,7 +208,7 @@ function renderStats(data) {
 
   const stats = data.stats;
   if (isEmptyStats(stats)) {
-    // stats 無し・全部 0（04 §1-4）
+    // stats 無し・全部 0
     cards.appendChild(el("p", "st-note", "No stats data"));
     return;
   }
@@ -243,7 +243,7 @@ function bigCard(label, value, note) {
 }
 
 function renderCards(cards, stats, data) {
-  // 1. 大きな数字3つ（04 §1-2）
+  // 1. 大きな数字3つ
   const bigs = el("div", "st-bigs");
   const cost = (stats.cost_usd || {}).total;
   const costValue =
@@ -260,11 +260,11 @@ function renderCards(cards, stats, data) {
   bigs.appendChild(bigCard("Total tokens", formatTokens((stats.tokens || {}).total), ""));
   cards.appendChild(bigs);
 
-  // 2. 円グラフ（ドーナツ型）: トークン内訳（04 §1-2 の3番）
+  // 2. 円グラフ（ドーナツ型）: トークン内訳
   cards.appendChild(tokenCard(stats));
-  // 3. 横棒グラフ: ツール別使用回数（04 §1-2 の4番）
+  // 3. 横棒グラフ: ツール別使用回数
   cards.appendChild(toolCard(stats));
-  // 4. 小さな補足行（04 §1-2 の5番）
+  // 4. 小さな補足行
   cards.appendChild(footCard(stats));
   animateCharts();
 }
@@ -399,13 +399,13 @@ function footCard(stats) {
   card.appendChild(line);
 
   if (stats.cost_source === "cc") {
-    // cc 自身の金額は合計しか持たないため内訳は概算（00 §3.4）
+    // cc 自身の金額は合計しか持たないため内訳は概算
     card.appendChild(el("div", "st-foot-note", "Breakdown is an estimate"));
   }
   return card;
 }
 
-// 描いたばかりの棒とドーナツを少し動かして出す（CSS transition・04 §2）。
+// 描いたばかりの棒とドーナツを少し動かして出す（CSS transition）。
 // 「動きを減らす」と言っているときは最初から最後の姿で描く（アニメーションの規則）。
 function animateCharts() {
   const finish = () => {
@@ -423,7 +423,7 @@ function animateCharts() {
   requestAnimationFrame(finish);
 }
 
-// --- node からの読み込み（tests/test_stats.js・04 §5） ---
+// --- node からの読み込み（tests/test_stats.js） ---
 if (typeof module !== "undefined" && module.exports) {
   module.exports = {
     formatTokens,
@@ -440,7 +440,7 @@ if (typeof module !== "undefined" && module.exports) {
 if (typeof window !== "undefined") {
   // app.js のルーティングから呼ばれる入口
   window.SaiStats = { open: openStats, poll: pollStats };
-  // 戻るボタンはメッセージ画面へ（04 §1-1）
+  // 戻るボタンはメッセージ画面へ
   document.getElementById("stats-back").addEventListener("click", () => {
     location.hash = `#/run/${encodeURIComponent(STATS_POS.project)}/${encodeURIComponent(STATS_POS.id)}`;
   });
