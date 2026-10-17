@@ -6,7 +6,7 @@
 //!
 //! ## 2段階の実行モデル
 //!
-//! TUI からの利用を想定し、パイプラインは「準備」と「実行」の 2 段階に分割されています。
+//! 呼び出し元が確認を挟めるように、パイプラインは「準備」と「実行」の 2 段階に分割されています。
 //!
 //! ### 段階1: `prepare_pipeline()` — ユーザー確認前の準備
 //!
@@ -14,7 +14,7 @@
 //! use agent_link_engine::orchestrator::prepare_pipeline;
 //!
 //! let prepared = prepare_pipeline(&config)?;
-//! // ユーザーに pi コマンドを表示して確認を求める
+//! // ユーザーに起動コマンドを表示して確認を求める
 //! println!("実行コマンド:\n{}", prepared.pi_command);
 //! ```
 //!
@@ -25,7 +25,7 @@
 //! use agent_link_engine::pane::SplitDirection;
 //!
 //! let handle = spawn_pipeline(prepared, SplitDirection::Right, 300_000, false);
-//! // TUI の描画ループ内で進捗をポーリング
+//! // 呼び出し元のループ内で進捗をポーリング
 //! loop {
 //!     let progress = handle.get_progress();
 //!     match progress {
@@ -98,7 +98,7 @@ pub struct PipelineConfig {
     pub timeout_ms: u64,
     /// デバッグ用にペインを維持するかどうか（デフォルト: `false`）
     pub keep_pane: bool,
-    /// 実行ID（ペインラベル用。CLI/TUI から設定される）
+    /// 実行ID（ペインラベル用。CLI から設定される）
     pub run_id: Option<i64>,
     /// バッチ実行時に事前作成されたタブの ID（U2・R4。None は従来の分割方式）
     pub tab_id: Option<String>,
@@ -161,7 +161,7 @@ impl Default for PipelineConfig {
 /// パイプライン実行結果（完了時のみ）。
 #[derive(Debug, Clone)]
 pub struct PipelineResult {
-    /// エージェントの最終出力テキスト（TUI確認用）
+    /// エージェントの最終出力テキスト（確認用）
     pub output: String,
     /// 終了コード（0 = 成功、1 = エラー、130 = ユーザーキャンセル）
     pub exit_code: i32,
@@ -177,13 +177,13 @@ pub struct PipelineResult {
     pub output_type: String,
     /// 入力として使った waggle トークン一覧
     pub input_waggle_tokens: Vec<String>,
-    /// pi起動時のHEADコミットハッシュ（再現性用）
+    /// 起動時のHEADコミットハッシュ（再現性用）
     pub git_commit_before: Option<String>,
-    /// pi終了時のHEADコミットハッシュ（再現性用）
+    /// 終了時のHEADコミットハッシュ（再現性用）
     pub git_commit_after: Option<String>,
     /// セッション統計情報の JSON
     pub session_stats_json: Option<String>,
-    /// 実行時の pi 起動コマンド全文（右SBセッション再開用）
+    /// 実行時の起動コマンド全文（セッション再開用）
     pub pi_command: String,
     /// 実行ID（サブタスク実行時に DB で作成された execution_history.id）
     pub execution_id: Option<i64>,
@@ -230,13 +230,13 @@ impl From<SessionError> for OrchestratorError {
 /// デーモンは `file_written` 通知（sai-write）を処理した際、
 /// 通知の `run_id` に対応する実行の監視チャネルへこのイベントを送信します。
 /// 実行監視スレッドは sai-write をトークンの収集にだけ使い、完了は `FinalizeRequested`
-/// で判定します（メインは `/agent-link-finalize`、サブは `task_report`。P6-2）。
+/// で判定します（メインは `/agent-link-finalize`、サブは `task_report`）。
 ///
 /// `FinalizeRequested` はメインではユーザーが `/agent-link-finalize` を入力した際、
 /// サブでは `task_report` が `finalize_request` を書いた際にデーモンから送信され、
 /// 出力抽出・統計保存を実行して正常完了とします（ケース5）。
 ///
-/// `DaemonShutdown` はデーモン停止時（SIGTERM 受信・P0-2）に全実行監視スレッドへ
+/// `DaemonShutdown` はデーモン停止時（SIGTERM 受信）に全実行監視スレッドへ
 /// 送られる切断イベントである。受信側は残留 `SaiWriteDetected` を回収し、
 /// 利用可能な出力があれば完了処理へ進み、無ければ失敗確定へ進む。
 #[derive(Debug, Clone)]
@@ -417,12 +417,12 @@ pub fn resolve_execution_settings(
 ///
 /// 起動前の準備（プレースホルダー展開、セッションディレクトリ作成、
 /// コマンド構築）の結果を保持します。
-/// TUI はこの内容をユーザーに表示して実行確認を求めます。
+/// 呼び出し元はこの内容をユーザーに表示して実行確認を求められます。
 #[derive(Debug, Clone)]
 pub struct PreparedPipeline {
-    /// ユーザーに表示する完全な pi 起動コマンド文字列
+    /// ユーザーに表示する完全な起動コマンド文字列
     pub pi_command: String,
-    /// pi コマンドの引数リスト（デバッグ用）
+    /// 起動コマンドの引数リスト（デバッグ用）
     pub pi_args: Vec<String>,
     /// セッションディレクトリのパス
     pub session_dir: PathBuf,
@@ -430,11 +430,11 @@ pub struct PreparedPipeline {
     ///
     /// 最初に `# task_text` の節を置き、そのほかの入力値を `# <id>` の節にして並べる
     /// （節の作り方は `split_fixed_and_variable`）。template と block.md の本文（固定部分）は
-    /// [`PreparedPipeline::system_prompt`] に入り、`system-prompt.md` 経由で渡す（U6・C10）。
+    /// [`PreparedPipeline::system_prompt`] に入り、`system-prompt.md` 経由で渡す。
     pub expanded_prompt: String,
     /// 固定部分（system prompt・template と本文の案内文に置き換えたもの）。
     /// run フォルダの `system-prompt.md` に書いて、起動コマンドの
-    /// `--append-system-prompt`（pi）/ `--append-system-prompt-file`（cc）で渡す（U6）。
+    /// `--append-system-prompt-file`（cc）で渡す。
     /// ファイルに書けなかったときは、この内容を最初の文の先頭に付けている。
     pub system_prompt: String,
     /// ブロック名
@@ -445,7 +445,7 @@ pub struct PreparedPipeline {
     pub uses_doc_write: bool,
     /// 入力として解決された waggle トークン一覧
     pub input_waggle_tokens: Vec<String>,
-    /// pi起動時のHEADコミットハッシュ（再現性用）
+    /// 起動時のHEADコミットハッシュ（再現性用）
     pub git_commit_before: Option<String>,
     /// 実行ID（ペインラベル用。`prepare_pipeline()` では設定されず、呼び出し元が設定する）
     pub run_id: Option<i64>,
@@ -469,12 +469,12 @@ pub struct PreparedPipeline {
 }
 
 // ============================================================================
-// PipelineProgress — 実行中の進捗状態（TUIポーリング用）
+// PipelineProgress — 実行中の進捗状態（ポーリング用）
 // ============================================================================
 
 /// パイプラインの実行状態。
 ///
-/// TUI の描画ループから定期的に `PipelineHandle::get_progress()` で取得し、
+/// 呼び出し元が定期的に `PipelineHandle::get_progress()` で取得し、
 /// 進捗表示に使用します。
 #[derive(Debug, Clone, PartialEq)]
 pub enum PipelineProgress {
@@ -482,14 +482,14 @@ pub enum PipelineProgress {
     Pending,
     /// 擬似 pane 作成中
     SplittingPane,
-    /// 待機中（シェル初期化 / pi初期化 / アイドル確認 / 作業開始確認 / 完了待機）
+    /// 待機中（シェル初期化 / cc 初期化 / アイドル確認 / 作業開始確認 / 完了待機）
     Waiting {
         /// 現在の待機ステップ名
         step: String,
         /// 経過秒数
         elapsed_secs: u64,
     },
-    /// pi が作業中（プロンプト送信済み、実行中）
+    /// cc が作業中（プロンプト送信済み、実行中）
     Running {
         /// 作業開始からの経過秒数
         elapsed_secs: u64,
@@ -508,9 +508,9 @@ pub enum PipelineProgress {
         waggle_tokens: Vec<String>,
         /// セッション統計情報の JSON（トークン数・ツール呼び出し回数など）
         session_stats_json: Option<String>,
-        /// pi起動時のHEADコミットハッシュ
+        /// 起動時のHEADコミットハッシュ
         git_commit_before: Option<String>,
-        /// pi終了時のHEADコミットハッシュ
+        /// 終了時のHEADコミットハッシュ
         git_commit_after: Option<String>,
         /// 実行に使用した擬似 pane ID（自動削除用）
         pane_id: String,
@@ -530,12 +530,12 @@ pub enum PipelineProgress {
 
 /// バックグラウンドで実行中のパイプラインを制御するハンドル。
 ///
-/// `spawn_pipeline()` から即座に返され、TUI はこのハンドルを通じて
+/// `spawn_pipeline()` から即座に返され、呼び出し元はこのハンドルを通じて
 /// 進捗ポーリングとキャンセルを行います。
 pub struct PipelineHandle {
-    /// 現在の進捗状態（Mutex で保護、TUI が定期的に読む）
+    /// 現在の進捗状態（Mutex で保護、呼び出し元が定期的に読む）
     progress: Arc<Mutex<PipelineProgress>>,
-    /// キャンセルフラグ（TUI が `true` にセットする）
+    /// キャンセルフラグ（呼び出し元が `true` にセットする）
     cancel_flag: Arc<AtomicBool>,
     /// 実行スレッドの JoinHandle（完了待機用）
     thread_handle: Option<JoinHandle<()>>,
@@ -544,15 +544,14 @@ pub struct PipelineHandle {
 impl PipelineHandle {
     /// 現在の進捗を取得する（ノンブロッキング）。
     ///
-    /// TUI の描画ループから呼び出します。
-    /// `Mutex` のロックは即座に取得されるため、UI のフレームレートに影響しません。
+    /// `Mutex` のロックは即座に取得されるため、呼び出し元のループを止めません。
     pub fn get_progress(&self) -> PipelineProgress {
         self.progress.lock().unwrap().clone()
     }
 
     /// 実行をキャンセルする。
     ///
-    /// TUI の「停止」ボタン押下時などに呼び出します。
+    /// 停止要求のときなどに呼び出します。
     /// バックグラウンドスレッドは次のチェックポイントで中断され、
     /// クリーンアップを実行してから停止します。
     pub fn cancel(&self) {
@@ -633,7 +632,7 @@ pub fn prepare_pipeline(config: &PipelineConfig) -> Result<PreparedPipeline, Orc
     // 遠隔の run は固定部分を遠隔に置くので、最初の文は入力値だけにする
     let variable_part = first_message.clone();
 
-    // ── pi起動前の Git コミットハッシュを取得（再現性用） ──
+    // ── 起動前の Git コミットハッシュを取得（再現性用） ──
     let git_commit_before = get_git_commit_hash();
 
     // ── Step 2: セッションディレクトリ作成 ──
@@ -875,7 +874,7 @@ struct RemoteScriptParts<'a> {
     cc_command: &'a str,
 }
 
-/// 遠隔の shell で走らせる 1 行（共有契約 C5）。
+/// 遠隔の shell で走らせる 1 行。
 ///
 /// tmux の `-e` は ssh を越えないので、中継とフックが Mac へ送る環境変数を、ここで直に書く。
 fn remote_script(p: &RemoteScriptParts) -> String {
@@ -1021,7 +1020,7 @@ fn write_system_prompt_file(run_id: Option<i64>, system_prompt: &str) -> Option<
 /// パイプラインを**別スレッドでバックグラウンド実行**します。
 ///
 /// この関数は即座に `PipelineHandle` を返します。
-/// TUI はこのハンドルを通じて進捗ポーリングとキャンセルを行います。
+/// 呼び出し元はこのハンドルを通じて進捗ポーリングとキャンセルを行います。
 /// 呼び出し元スレッドはブロックされません。
 ///
 /// # 引数
@@ -1110,7 +1109,7 @@ pub fn spawn_pipeline_with_watcher(
 /// エージェント実行パイプラインを**同期的に**実行します（CLI 互換）。
 ///
 /// 内部的には `prepare_pipeline()` + スレッド実行 + `join()` の
-/// 組み合わせです。TUI からの利用には `spawn_pipeline()` を使用してください。
+/// 組み合わせです。進捗を取りたいときは `spawn_pipeline()` を使用してください。
 ///
 /// # 引数
 ///
@@ -1629,12 +1628,11 @@ pub fn prepare_execution_record_full(
 }
 
 // ============================================================================
-// worktree 適用（lib/herdrs/runner.ts の Rust 移植・§7.1.6）
+// worktree 適用
 // ============================================================================
 
 /// worktree 指定からブランチ名を解決する。
 ///
-/// `lib/herdrs/runner.ts` の `resolveWorktreeBranch()` の移植。
 /// - `"isolation"` → `<block_name>-<run_id>`（実行ごとに一意）
 /// - `"none"` / 空 → `None`（worktree 不使用）
 /// - その他 → リテラルブランチ名（後方互換）
@@ -1885,7 +1883,7 @@ pub fn request_main_block_finalize(store: &crate::db::SaiStore, run_id: i64, pan
 /// 2. 実行レコード作成（`prepare_execution_record`、parent_run_id の有無のみ分岐）
 /// 3. worktree 適用（指定時）
 /// 4. パイプライン実行（`prepare_pipeline` + `spawn_pipeline_with_watcher` + join）
-///    ※ 完了条件は「pi idle/done」ではなく「自分の run_id の sai-write 検出」（D4）
+///    ※ 完了条件は「cc の idle/done」ではなく「自分の run_id の sai-write 検出」
 /// 5. sai-write 検出時: 出力抽出・統計抽出 → DB 更新（status=completed）
 /// 6. sai-write 検出以外の終了（timeout / pane 強制削除）: DB 更新（status=failed + error_message）
 ///
@@ -2097,7 +2095,7 @@ pub fn execute_block_pipeline_full(
             let from = crate::run_dir::TODO_OWNER;
             let to = crate::run_dir::RUNNING_OWNER;
             // DB 更新済み→移動の順序（R404）。失敗時は警告に留め巻き戻さない
-            // （実行自体は継続し、TUI は DB 状態で表示するため）
+            // （実行自体は継続し、表示は DB の状態に従うため）
             if let Err(e) = crate::run_dir::move_run_dir(run_id, from, to) {
                 eprintln!("[agent-link] run フォルダ移動に失敗 ({} → {}): {}", from, to, e);
             }
@@ -2107,7 +2105,7 @@ pub fn execute_block_pipeline_full(
     }
 
     // カードを使わない実行（task_create の子・直接実行）にも、カードと同じ形の task.md を
-    // run フォルダに置く。task.md の置き場と形を全経路で 1 つにし、Web / TUI の task 表示を共通にする。
+    // run フォルダに置く。task.md の置き場と形を全経路で 1 つにし、Web の task 表示を共通にする。
     write_run_task_md(store, run_id, &resolved, &user_inputs, task_id);
 
     // 3. worktree 適用（指定時。cwd を作業用コピー内の対応フォルダへ変更）。
@@ -2120,7 +2118,7 @@ pub fn execute_block_pipeline_full(
     let (cwd, remote) = resolve_pipeline_cwd(&overrides, worktree.as_deref(), &resolved.config.block_id(), run_id);
 
     // 4. 完了監視チャネルの登録（デーモン連携時）
-    //    ※ この時点で pi は未起動のため、自分の run_id の file_written 通知が
+    //    ※ この時点で cc は未起動のため、自分の run_id の file_written 通知が
     //       届くことはない（競合なし）。
     let completion_rx = if let Some(map) = watcher_map {
         let (tx, rx) = mpsc::channel::<CompletionEvent>();
@@ -2201,7 +2199,7 @@ pub fn execute_block_pipeline_full(
                     stamp_card_run_id(card_rel, run_id);
                 }
                 // `stamp_card_run_id` 失敗時も DB の `kanban_card_path` があれば
-                // カード側の `run_id` を補完する（TUI の todo/running 重複防止用）。
+                // カード側の `run_id` を補完する（todo/running の重複防止用）。
                 if let Ok(exec_after) = store.get_execution_by_id(run_id) {
                     if let Some(card_rel) = exec_after.kanban_card_path.as_deref() {
                         stamp_card_run_id(card_rel, run_id);
@@ -2250,7 +2248,7 @@ pub fn execute_block_pipeline_full(
             let err_msg = format!("{}", e);
             eprintln!("[agent-link] 実行失敗 (run_id={}): {}", run_id, err_msg);
             let _ = store.update_execution_error(run_id, &err_msg, 1);
-            // 失敗時もセッション統計を抽出して保存（TUI 右SB 表示用）
+            // 失敗時もセッション統計を抽出して保存（セッション統計の表示用）
             // session_dir は `update_execution_session_info` で事前に保存済みだが、
             // run フォルダの owner 移動で古くなるため現行正本を解決し直す。
             if let Ok(exec) = store.get_execution_by_id(run_id) {
@@ -2309,7 +2307,7 @@ pub fn remove_run_dir_files(run_id: i64) -> std::io::Result<()> {
 /// message 記録ファイルを置くディレクトリ（旧パス・移行期フォールバック用）。
 ///
 /// outputs 統一後の正本は `outputs/<owner>/<run_id>/message.md`。
-/// `pi agent` session jsonl から user / assistant message のみを抽出した md を
+/// セッション jsonl から user / assistant message のみを抽出した md を
 /// 保存する。既存ファイルは上書きする（再生成で最新化）。
 pub const MESSAGE_DIR: &str = ".agent-link/message";
 
@@ -2806,7 +2804,7 @@ fn is_subblock_allowed(
 /// 検索順序:
 /// 1. `.agent-link/blocks/<block_type>.md`
 /// 2. `blocks/<block_type>.md`
-/// 3. `lib/herdrs/blocks/<block_type>.md`
+/// 3. `lib/herdrs/blocks/<block_type>.md`（旧配置）
 /// 4. `~/.agent-link/blocks/<block_type>.md`（グローバル・全プロジェクトで使用可能）
 pub fn resolve_block_path(block_type: &str) -> std::path::PathBuf {
     // まず .agent-link/blocks/ ディレクトリを検索（プロジェクトルート基準）
@@ -2821,7 +2819,7 @@ pub fn resolve_block_path(block_type: &str) -> std::path::PathBuf {
         return path1;
     }
 
-    // lib/herdrs/blocks/ を検索
+    // 旧配置の lib/herdrs/blocks/ を検索
     let path2 = std::path::PathBuf::from("lib/herdrs/blocks").join(format!("{}.md", block_type));
     if path2.exists() {
         return path2;
@@ -2848,7 +2846,7 @@ pub fn resolve_block_path(block_type: &str) -> std::path::PathBuf {
 /// この関数は `spawn_pipeline()` / `spawn_pipeline_with_watcher()` から
 /// `std::thread::spawn` で呼び出されます。
 /// キャンセルフラグを定期的にチェックし、中断要求があればクリーンアップして
-/// 戻ります。進捗は `progress` に書き込まれ、TUI がポーリングで取得します。
+/// 戻ります。進捗は `progress` に書き込まれ、呼び出し元がポーリングで取得します。
 ///
 /// `completion_rx` が Some の場合（デーモン連携）、sai-write の完了判定を
 /// デーモンの通知処理ループからのイベントで行います（§4.2 ケース1）。
@@ -2910,7 +2908,7 @@ fn execute_pipeline_background(
         let label = format!("sai-{}-{}", prepared.block_name, run_id);
         let _ = pane_client.rename_pane(&pane_info.pane_id, &label);
     }
-    // sai-phone 書き出し用に pane_id を run セッション dir へ控える。
+    // run の書き出し用に pane_id を run セッション dir へ控える。
     // DB の herdr_pane_id は完了時にしか入らず，ラベルはプロジェクト間で重なるため。
     // DB は task_manager の分岐に使われるので触らない。失敗しても実行は続ける。
     let _ = std::fs::write(
@@ -2962,7 +2960,7 @@ fn execute_pipeline_background(
     ) {
         Ok(()) => {}
         Err(OrchestratorError::Timeout { .. }) => {
-            // タイムアウトは警告ログ相当だが続行（TUI には表示しない）
+            // タイムアウトは警告ログ相当だが続行（表示しない）
         }
         Err(OrchestratorError::Cancelled) => {
             *progress.lock().unwrap() = PipelineProgress::Cancelled;
@@ -3006,8 +3004,8 @@ fn execute_pipeline_background(
     }
 
     // ---- Step 13-15: 完了待機 → 出力抽出 → クリーンアップ ----
-    // 完了判定は「pi idle/done」ではなく「自分の run_id の sai-write 検出」（D4）。
-    // `execute_completion_normal` は廃止し、全ブロックを sai-write 方式に統一する（§7.1.3・D22）。
+    // 完了判定は「cc の idle/done」ではなく「自分の run_id の sai-write 検出」。
+    // 全ブロックを sai-write 方式に統一している。
     execute_completion_with_doc_write(
         &pane_client,
         &pane_info.pane_id,
@@ -3210,8 +3208,8 @@ fn timeout_alert_message(timeout_ms: u64, elapsed: Duration, pane_id: &str) -> S
 
 /// SaiWriteDetected 受信時に `run_batches` を finalized にしてよいか。
 ///
-/// `run_batches` はメインブロック（親実行なし）の TUI フェーズ表示専用のため、
-/// サブブロック（親実行あり）では触らない（P6-2）。
+/// `run_batches` はメインブロック（親実行なし）のフェーズ表示専用のため、
+/// サブブロック（親実行あり）では触らない。
 fn should_finalize_run_batch(parent_run_id: Option<i64>) -> bool {
     parent_run_id.is_none()
 }
@@ -3225,14 +3223,14 @@ fn should_finalize_run_batch(parent_run_id: Option<i64>) -> bool {
 /// - pane 消滅 → ケース3（強制終了）
 ///
 /// `completion_rx` が None の場合（デーモン非使用）:
-/// 従来どおり通知ディレクトリを自己ポーリングし、pi idle/done でも完了する
-/// （後方互換・テスト用）。
-/// セッションファイルとペインは保持する（`pi resume` での復元用）。
+/// 従来どおり通知ディレクトリを自己ポーリングし、cc の idle/done でも完了する
+/// （テスト用）。
+/// セッションファイルとペインは保持する（再開用）。
 ///
 /// `completion_rx` が Some の場合（デーモン使用）:
-/// SaiWriteDetected イベントを待つ。ユーザーが pane を削除した場合（§4.2 ケース4）、
+/// SaiWriteDetected イベントを待つ。ユーザーが pane を削除した場合（ケース4）、
 /// その時点で利用可能な出力を抽出して正常完了とみなす。これにより、
-/// ユーザーが ctrl+d で pi を終了 → pane 削除 した場合でも、
+/// ユーザーが cc を終了 → pane 削除 した場合でも、
 /// "completed" ステータスになる。
 fn execute_completion_with_doc_write(
     pane_client: &PaneClient,
@@ -3346,7 +3344,7 @@ fn execute_completion_with_doc_write(
                     //   pane は維持され、メインブロックが `task_manage(finalize)` で削除・確定する。
                     //
                     // メインブロックのみ、sai-write 検出で最新の open 実行バッチを finalized にする。
-                    // TUI はこのフラグで最終フェーズノード（P_n = sai-write 由来）を合成する。
+                    // このフラグで最終フェーズノード（P_n = sai-write 由来）を合成する。
                     // サブブロックでは親の実行バッチを触らない（run_batches はメイン専用）。
                     if should_finalize_run_batch(prepared.parent_run_id) {
                         if let Some(run_id) = prepared.run_id {
@@ -3432,7 +3430,7 @@ fn execute_completion_with_doc_write(
                     // pane 消滅チェック（§4.2 ケース3・4）
                     // 閉じた pane への操作はエラー種別が不定（ApiError / IoError 等）のため、
                     // 連続エラーで pane 消滅と判定する（一時エラーはグレースで回避）。
-                    // ユーザーが ctrl+d で pi を終了 → pane を削除した場合（ケース4）、
+                    // ユーザーが cc を終了 → pane を削除した場合（ケース4）、
                     // その時点で利用可能な出力を抽出して正常完了とする。
                     match pane_client.get_pane_status(pane_id) {
                         Ok(info) => {
@@ -3697,7 +3695,7 @@ pub struct TurnResult {
 /// これにより、サブエージェント自身の実装意図を保ったまま、
 /// マージコンフリクトの解消などの追加工事を指示できる。
 ///
-/// 完了判定 = pi のエージェントステータスが idle/done に戻ること。
+/// 完了判定 = エージェントステータスが idle/done に戻ること。
 /// sai-write 通知があれば waggle トークンとして収集する（任意）。
 ///
 /// # 引数
@@ -3913,7 +3911,7 @@ fn interruptible_sleep(
 
 /// プロンプトを送信し、実際に送信されたことを確認する（F6）。
 ///
-/// 起動直後のエージェント TUI は確定キーを取りこぼすことがある
+/// 起動直後の cc は確定キーを取りこぼすことがある
 /// （テキストは入力欄に残り、エージェントは idle のまま）。
 /// そのため送信後に `agent_status` を監視し、`working` にならなければ
 /// 確定キーだけを再送する。
@@ -3938,7 +3936,6 @@ fn interruptible_sleep(
 /// # 可視性
 ///
 /// `agent_api::task_manage`（作業中タスクへの直接 `send`）からも使うため `pub(crate)`。
-/// シグネチャは変わらない（共有契約）。
 pub(crate) fn submit_prompt_verified(
     pane_client: &PaneClient,
     pane_id: &str,

@@ -1,6 +1,6 @@
 //! # 共通ユーティリティ
 //!
-//! agent-link / sai-tui で重複していた処理を一元化するモジュール（P12）。
+//! 重複していた処理を一元化するモジュール。
 //!
 //! - `extract_frontmatter_name` — ブロック定義の frontmatter から `name` を抽出
 //! - `collect_block_files` — ブロック定義ディレクトリの収集（ローカル優先 → グローバル `~/.agent-link/blocks`）
@@ -48,7 +48,7 @@ pub const EXIT_DB: i32 = 4;
 /// テストの直列化ロック。
 ///
 /// `AGENT_LINK_PROJECT_ROOT` を設定するテスト（run_dir / agent_api / cc_command / task_cwd）、
-/// 通知ディレクトリを操作するテスト（doc_write_notify）、pi コマンド文字列など
+/// 通知ディレクトリを操作するテスト（doc_write_notify）、起動コマンド文字列など
 /// 環境変数の影響を受ける結果を検証するテスト（orchestrator の `finalize_env_lock`）
 /// が共有する。実行順で環境が変わると assert が偶発失敗するため一元化した。
 #[cfg(test)]

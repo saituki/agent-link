@@ -53,7 +53,7 @@ pub struct BlockMetadata {
     pub id: Option<i64>,
     /// ブロックの機械可読 ID（`[a-z0-9_-]+` パターン、UNIQUE）
     pub name: String,
-    /// ブロックの表示名（sai-tui 表示用。emoji 可。`name` と同じでもよい）
+    /// ブロックの表示名（表示用。emoji 可。`name` と同じでもよい）
     pub display_name: String,
     /// ブロックの説明
     pub description: String,
@@ -254,11 +254,11 @@ pub struct ExecutionHistory {
     pub output_waggle_tokens: Option<String>,
     /// 出力タイプ: "document" | "code" | "both"
     pub output_type: String,
-    /// pi起動時のHEADコミットハッシュ（再現性用）
+    /// 起動時のHEADコミットハッシュ（再現性用）
     pub git_commit_before: Option<String>,
-    /// pi終了時のHEADコミットハッシュ（再現性用）
+    /// 終了時のHEADコミットハッシュ（再現性用）
     pub git_commit_after: Option<String>,
-    /// herdr pane ID
+    /// pane ID（欄名は昔の名前のまま残している）
     pub herdr_pane_id: Option<String>,
     /// エージェントプロセス ID
     pub pid: Option<i32>,
@@ -290,7 +290,7 @@ pub struct ExecutionHistory {
     pub timeout: Option<i32>,
     /// セッションディレクトリのパス
     pub session_dir: Option<String>,
-    /// 実行時の pi 起動コマンド全文
+    /// 実行時の起動コマンド全文
     pub pi_command: Option<String>,
     /// 実行に使ったカード md の相対パス（`.agent-link/todo/xxx.md`）
     pub kanban_card_path: Option<String>,
@@ -304,7 +304,7 @@ pub struct ExecutionHistory {
     pub workflow_moved: bool,
     /// エージェント側セッション ID（Claude Code の `--session-id` の UUID）。
     ///
-    /// pi 実行では `None`（pi は `session_dir` の JSONL パスで再開する）。
+    /// 旧実行（cc 以前の記録）では `None`。
     /// 旧 DB（カラムなし）は `None` 扱い。
     #[serde(default)]
     pub agent_session_id: Option<String>,
@@ -412,7 +412,7 @@ impl GitCommit {
 ///
 /// ブロックAの出力（waggle トークン / git commit）を
 /// ブロックBが入力として使用した関係を記録します。
-/// TUI のブロック線図描画に使用されます。
+/// ブロック線図の描画に使用されます。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BlockConnection {
     /// 主キー（自動採番、挿入前は `None`）
@@ -474,7 +474,7 @@ impl BlockConnection {
     }
 
     /// 新しい task_output 接続を作成する（サブ→親の出力返却関係）。    ///
-    /// `pi-sai` の `task_output` によって親ブロックがサブブロックの出力
+    /// `task_output` によって親ブロックがサブブロックの出力
     /// （waggle トークン）を受け取った場合に作成される。
     /// `task_delegation`（親→サブ）とは逆向きの関係。
     pub fn new_task_output(
@@ -656,10 +656,10 @@ pub struct ConnectionGroup {
 }
 
 // ---------------------------------------------------------------------------
-// WaggleTokenEntry — TUI の waggle トークン選択 UI 用
+// WaggleTokenEntry — waggle トークン選択用
 // ---------------------------------------------------------------------------
 
-/// TUI の waggle トークン選択 UI 用のエントリ。
+/// waggle トークン選択用のエントリ。
 ///
 /// `list_available_waggle_tokens()` の戻り値として使用され、
 /// 完了済み実行の各出力トークンを個別行として表現します。

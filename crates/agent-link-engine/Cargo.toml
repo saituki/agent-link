@@ -27,7 +27,7 @@ sha2 = "0.10"
 getrandom = "0.2"
 pollster = "0.4"
 rusqlite = { version = "0.32", features = ["bundled"] }
-# P0-2: SIGTERM/SIGINT 捕捉用（TUI が既に使用・ロック済みバージョンと同一）
+# SIGTERM/SIGINT 捕捉用（デーモンの停止時の確定終了）
 libc = "0.2"
 
 [dev-dependencies]

@@ -1,6 +1,6 @@
-//! セッション検索エンジン（仕様書 `docs/spec-session-search.md`）。
+//! セッション検索エンジン。
 //!
-//! `.agent-link/` 配下のブロック実行履歴（pi セッション jsonl）を 2 段階で検索する
+//! `.agent-link/` 配下のブロック実行履歴（セッション jsonl）を 2 段階で検索する
 //! コアロジックを提供する。CLI（`agent-link search`）から利用される。
 //! UI ロジックはこのクレートに置かない。
 //!
@@ -24,7 +24,7 @@
 //!     date: "2026/08/10-2026/08/20".to_string(),
 //!     status: String::new(),
 //!     type_: "user".to_string(),
-//!     word: "llm, agent-link-tui".to_string(),
+//!     word: "llm, agent-link".to_string(),
 //! };
 //! let query = parse_query(&raw)?;
 //! let hits = run_search(&store, &query)?;
@@ -133,7 +133,7 @@ impl DateRange {
     }
 }
 
-/// 検索フォームの生入力（TUI のテキストボックス / CLI の引数と共有）。
+/// 検索フォームの生入力（CLI の引数）。
 ///
 /// 各項目はまだ検証されていない文字列。空文字列は「条件なし」を表す。
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -186,7 +186,7 @@ pub struct SearchHit {
     pub turn: usize,
     /// マッチした content の 1 行抜粋
     pub snippet: String,
-    /// マッチした検索語（小文字化。TUI の強調表示用）
+    /// マッチした検索語（小文字化。強調表示用）
     pub matched_words: Vec<String>,
     /// 元 jsonl のパス（詳細表示用）
     pub session_path: PathBuf,
@@ -195,7 +195,7 @@ pub struct SearchHit {
 /// 検索対象プロジェクトの定義（L2: 複数プロジェクト検索用の入力型）。
 ///
 /// agent-link 単体では常に自プロジェクト 1 件（「プロジェクト内のみ」の原則は維持）。
-/// 複数件を渡すのは sai-control だけである（各プロジェクトの DB は read-only で開く）。
+/// 複数件を渡す場合、各プロジェクトの DB は read-only で開く。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProjectSource {
     /// 表示名（検索結果行・詳細表示に使用）
@@ -461,12 +461,12 @@ fn exec_start_date(started_at: &Option<String>) -> Option<NaiveDate> {
 // jsonl スキャン（仕様書 §4・§5.3）
 // ============================================================================
 
-/// 抜粋の最大文字数（表示幅に合わせ TUI 側でも切詰めるための上限）。
+/// 抜粋の最大文字数（表示幅に合わせて切り詰めるための上限）。
 const SNIPPET_MAX_CHARS: usize = 80;
 
 /// 会話 jsonl を 1 行ずつ走査し、type / word 条件にマッチしたヒットを返す。
 ///
-/// - pi の会話（行の `type` が `message`）と cc の会話（行の `type` が
+/// - 旧形式の会話（行の `type` が `message`）と cc の会話（行の `type` が
 ///   `user` / `assistant`）の両方を同じ走査で扱う。どちらの行も、候補を作ったあとの
 ///   種別絞り込み・語の AND・抜粋は共通の手順を通る
 /// - `turn` は 1 始まりの行番号（`session` ヘッダ行を含む全行カウント）
@@ -486,14 +486,14 @@ fn scan_session_file(
         let Ok(v) = serde_json::from_str::<serde_json::Value>(line) else {
             continue; // パース失敗行はスキップ
         };
-        // 行の `type` で会話の runner を判断する。`message` = pi、`user`/`assistant` = cc
+        // 行の `type` で会話の runner を判断する。`message` = 旧形式、`user`/`assistant` = cc
         let row_type = v.get("type").and_then(|t| t.as_str()).unwrap_or("");
 
         // (種別, 検索対象テキスト) の候補を収集する
         let mut candidates: Vec<(SearchHitType, String)> = Vec::new();
         match row_type {
             "message" => {
-                // pi の会話（message.role で user / assistant / toolResult を見分ける）
+                // 旧形式の会話（message.role で user / assistant / toolResult を見分ける）
                 let Some(msg) = v.get("message") else {
                     continue;
                 };
@@ -599,7 +599,7 @@ fn scan_session_file(
 ///
 /// cc の jsonl は行の `type` が `user` / `assistant` で、`message.content` に
 /// `text` / `thinking` / `tool_use` / `tool_result` の項目が並ぶ（content が
-/// 文字列の形式もある）。項目ごとに別々の候補にするのは pi 側と同じ。
+/// 文字列の形式もある）。項目ごとに別々の候補にするのは旧形式と同じ。
 fn collect_cc_candidates(
     row_type: &str,
     msg: &serde_json::Value,
@@ -634,7 +634,7 @@ fn collect_cc_candidates(
                             .get("input")
                             .map(|a| a.to_string())
                             .unwrap_or_default();
-                        // tool_call: ツール名 + 引数 JSON を対象にする（pi と同じ考え方）
+                        // tool_call: ツール名 + 引数 JSON を対象にする（旧形式と同じ考え方）
                         out.push((SearchHitType::ToolCall, format!("{name} {input}")));
                         // tool_name: ツール名のみ
                         if !name.is_empty() {
@@ -737,7 +737,7 @@ fn extract_snippet_line(text: &str, words: &[String], max_chars: usize) -> Strin
 /// 検索を実行する（仕様書 §7.4）。
 ///
 /// 1. DB フィルタで対象実行を決定 → 2. 会話 jsonl を特定（`resolve_transcript`。
-///    pi は run の `session_dir`、cc は `~/.claude/projects/…`）→
+///    旧形式は run の `session_dir`、cc は `~/.claude/projects/…`）→
 /// 3. type / word でマッチ抽出。結果は `(block_id, exec_id, turn)` 昇順で返す。
 ///
 /// 会話ファイルが見つからない実行はスキップする
@@ -748,7 +748,7 @@ pub fn run_search(store: &SaiStore, q: &SearchQuery) -> Result<Vec<SearchHit>, S
 
 /// [`run_search`] に読み飛ばした実行件数の報告を加えた版。
 ///
-/// 戻り値は `(ヒット一覧, スキップした実行数)`。TUI の警告表示用。
+/// 戻り値は `(ヒット一覧, スキップした実行数)`。警告表示用。
 pub fn run_search_verbose(
     store: &SaiStore,
     q: &SearchQuery,
@@ -758,7 +758,7 @@ pub fn run_search_verbose(
     let mut skipped = 0usize;
     // 会話ファイルの探し方は Web や `message.md` と同じ `resolve_transcript` にそろえる
     // （cc の run は `~/.claude/projects/…/<session_id>.jsonl` にあるため、
-    //   pi 用の `session_dir` だけを見ると必ずスキップになる）。
+    //   旧形式用の `session_dir` だけを見ると必ずスキップになる）。
     // owner 移動追従も `resolve_transcript` の中（`resolve_session_dir`）で行われる。
     let project_root = crate::project::project_root();
     for fe in &filtered {
@@ -780,7 +780,7 @@ pub fn run_search_verbose(
     Ok((hits, skipped))
 }
 
-/// 複数プロジェクトを対象に検索を実行する（L2・sai-control からの呼び出し用）。
+/// 複数プロジェクトを対象に検索を実行する（複数プロジェクト用）。
 ///
 /// 各プロジェクトの DB を **read-only** で開き（テーブル初期化・書き込みは行わない）、
 /// 条件絞り込み → jsonl 走査 → ヒットを日時降順（実行開始時刻の新しい順・同一実行内は
@@ -1071,7 +1071,7 @@ mod tests {
 
     /// cc（Claude Code）の会話のテスト用 jsonl を書き出す。
     ///
-    /// pi と違い、行の `type` が `user` / `assistant` で、`message.content` に
+    /// 旧形式と違い、行の `type` が `user` / `assistant` で、`message.content` に
     /// `text` / `thinking` / `tool_use` / `tool_result` の項目が並ぶ。
     fn write_test_cc_jsonl(dir: &std::path::Path) -> PathBuf {
         let path = dir.join("cccccccc-3333-4333-8333-333333333333.jsonl");

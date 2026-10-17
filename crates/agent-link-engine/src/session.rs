@@ -1,10 +1,7 @@
 //! # JSONL セッションファイル管理モジュール
 //!
-//! pi エージェントが出力する JSONL 形式のセッションファイルを作成・読み取り・
+//! エージェントが出力する JSONL 形式のセッションファイルを作成・読み取り・
 //! クリーンアップする機能を提供します。
-//!
-//! このモジュールは `lib/herdrs/session.ts` の TypeScript 実装と
-//! 同等の機能を Rust で提供します。
 //!
 //! ## JSONL フォーマット
 //!
@@ -1517,7 +1514,7 @@ pub struct HistoryEvent {
     pub name: String,
     /// 近似トークン数（エントリの文字数換算）
     pub tokens: u64,
-    /// 呼び出しの番号（cc は `tool_use.id`、pi は `toolCall.id`）
+    /// 呼び出しの番号（cc は `tool_use.id`、旧形式は `toolCall.id`）
     #[serde(skip_serializing_if = "Option::is_none")]
     pub call_id: Option<String>,
     /// Bash 系の道具の命令（`agent-link doc read` など）
@@ -1901,8 +1898,8 @@ fn visit_jsonl_files(dir: &Path, callback: &mut dyn FnMut(&Path)) -> Result<(), 
 // ============================================================================
 //
 // Claude Code のセッション JSONL は `~/.claude/projects/<cwd-slug>/<uuid>.jsonl`
-// に保存される（pi のように run フォルダ内ではない）。ここでは cc 実行の
-// 出力・統計を pi と同じ `SessionStats` 形式へ写像する。
+// に保存される（run フォルダ内ではない）。ここでは cc 実行の
+// 出力・統計を `SessionStats` 形式へ写像する。
 
 /// Claude Code のプロジェクトディレクトリ（`~/.claude/projects`）。
 pub fn claude_projects_dir() -> Option<PathBuf> {
@@ -2767,8 +2764,8 @@ fn is_sub_word(word: &str) -> bool {
 }
 
 /// cc の message.content（文字列 or `[{type,text}]` ブロック配列）から text のみを
-/// 取り出す。pi は常にブロック配列だが、cc の user メッセージは素の文字列で
-/// 入っていることが多いため、両形式を吸収する。
+/// 取り出す。cc の user メッセージは素の文字列で入っていることが多いため、
+/// 両形式を吸収する。
 fn cc_message_text(msg: &serde_json::Value) -> String {
     match msg.get("content") {
         Some(serde_json::Value::String(s)) => s.clone(),
@@ -2788,8 +2785,7 @@ fn cc_message_text(msg: &serde_json::Value) -> String {
 }
 
 /// Claude Code（cc）セッション JSONL 1 ファイルから user / assistant のテキストのみを
-/// 時系列で抽出する（message 画面用）。pi の `extract_user_assistant_messages` と
-/// 同形式の `(role, text)` リストを返す。
+/// 時系列で抽出する（message 画面用）。`(role, text)` のリストを返す。
 pub fn extract_cc_user_assistant_messages(
     path: &Path,
 ) -> Result<Vec<(String, String)>, SessionError> {
@@ -3593,7 +3589,7 @@ mod usage_tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// pi の toolCall と toolResult を call id で結ぶこと（C11）。対の無い結果は toolResult の行。
+    /// 旧形式の toolCall と toolResult を call id で結ぶこと。対の無い結果は toolResult の行。
     #[test]
     fn pi_history_pairs_by_tool_call_id() {
         let dir = tempfile::tempdir().unwrap();

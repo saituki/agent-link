@@ -5,15 +5,15 @@
 //!
 //! ## 通知プロトコル
 //!
-//! pi-sai (TypeScript) 側が `.agent-link/engine/notifications/pending/` に
-//! JSON 通知ファイルを書き込み、agent-link (Rust) がそれを監視・処理します。
+//! エージェント側（`agent-link task create` など）が `.agent-link/engine/notifications/pending/` に
+//! JSON 通知ファイルを書き込み、デーモンがそれを監視・処理します。
 //!
 //! ### 通知種別
 //!
 //! - `task_created` — サブタスク作成要求（バッチ確認）
 //! - `task_execute_request` — サブタスク実行要求
 //!
-//! ### 結果通知 (agent-link → pi-sai)
+//! ### 結果通知 (デーモン → エージェント側)
 //!
 //! - `task_completed` — `.agent-link/engine/notifications/results/` に書き込み
 //! - `task_failed` — 同上
@@ -32,7 +32,7 @@ use crate::pane::{PaneClient, SplitDirection};
 use crate::orchestrator::RunningExecutions;
 
 // ============================================================================
-// 通知/結果ディレクトリ定数（P17・5.5 の修正: common に一元化）
+// 通知/結果ディレクトリ定数（common に一元化）
 // ============================================================================
 
 /// 通知ディレクトリのベースパス（プロジェクトルート基準）
@@ -43,7 +43,7 @@ fn notify_base_dir() -> PathBuf {
 const PENDING_DIR: &str = crate::common::NOTIFY_PENDING;
 /// 処理済み通知の格納先
 const PROCESSED_DIR: &str = crate::common::NOTIFY_PROCESSED;
-/// 完了結果の格納先（新設: agent-link → pi-sai）
+/// 完了結果の格納先（デーモン → エージェント側）
 const RESULTS_DIR: &str = crate::common::NOTIFY_RESULTS;
 
 // ============================================================================
@@ -74,7 +74,7 @@ pub struct TaskCreatedNotification {
 /// 個別タスクの定義（通知内）。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TaskItem {
-    /// pi-sai 側の一時 ID（結果紐付け用）
+    /// エージェント側の一時 ID（結果紐付け用）
     pub client_id: String,
     /// タスク件名
     pub subject: String,
@@ -192,7 +192,7 @@ pub struct TaskManageRequestNotification {
 
 /// `task_output_used` 通知の JSON 構造。
 ///
-/// `pi-sai` の `task_output` がサブブロックの出力（waggle トークン）を
+/// `task_output` がサブブロックの出力（waggle トークン）を
 /// 親ブロックに返却したことを通知する。engine 側で sub→main の
 /// `task_output` 接続を作成するために使用する。
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -210,7 +210,7 @@ pub struct TaskOutputUsedNotification {
     pub waggle_tokens: Vec<String>,
 }
 
-/// `task_completed` 結果通知（agent-link → pi-sai）。
+/// `task_completed` 結果通知（デーモン → エージェント側）。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TaskCompletedResult {
     /// 通知タイプ: "task_completed"
@@ -238,7 +238,7 @@ pub struct TaskCompletedResult {
     pub round: i64,
 }
 
-/// `task_failed` 結果通知（agent-link → pi-sai）。
+/// `task_failed` 結果通知（デーモン → エージェント側）。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TaskFailedResult {
     /// 通知タイプ: "task_failed"
@@ -703,7 +703,7 @@ impl TaskManager {
         }
 
         // 実行バッチ作成（run_batches 行）。
-        // P ノード（フェーズノード）は実行レコードとしては作成しない（TUI が合成する）。
+        // P ノード（フェーズノード）は実行レコードとしては作成しない（表示側が合成する）。
         // 以前はここでメイン複製用実行レコード（mb_execution_id）を作成していたが廃止。
         let seq = self
             .store
@@ -1141,7 +1141,7 @@ impl TaskManager {
 
     /// `task_output_used` 通知を処理する。
     ///
-    /// 親ブロックが `pi-sai` の `task_output` でサブブロックの出力
+    /// 親ブロックが `task_output` でサブブロックの出力
     /// （waggle トークン）を受け取った場合に、サブ実行 → 親実行の
     /// `task_output` 接続を `block_connections` に作成する。
     ///
@@ -1196,7 +1196,7 @@ impl TaskManager {
         };
 
         // task_output の接続先は常に実メイン（parent_run_id）。
-        // フェーズノード（P_k）への割当は TUI 側でタスクのバッチ所属から合成するため、
+        // フェーズノード（P_k）への割当は表示側でタスクのバッチ所属から合成するため、
         // engine 側はメイン複製（mb_execution_id）を参照しない。
         let target_exec_id = parent_run_id;
 
@@ -1902,7 +1902,7 @@ impl TaskManager {
     }
 
     // -----------------------------------------------------------------------
-    // 結果通知の書き込み（agent-link → pi-sai）
+    // 結果通知の書き込み（デーモン → エージェント側）
     // -----------------------------------------------------------------------
 
     /// 結果通知 JSON を `results/` ディレクトリに書き込む。

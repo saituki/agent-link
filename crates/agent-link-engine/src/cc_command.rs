@@ -3,12 +3,11 @@
 //! `BlockConfig` から Claude Code の起動コマンド文字列を構築します。
 //! `orchestrator::prepare_pipeline` から使用されます。
 //!
-//! ## pi との違い
+//! ## 仕様
 //!
 //! - 起動バイナリは `claude`（`AGENT_LINK_CLAUDE_BIN` があればそれを優先する）
-//! - セッションは `--session-id <uuid>` で明示指定する（pi の `--session-dir` に相当）
-//! - `thinking` は Claude Code の `--effort <level>` として渡す
-//!   （pi では `--thinking`、cc では `--effort`。値は同一の 6 段階）
+//! - セッションは `--session-id <uuid>` で明示指定する
+//! - `thinking` は Claude Code の `--effort <level>` として渡す（6 段階）
 //! - cc は対話モードの `claude` を tmux の session の中で動かす（[`crate::tmux`]）。
 //!   `-p`（非対話）は使わないので、質問（AskUserQuestion）が道具として使える
 //!
@@ -52,7 +51,7 @@ pub const PLAYWRIGHT_MCP_PACKAGE: &str = "@playwright/mcp@0.0.82";
 /// `Skill` は残す。`agent-link init` がプロジェクトの `.claude/skills/` に design skill
 /// （`frontend-design` と `ui-ux-rules`）を配るため。`disableBundledSkills: true` なので
 /// cc が同梱している skill は読まれない（プロジェクトに配った分だけ使える）。
-/// `AskUserQuestion` は agent-link-web（iPhone 通知）が hook で使うため必ず残す。
+/// `AskUserQuestion` は agent-link-web（スマホ通知）が hook で使うため必ず残す。
 pub const CC_DENIED_TOOLS: &[&str] = &[
     "Agent",
     "Task",
@@ -220,8 +219,7 @@ impl CcCommandBuilder {
             push_pair(&mut args, "--settings", &settings.to_string_lossy());
         }
 
-        // 固定部分（system prompt）を足す（U6・C10）。
-        // pi とはフラグ名が違う（cc にはファイル版の引数がある）。
+        // 固定部分（system prompt）を足す（cc にはファイル版の引数がある）。
         if let Some(path) = self.system_prompt_file.as_deref() {
             push_pair(&mut args, "--append-system-prompt-file", path);
         }
@@ -286,7 +284,7 @@ pub const CC_ALLOWED_TOOLS: [&str; 14] = [
     "AskUserQuestion",
 ];
 
-/// pi 形式のモデル名を Claude Code が解釈できる名前に正規化する。
+/// `provider/model` 形式のモデル名を Claude Code が解釈できる名前に正規化する。
 ///
 /// - 空 / `inherit` → `None`（フラグ省略）
 /// - `anthropic/claude-sonnet-4-5` → `claude-sonnet-4-5`（接頭辞除去）
@@ -316,7 +314,7 @@ pub fn normalize_model(model: &str) -> Option<String> {
 /// - `low` / `medium` / `high` / `xhigh` / `max` → そのまま
 ///
 /// agent-link 上の項目名は `thinking` のままで、
-/// 実行時にのみ pi → `--thinking`、cc → `--effort` に対応する。
+/// 実行時に cc の `--effort` に対応する。
 pub fn normalize_effort(thinking: &str) -> Option<String> {
     let t = thinking.trim().to_lowercase();
     if matches!(t.as_str(), "low" | "medium" | "high" | "xhigh" | "max") {
@@ -461,7 +459,7 @@ fn settings_with(exe_cmd: &str, hooks: serde_json::Value) -> serde_json::Value {
 /// - `UserPromptSubmit`: `/agent-link-finalize` を LLM に送らず完了処理を行い（[`handle_prompt_hook`]）、
 ///   それ以外の文では状態を `working` にする
 /// - `Stop` / `SessionStart`: 状態を `idle` にする（`agent-link cc-state-hook idle`）。
-///   `SessionStart` は TUI が立ち上がったことの合図にもなる（起動直後に文を送らないため）
+///   `SessionStart` は cc が立ち上がったことの合図にもなる（起動直後に文を送らないため）
 /// - `PreToolUse`（全ツール）: 状態を決める（`agent-link cc-state-hook tool`）。`AskUserQuestion` なら `blocked`、ほかは `working`。
 ///   web の置き場の有無にかかわらず入れる。同じ PreToolUse のフックは並んで走るので、`matcher` は `""` 1 つにして入力の `tool_name` で分ける
 /// - `PostToolUse`（全ツール）: 状態を `working` にする（`agent-link cc-state-hook working`）。
@@ -503,7 +501,7 @@ fn hooks_json_with(exe_cmd: &str, web_cmd: Option<&dyn Fn(&str) -> String>) -> s
             "hooks": [{
                 "type": "command",
                 "command": script("cc_question"),
-                // 24 時間。フックが Web の答えを待つ（共有契約 C3）。
+                // 24 時間。フックが Web の答えを待つ。
                 "timeout": 86400,
             }],
         }));
@@ -648,8 +646,8 @@ fn finalize_prompt_report(input: &str) -> Option<String> {
 /// cc に `--mcp-config` で渡す、プロジェクトルートの `.mcp.json` を返す。
 ///
 /// worktree は commit 済みのファイルしか持たないため、`.mcp.json` が未 commit だと
-/// 作業用コピー内の pi は外部 MCP を読めない。その場合だけルートの設定を渡す。
-/// `cwd` 自身に `.mcp.json` があれば `None`（pi が cwd の `.mcp.json` を読む）。
+/// 作業用コピー内の cc は外部 MCP を読めない。その場合だけルートの設定を渡す。
+/// `cwd` 自身に `.mcp.json` があれば `None`（cc が cwd の `.mcp.json` を読む）。
 pub fn resolve_mcp_config(cwd: &Path) -> Option<std::path::PathBuf> {
     if cwd.join(".mcp.json").is_file() {
         return None;
@@ -979,7 +977,7 @@ mod tests {
         }
     }
 
-    /// pi 用: cwd に `.mcp.json` が無く、プロジェクトルートにだけあるときに
+    /// cwd に `.mcp.json` が無く、プロジェクトルートにだけあるときに
     /// ルートの `.mcp.json` を返す（作業用コピーに `.mcp.json` が無い場合）。
     #[test]
     fn resolve_mcp_config_falls_back_to_project_root() {
@@ -998,7 +996,7 @@ mod tests {
             Some(root.path().join(".mcp.json"))
         );
 
-        // cwd にもある → None（pi が cwd の .mcp.json を読む）
+        // cwd にもある → None（cc が cwd の .mcp.json を読む）
         std::fs::write(worktree.path().join(".mcp.json"), mcp_config_json().to_string()).unwrap();
         assert_eq!(resolve_mcp_config(worktree.path()), None);
 

@@ -1,13 +1,9 @@
 //! セッション jsonl の usage 集計ロジック（トークン / コスト）。
 //!
-//! 実装計画 01 §2.1 により、当初 `agent-link-view/src/cache_stats.rs` にあった
-//! **集計ロジックと型だけ** を engine へ移設したものである。
-//! 描画部分は TUI の削除に合わせて外し、agent-link-view は
+//! 集計ロジックと型だけを engine に置き、agent-link-view は
 //! `pub use agent_link_engine::usage_metrics::*;` で再公開する。
 //!
-//! **計算式は移設前と完全に同一**（TUI の Stats 画面と数字を一致させるため）。
-//!
-//! - pi セッション jsonl: [`collect_metrics_from_file`]
+//! - 旧形式（`message` 行）のセッション jsonl: [`collect_metrics_from_file`]
 //! - cc（Claude Code）セッション jsonl: [`collect_metrics_from_file_cc`]
 //! - cc のコスト概算: [`estimate_cc_cost`]（モデル名 × 公式単価）
 
@@ -16,7 +12,7 @@ use std::io::{BufRead, BufReader};
 use std::path::Path;
 
 // ============================================================================
-// 集計ロジック（sai-cache-tui-rs / cache_math.rs の移植）
+// 集計ロジック
 // ============================================================================
 
 /// コスト内訳（USD）。
@@ -143,7 +139,7 @@ pub fn compute_cumulative_series(messages: &[AssistantUsageMetric]) -> Cumulativ
 }
 
 // ============================================================================
-// jsonl パース（sai-cache-tui-rs / session.rs の移植）
+// jsonl パース
 // ============================================================================
 
 /// セッション内容のメッセージ数カウント。
@@ -155,7 +151,7 @@ pub struct SessionCounts {
     pub toolcall: usize,
 }
 
-/// pi セッション jsonl の最小限の serde モデル。
+/// 旧形式（`message` 行）のセッション jsonl の最小限の serde モデル。
 #[derive(Debug, serde::Deserialize)]
 struct RawEntry {
     #[serde(rename = "type")]
@@ -534,7 +530,7 @@ mod tests {
         assert!((compute_cache_hit_percent(100, 100, 0) - 50.0).abs() < 1e-9);
     }
 
-    /// テスト用の pi セッション jsonl を作成する。
+    /// テスト用の旧形式のセッション jsonl を作成する。
     fn write_sample_jsonl(dir: &Path) -> PathBuf {
         let path = dir.join("2026-08-29T10-00-00-main_test.jsonl");
         let lines = [

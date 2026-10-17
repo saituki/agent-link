@@ -121,7 +121,7 @@ pub struct BlockConfig {
     #[serde(default)]
     pub id: Option<String>,
 
-    /// ブロックの表示名（sai-tui に表示される文字列）。
+    /// ブロックの表示名（表示される文字列）。
     /// emoji や日本語など表示用の文字列を自由に設定できる。
     /// `id` 未指定時はこの値が ID としても使われる（後方互換）。
     pub name: String,
@@ -170,7 +170,7 @@ pub struct BlockConfig {
     #[serde(default)]
     pub enable: Option<bool>,
 
-    /// カテゴリ（herdrs 互換性のため）
+    /// カテゴリ（旧ブロック定義の互換性のため）
     #[serde(default)]
     pub category: Option<String>,
 
@@ -199,7 +199,7 @@ impl BlockConfig {
         self.id.as_deref().unwrap_or(self.name.as_str())
     }
 
-    /// sai-tui 等に表示する表示名を返す。
+    /// 表示名を返す。
     ///
     /// `name` は表示用のため emoji 等を自由に含められる。
     pub fn display_name(&self) -> &str {
@@ -294,7 +294,7 @@ where
         Some(serde_yaml::Value::Sequence(seq))
             if matches!(seq.first(), Some(serde_yaml::Value::String(_))) =>
         {
-            // R12: YAML リスト表記（例: `extensions: ["../pi-sai/extension.ts", "yyy.ts"]` や複数行リスト）
+            // R12: YAML リスト表記（例: `extensions: ["a.ts", "b.ts"]` や複数行リスト）
             let items: Vec<String> = seq
                 .into_iter()
                 .map(|v| {

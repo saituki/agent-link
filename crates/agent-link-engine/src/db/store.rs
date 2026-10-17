@@ -336,7 +336,7 @@ fn execution_usage_from_row(row: &Row) -> rusqlite::Result<ExecutionUsageRow> {
 /// `execution_usage` の `total` 行を**優先**し（provider の実際の値）、
 /// 未保存・全 0 の旧実行は `session_stats_json` の近似値へフォールバックする。
 /// 戻り値は `(input, output, cache, cost)`。
-/// sai-control の期間集計（Dashboard）からも使うため公開している。
+/// 期間集計（Dashboard）からも使うため公開している。
 pub fn exec_usage_totals(
     exec: &ExecutionHistory,
     usage_map: &HashMap<i64, ExecutionUsageRow>,
@@ -398,9 +398,9 @@ impl SaiStore {
     /// ファイルが存在しない場合は新規作成される。
     /// 既存のファイルの場合はテーブルが追加作成される（冪等）。
     ///
-    /// 同時実行性: デーモン・CLI・TUI・pi（waggle resolve 経由）が別プロセスで
+    /// 同時実行性: デーモン・CLI・cc（waggle resolve 経由）が別プロセスで
     /// 同一DBを触るため、ロック競合時の即時 `SQLITE_BUSY` を避けるべく
-    /// `busy_timeout`（5秒）を設定する（P1-2）。WAL + `synchronous=FULL` は
+    /// `busy_timeout`（5秒）を設定する。WAL + `synchronous=FULL` は
     /// `init_sai_tables` 側で維持する。
     pub fn open(path: &Path) -> Result<Self, DbError> {
         ensure_shm_file(path);
@@ -1326,7 +1326,7 @@ impl SaiStore {
         Ok(())
     }
 
-    /// pi起動前/終了時の Git コミットハッシュを保存する（再現性用）。
+    /// 起動前/終了時の Git コミットハッシュを保存する（再現性用）。
     pub fn update_execution_git_commits(
         &self,
         id: i64,
@@ -1341,7 +1341,7 @@ impl SaiStore {
         Ok(())
     }
 
-    /// herdr pane 情報を記録する。
+    /// pane 情報を記録する。
     pub fn update_execution_pane(&self, id: i64, pane_id: &str, pid: i32) -> Result<(), DbError> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
@@ -1639,7 +1639,7 @@ impl SaiStore {
 
     /// 全接続を実行単位（source_execution_id → target_execution_id）で取得する。
     ///
-    /// TUI のブロック線図描画用。block_connections は実行単位で保存されているため、
+    /// ブロック線図の描画用。block_connections は実行単位で保存されているため、
     /// ブロック単位の集約ではなく実行 ID の組をそのまま返す。
     pub fn list_connections(&self) -> Result<Vec<BlockConnection>, DbError> {
         let conn = self.conn.lock().unwrap();
@@ -1909,7 +1909,7 @@ impl SaiStore {
 
     /// エージェント側セッション ID（Claude Code の UUID）を設定する。
     ///
-    /// pi 実行では使わない（`session_dir` の JSONL パスで再開するため）。
+    /// 旧実行（cc 以前の記録）では使わない。
     pub fn update_execution_agent_session_id(&self, id: i64, session_id: &str) -> Result<(), DbError> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
@@ -1952,8 +1952,8 @@ impl SaiStore {
     /// 現在実行中のメインブロック実行を1件取得する（U4・Ctrl+D finalize 用）。
     ///
     /// 条件: `status == 'running'` かつ `parent_run_id IS NULL`（メインブロック）。
-    /// 最新（`created_at DESC`）の1件のみ返す。herdr pane は実行中は未確定のため
-    /// ここでは対象に含めない（pane 解決は呼び出し元が herdr のラベル照合で行う）。
+    /// 最新（`created_at DESC`）の1件のみ返す。pane は実行中は未確定のため
+    /// ここでは対象に含めない（pane 解決は呼び出し元がラベル照合で行う）。
     pub fn find_active_main_execution(&self) -> Result<Option<ExecutionHistory>, DbError> {
         let conn = self.conn.lock().unwrap();
         let sql = format!(
@@ -2549,7 +2549,7 @@ impl SaiStore {
         Ok(v)
     }
 
-    /// 全実行バッチ（メイン複製 mb_execution_id 対応表）を取得する（TUI 用）。
+    /// 全実行バッチ（メイン複製 mb_execution_id 対応表）を取得する（表示用）。
     ///
     /// 返り値は `(mb_execution_id)` 一覧。`mb_execution_id` が設定されている実行のみ。
     pub fn list_all_run_batch_mb_execs(&self) -> Result<Vec<i64>, DbError> {
@@ -2564,7 +2564,7 @@ impl SaiStore {
         Ok(v)
     }
 
-    /// 全実行バッチを取得する（TUI 用。フェーズノード合成に使用）。
+    /// 全実行バッチを取得する（表示用。フェーズノード合成に使用）。
     pub fn list_all_run_batches(&self) -> Result<Vec<RunBatch>, DbError> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
@@ -2593,7 +2593,7 @@ impl SaiStore {
 
     /// 親メインの最新の open 実行バッチを finalized にする（sai-write 検出時）。
     ///
-    /// TUI は finalized 実行バッチの存在をもって最終フェーズノード（P_n = sai-write 由来）を
+    /// 表示側は finalized 実行バッチの存在をもって最終フェーズノード（P_n = sai-write 由来）を
     /// 合成する。更新できた場合は `true` を返す。
     pub fn finalize_latest_open_run_batch(&self, parent_run_id: i64) -> Result<bool, DbError> {
         let conn = self.conn.lock().unwrap();
@@ -3980,7 +3980,7 @@ mod tests {
         assert_eq!(list[0].seq, 1);
         assert_eq!(list[1].seq, 2);
 
-        // メイン複製実行IDの一覧（TUI 用）
+        // メイン複製実行IDの一覧
         let execs = store.list_all_run_batch_mb_execs().unwrap();
         assert_eq!(execs, vec![999]);
 

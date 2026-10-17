@@ -4,7 +4,7 @@
 //! 解決します（D15）。
 //!
 //! デーモンは起動時に `AGENT_LINK_PROJECT_ROOT` 環境変数を設定します。
-//! worktree 実行時は pi プロセスの cwd が `.worktrees/<branch>` に変わるため、
+//! worktree 実行時は cc プロセスの cwd が `.worktrees/<branch>` に変わるため、
 //! そのまま `.agent-link/` 相対パスを使うと誤った場所を参照してしまいます。
 //! このモジュールを経由することで、デーモン起動パス（= プロジェクトルート）の
 //! `.agent-link/` を常に正しく参照できます。
@@ -140,8 +140,7 @@ pub fn sai_path(rel: &str) -> PathBuf {
 /// 1. 環境変数 `AGENT_LINK_PROJECT_ROOT` → `<root>/.agent-link/engine/agent-link.db`
 /// 2. （無ければ）後方互換の相対パス候補から最初に存在するもの
 ///
-/// 旧 agent-link-tui `paths::resolve_db_path` と同じ解像順（CLI と Web が
-/// 同じ DB を開くための共通入口）。
+/// CLI と Web が同じ DB を開くための共通入口。
 pub fn resolve_db_path() -> PathBuf {
     // ① AGENT_LINK_PROJECT_ROOT を第一優先（複数プロジェクト・worktree 対応）
     if let Some(root) = std::env::var_os("AGENT_LINK_PROJECT_ROOT") {

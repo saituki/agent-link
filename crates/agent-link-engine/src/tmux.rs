@@ -18,7 +18,7 @@ use serde_json::{json, Value};
 use crate::headless::{self, HeadlessState};
 use crate::pane::{PaneError, PaneInfo};
 
-/// 印のファイル名（置き場の中の空のファイル。共有契約 C-T1）。
+/// 印のファイル名（置き場の中の空のファイル）。
 const MARK: &str = "tmux";
 
 /// tmux 1 回の命令の上限。

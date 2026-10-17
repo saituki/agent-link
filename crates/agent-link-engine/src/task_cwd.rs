@@ -5,8 +5,8 @@
 //!
 //! 受け付ける形式:
 //! - 絶対パス（例: `/home/user/workdir/other-project`）
-//! - `~/` 始まり（例: `~/workdir/Sai/sai-phone`）
-//! - プロジェクトルートからの相対パス（例: `../sai-phone`）
+//! - `~/` 始まり（例: `~/workdir/Sai/other-app`）
+//! - プロジェクトルートからの相対パス（例: `../other-app`）
 //!
 //! 存在しない・フォルダでない場合はエラーメッセージを返す。呼び出し元
 //! （`agent_api::task_create`）はこれを `validation_errors` に変換し、タスクを作らない。

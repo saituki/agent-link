@@ -35,9 +35,9 @@ pub struct BlockDetail {
     pub output_waggle_tokens: Vec<String>,
     /// セッション統計情報
     pub session_stats: Option<SessionStatsData>,
-    /// pi起動時のHEADコミットハッシュ
+    /// 起動時のHEADコミットハッシュ
     pub git_commit_before: Option<String>,
-    /// pi終了時のHEADコミットハッシュ
+    /// 終了時のHEADコミットハッシュ
     pub git_commit_after: Option<String>,
     /// セッションディレクトリのパス
     pub session_dir: Option<String>,

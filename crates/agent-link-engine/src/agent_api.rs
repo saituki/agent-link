@@ -1,9 +1,8 @@
-//! # エージェント共通 API（pi / cc 共通の実体）
+//! # エージェント共通 API
 //!
-//! pi/cc から CLI（`agent-link doc write`・`agent-link task create` など）を通じて
+//! cc から CLI（`agent-link doc write`・`agent-link task create` など）を通じて
 //! 呼ばれる機能の唯一の実装です。エージェントは Bash で CLI を呼ぶ
-//! （cc は `.claude/settings.json` の `Bash(agent-link *)` の許可、
-//! pi は同じ CLI）。旧 MCP サーバと旧 pi-agent-link/（TypeScript 拡張）は廃止し削除済み。
+//! （`.agent-link/cc-settings.json` の `Bash(agent-link *)` の許可）。
 //!
 //! すべての関数は `Result<serde_json::Value, String>` を返します。
 //! `Err` の文字列はそのままエージェントへ見せる日本語のメッセージです。
@@ -87,7 +86,7 @@ fn random_base36_4() -> String {
         .collect()
 }
 
-/// 拡張子から MIME タイプを推測する（pi-agent-link の `guessMimeType` と同等）。
+/// 拡張子から MIME タイプを推測する。
 fn guess_mime_type(path: &Path) -> String {
     let ext = path
         .extension()
@@ -180,7 +179,7 @@ pub fn block_def_to_json(config: &BlockConfig) -> BlockDefJson {
 
 /// ブロック定義ファイルを各ディレクトリから収集する（ID で重複排除・先勝ち）。
 ///
-/// 探索順: `PROJECTROOT/.agent-link/blocks` → `blocks`（開発用 cwd）→ `lib/herdrs/blocks`。
+/// 探索順: `PROJECTROOT/.agent-link/blocks` → `blocks`（開発用 cwd）→ 旧配置の `lib/herdrs/blocks`。
 pub fn collect_block_definitions() -> Vec<(PathBuf, BlockConfig)> {
     let mut out: Vec<(PathBuf, BlockConfig)> = Vec::new();
     let dirs = [
@@ -210,10 +209,10 @@ pub fn collect_block_definitions() -> Vec<(PathBuf, BlockConfig)> {
 }
 
 // ============================================================================
-// task list --json 出力用エントリ（pi-agent-link の task_list / task_status が使用）
+// task list --json 出力用エントリ
 // ============================================================================
 
-/// `task list --json` の出力用エントリ（pi-agent-link の `task_list` / `task_status` が使用）。
+/// `task list --json` の出力用エントリ。
 #[derive(serde::Serialize)]
 pub struct TaskJsonEntry {
     pub server_id: i64,
@@ -1607,7 +1606,7 @@ fn task_pane(task_id: i64) -> Result<(Task, ExecutionHistory, String), String> {
 }
 
 // ============================================================================
-// 3.8 run_send / run_interrupt（実行単位の送信・中断。共有契約 C2）
+// 3.8 run_send / run_interrupt（実行単位の送信・中断）
 // ============================================================================
 
 /// 実行の送り先（擬似 pane）を解決する。
@@ -1634,7 +1633,7 @@ fn run_pane(run_id: i64) -> Result<(ExecutionHistory, String), String> {
     Ok((exec, pane_id))
 }
 
-/// `agent-link run send <run_id>`: 実行中の run に続きの文を送る（共有契約 C2）。
+/// `agent-link run send <run_id>`: 実行中の run に続きの文を送る。
 ///
 /// 擬似 pane に `send_text` → 確定キーを送り、`working` になるのを待つ。
 /// 戻り値は `{"run_id", "pane_id", "status": "sent" | "unconfirmed", "message"?}`。
@@ -1666,7 +1665,7 @@ pub fn run_send(run_id: i64, text: &str) -> Result<Value, String> {
     }
 }
 
-/// `agent-link run interrupt <run_id>`: 実行中の run を中断する（共有契約 C2）。
+/// `agent-link run interrupt <run_id>`: 実行中の run を中断する。
 ///
 /// 擬似 pane に `esc` を送り、`working` でなくなるまで最大 5 秒待つ。
 /// 戻り値は `{"run_id", "status": "interrupted" | "still_working", "agent_status"}`。
@@ -2276,7 +2275,7 @@ fn waggle_item_line(
 ) -> Option<String> {
     let view = waggle.resolve_token(token).ok()?;
     let block_name = waggle.find_block_name_by_token(token);
-    // 元ファイル名は `file://…` URL の末尾要素（phone_view と同じ取り出し方）
+    // 元ファイル名は `file://…` URL の末尾要素（`agent-link-view` の `run_docs` と同じ取り出し方）
     let file_name = view
         .manifest
         .target
@@ -2304,10 +2303,9 @@ pub fn sai_read_list(run_id: Option<i64>) -> Result<Value, String> {
     sai_read_list_inner(run_id, false)
 }
 
-/// U03: 実行中を含む waggle 文書一覧（`sai_read_list` の拡張版）。
+/// 実行中を含む waggle 文書一覧（`sai_read_list` の拡張版）。
 ///
-/// TUI の w キー・`phone waggle` が使う。`include_running=true` で
-/// running / review 中の文書も返す。`run_id` 指定時は従来通りその実行のみ。
+/// `include_running=true` で running / review 中の文書も返す。`run_id` 指定時は従来通りその実行のみ。
 pub fn sai_read_list_including_running(run_id: Option<i64>) -> Result<Value, String> {
     sai_read_list_inner(run_id, true)
 }

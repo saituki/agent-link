@@ -312,7 +312,7 @@ pub fn collect_placeholders(template: &str) -> Vec<String> {
     ids
 }
 
-/// Markdown の見出しを `shift` 段下げる（共有契約 C1）。
+/// Markdown の見出しを `shift` 段下げる。
 ///
 /// 規則:
 /// 1. 行頭が `#` の連続 1〜6 個で、その次が空白（半角スペースかタブ）の行を見出しとする。

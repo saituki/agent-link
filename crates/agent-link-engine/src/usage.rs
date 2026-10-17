@@ -1,8 +1,7 @@
 //! 実行 usage（`execution_usage` テーブル）の管理モジュール（L1）。
 //!
 //! provider が返す実際の usage（token / cost）を DB に保存し、
-//! sai-control が横断集計を **DB 読取のみ**で行えるようにする。
-//! 詳細な設計は `docs/impl-plan-integrated-support.md` L1 を参照。
+//! 横断集計を **DB 読取のみ**で行えるようにする。
 //!
 //! - 保存: [`backfill_execution_usage`]（CLI `agent-link usage backfill` から使用）。
 //!   実行 1 件分を 1 トランザクションで**全置換**するため冪等
@@ -257,9 +256,8 @@ fn total_from_amount(total: &crate::session::UsageAmount) -> UsageTotal {
 
 /// DB の `total` 行から [`UsageTotal`] を作る（費用の不明判定込み）。
 ///
-/// TUI（Kanban カード・Project 画面）が `list_execution_usage_totals()` の行から
-/// 費用を出すときにも使う。判定（[`cost_or_unknown`]）を TUI 側へ写して
-/// 二重に持たないための公開である。
+/// 画面側（Kanban カード・Project 画面）が `list_execution_usage_totals()` の行から
+/// 費用を出すときにも使う。判定（[`cost_or_unknown`]）を二重に持たないための公開である。
 pub fn total_from_row(row: &ExecutionUsageRow) -> UsageTotal {
     let input = row.input_tokens.max(0) as u64;
     let output = row.output_tokens.max(0) as u64;
