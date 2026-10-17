@@ -1,10 +1,22 @@
 # agent-link アーキテクチャ（開発者向け）
 
 **対象読者:** agent-link を直す人と、Rust のコア（`agent-link`）に Web 向けの機能を足す人。
-使い方は [`README.md`](./README.md)、API と住所の一覧は [`docs/integration.md`](./docs/integration.md)、CLI の約束と Web が読む JSON の項目は [`docs/for-developers.md`](./docs/for-developers.md)、概念と用語の意味は [`CONCEPT.md`](./CONCEPT.md) を正とする。
-ここには、全体の考え方・層の分け方・守る約束・置き場を書く。**正はコード**である。この文書とコードが食い違ったら、コードに合わせて直す。
+文書の分担は次のとおり。
 
-由来（sai-tree から複製した経緯）は [`README.md`](./README.md) の冒頭に書いた。要件定義書は `docs/plan/requirements.md`。
+| 知りたいこと | 文書 |
+|---|---|
+| 入れ方・最初の一歩・ポート・環境変数と `config` の表 | [`README.md`](./README.md) |
+| 変わらない物（不変条件）・層と境界・やらないこと | [`docs/design.md`](./docs/design.md) |
+| 契約の正（終了コード・`--json`・Web が読む JSON の項目・`registry.json`・`settings.json` の形） | [`docs/for-developers.md`](./docs/for-developers.md) |
+| 契約の正（Web の HTTP の住所と画面の住所） | [`docs/integration.md`](./docs/integration.md) |
+| 過去の決定（日付・理由・状態） | [`docs/decisions.md`](./docs/decisions.md) |
+| 概念と用語 | [`CONCEPT.md`](./CONCEPT.md) |
+| 遠隔の機械で子の claude を動かす手順 | [`docs/remote.md`](./docs/remote.md) |
+| sai-moon と並べて使う手順 | [`docs/switch-over.md`](./docs/switch-over.md) |
+
+ここには、層・置き場・ファイル構成・機能を足す手順を書く。**正はコード**である。この文書とコードが食い違ったら、コードに合わせて直す。
+
+由来（sai-tree から複製した経緯）は [`README.md`](./README.md) の冒頭と [`docs/decisions.md`](./docs/decisions.md) に書いた。
 
 ---
 
@@ -18,6 +30,8 @@
 |---|---|---|---|
 | **実行エンジン**（基盤） | `crates/agent-link-engine`・`crates/agent-link-view`・`crates/agent-link-cli` | `agent-link` | 実行の DB（`agent-link.db`）・常駐（daemon）・ブロック定義の解析と検査・カード・文書（waggle トークン）・Workflow の配置の計算・実行の書き出し |
 | **Web の窓口** | `apps/web` | `apps/web/bin/agent-link-web` | 画面（FastAPI + 素の JavaScript）。質問・通知・Claude の使用量 |
+
+- **遠隔の子**: 子タスクの claude だけは、`task create` の `host` で ssh 先の機械（例 `wsl-server`）で動かせる。DB・文書・Web は Mac に置いたまま。Mac の pane の中で `ssh -t <host> 'claude …'` を動かし、遠隔の中継（`~/.agent-link-remote/bin/agent-link`）が ssh で Mac の門番（`agent-link remote-gate`）に命令を送る。手順は [`docs/remote.md`](./docs/remote.md)、実装は `crates/agent-link-engine/src/remote.rs`・`crates/agent-link-cli/src/cmd_remote.rs`。
 
 - `waggle/` は文書のトークンを扱う vendor クレート群で、原則編集しない。
 - 部品の関係の細部（誰が誰を知っているか）は §2.1 の境界で決める。
@@ -54,6 +68,7 @@
    .agent-link/outputs
 ```
 
+- **遠隔の子**（`task create` の `host`）は、Mac の pane の中の ssh を通る。遠隔の claude は、中継と門番を通って Mac の `agent-link` を呼ぶ。状態の主人は Mac のまま（`docs/design.md` の I1）。
 - **コア**（agent-link）は DB と処理を持つ。
 - **公開された約束**（`agent-link` の `--json` と終了コード・`schema --json`・`AGENT_LINK_HOME/web/runs/*.json` の書き出し・登録簿 `registry.json`）が、コアと Web の境目である。Web はここだけを使う。
   約束の中身は [`docs/for-developers.md`](./docs/for-developers.md) に書いてあり、コア側を直す人はそれを守る。
@@ -73,6 +88,7 @@
 | **Web の窓口**（`agent-link-web`） | `agent-link` の CLI と、登録簿と書き出しのファイル | `agent-link.db` を**開かない** |
 
 - 他の部品の DB の形が変わったときに、黙って壊れるのを防ぐための境界である。
+- 遠隔の機械は、この 2 つの部品の外にある。遠隔の機械から Mac に入れるのは、強制コマンドの鍵が起こす `agent-link remote-gate` だけ（§2.4 の 6）。
 
 ### 2.2 Cargo の依存の向き
 
@@ -84,14 +100,7 @@
 
 ### 2.3 CLI の約束
 
-`agent-link` は次の約束を守る（全文は `docs/for-developers.md`）。
-
-1. **終了コード**: 0 成功、2 入力の誤り（clap の使い方の誤りも 2）、3 見つからない、4 状態の衝突、1 その他の失敗。
-2. **失敗**: 標準出力には何も書かない。標準エラーの最後の行に、英語で理由を 1 行書く。clap の誤りは最後の行が `Invalid arguments: <clap の文の 1 行目>`。`--json` の返り値のうち人が読む文（`message` など）も英語。
-3. **成功**: `--json` があれば標準出力に JSON を 1 つだけ書く。Web が付けるフラグは CLI が必ず受け付ける。
-4. **進み具合**: 時間のかかる命令は、標準エラーに `sai-progress step=<数>`・`sai-progress msg=<文>` を出してよい。
-5. **プロジェクトの決め方**: `AGENT_LINK_PROJECT_ROOT`（空でない値）→ cwd から上へたどり `.agent-link/` を持つ最初のフォルダ（ホームとそれより上は数えない）。見つからなければ 2。`init` は「`AGENT_LINK_PROJECT_ROOT` → cwd」だけ。`schema` はプロジェクトを要らない。
-6. **`schema --json`**: 命令の一覧（`bin`・`version`・`commands[]`（`path`・`about`・`stdin`・`json`・`web`・`args[]`））を出す。`web` の印は出力に残っているが、Web の画面は読まない。
+`agent-link` は、終了コード（0 成功・2 入力の誤り・3 見つからない・4 状態の衝突・1 その他）、失敗のときの標準出力の空と標準エラーの最後の行（英語）、成功のときの `--json`、プロジェクトの決め方（`AGENT_LINK_PROJECT_ROOT` → cwd から上へ）、`schema --json` を守る。**全文は [`docs/for-developers.md`](./docs/for-developers.md)。** CLI を直したら、そこと食い違わないようにする。
 
 ### 2.4 そのほかの原則
 
@@ -101,7 +110,7 @@
 3. **外から来る値は、CLI を呼ぶ前に Web が検査する。** 名前の形・大きさ・種類の一覧を Web が先に確かめる。通らない値では CLI を 1 度も呼ばない（400）。ファイルのパスは iPhone から受け取らない。置き場はコアが名前から決める。
 4. **依存を増やさない。** サーバは FastAPI と標準ライブラリ、画面は素の JavaScript（フレームワーク・ビルド無し）。グラフと Workflow の線は SVG を手で描く。md の色分けも自前の簡易版で行う。
 5. **入口を守る。** 合言葉は無い。127.0.0.1 でだけ待ち受け、フックの住所（`POST /api/register` など）は `require_internal` で Mac 自身（127.0.0.1 / ::1）だけに絞る。Tailscale serve は、tailnet が自分だけのときだけ使う（他の人が届くと全機能を使われる。`docs/switch-over.md` の 6）。
-6. **遠隔の機械からは門番だけが入る。** 遠隔の機械（`task create` の `host`）からは、強制コマンドの鍵（`~/.ssh/authorized_keys` の `command="… agent-link remote-gate",restrict …`）で `agent-link remote-gate` だけが入る。通す命令は `crates/agent-link-engine/src/remote.rs` の `gate_plan` が決める（フックと `doc`・`task report` だけ）。手順は `docs/remote.md`。
+6. **遠隔の機械からは門番だけが入る。** 遠隔の機械（`task create` の `host`。画面の遠隔操作の「遠隔ブラウザ」とは別）からは、強制コマンドの鍵（`~/.ssh/authorized_keys` の `command="… agent-link remote-gate",restrict …`）で `agent-link remote-gate` だけが入る。通す命令は `crates/agent-link-engine/src/remote.rs` の `gate_plan` が決める（フックと `doc`・`task report` だけ）。手順は `docs/remote.md`。
 7. **エラーは英語でそのまま画面に出す。** 何が起きたか、次に何をすればよいかが分かる文にする。CLI の標準エラーの最後の行と Web の `detail` は英語で書く（文書とエージェント向けの文は日本語のまま）。
 8. **iPhone と PC の両方を前提にする。** 幅 900px（`ui.js` の `AGENT_LINK_WIDE_PX`）を境に、狭い画面は下のタブの 1 列、広い画面は左の縦のタブと 2 列にする。
 9. **言葉で迷わせない。** 画面の文言は英語にする（音声の言語は日本語。`data-tab` や住所などの識別子も英語）。独自の言葉は `saiTerm` の札で説明する。空の画面には Next Action を出す（`saiEmpty`）。
@@ -114,6 +123,8 @@
 利用者全体で共有する置き場は **`AGENT_LINK_HOME`**。空でない値があればそれ、無ければ **`~/.agent-link`**。
 古い置き場（sai-moon の物）は読まない。古いデータを読みに行く互換の処理は無い。
 
+利用者の設定は、環境変数のほかに `$AGENT_LINK_HOME/settings.json` の `config`（キーは環境変数の名前）にも書ける。優先は環境変数 → `config` → 既定値。書ける名前と例は [`README.md`](./README.md) の環境変数の表。`AGENT_LINK_HOME` だけは書けない（置き場を決める名前のため）。
+
 ### 3.1 決める場所
 
 | 場所 | 規則 |
@@ -121,7 +132,7 @@
 | 実行エンジン（`agent_link_engine::project::sai_home()`・本体は同じファイルの `resolve_sai_home`・`crates/agent-link-engine/src/project.rs`） | `AGENT_LINK_HOME` → `~/.agent-link` → `HOME` も無ければ `None` |
 | Web（`registry.sai_home()`・`apps/web/src/agent_link_web/registry.py`） | 同じ規則のコピー（Python） |
 
-規則のコピーが 2 つある。**どちらか 1 つだけ直さないこと。**
+規則のコピーが 2 つある。**どちらか 1 つだけ直さないこと。** 違いは `HOME` が無いときだけで、Rust は `None`、Python は `Path.home()` を使う。
 
 ### 3.2 `AGENT_LINK_HOME` に入るもの
 
@@ -130,7 +141,9 @@
 | `registry.json` | プロジェクトの登録簿 |
 | `blocks/` | 全プロジェクト共通の block |
 | `template/` | 全プロジェクト共通の template |
-| `settings.json` | 全プロジェクト共通の settings（プロジェクトの `.agent-link/settings.json` を**キー単位で上書き**する） |
+| `settings.json` | 全プロジェクト共通の settings（プロジェクトの `.agent-link/settings.json` を**キー単位で上書き**する）。利用者の設定 `config`（環境変数の名前をキーにした値）も入る |
+| `cc-cost/<session_id>.json` | cc の会話ごとの費用（`agent-link cc-statusline` が書く。`crates/agent-link-engine/src/cc_cost.rs`。Web の `usage.py` が読む） |
+| `cc-rate-limits.json` | cc の 5 時間枠・7 日枠の値（`cc_cost.rs` が書く。`apps/web/src/agent_link_web/usage.py` が読む） |
 | `web/runs/<project_name>/<run_id>.json` | 実行エンジンが書き出す実行の記録。会話の画面が読む |
 | `web/agent_link_web.db` | 質問・通知の購読 |
 | `web/vapid.json` | プッシュ通知の鍵 |
@@ -140,6 +153,7 @@
 
 - **プロジェクトの中の `<root>/.agent-link/`** は別。`engine/agent-link.db`（同じフォルダに `daemon.pid`・`daemon.status`・`daemon.log`・`notifications/`・`waggle-blobs/`）・`blocks/`・`template/`・`settings.json`・`outputs/` がここにある。`outputs/` の中は `todo/`・`running/`・`review/` と、Workflow に移した run の日付フォルダ `<yymmdd>/`（日付は一番上の親 run の実行開始日・ローカル時刻。子の run は親の日付フォルダに入る）。
 - `~/.claude/projects` などは元の置き場のまま。
+- **遠隔の子に関わる置き場**: Mac の `~/.ssh/authorized_keys`（`agent-link remote setup` が門番の行を足す）と、遠隔の機械の `~/.agent-link-remote/`（中継 `bin/agent-link`・鍵・run ごとの `runs/<run_id>/`。`crates/agent-link-engine/src/remote.rs` の `REMOTE_DIR`）。詳しくは [`docs/remote.md`](./docs/remote.md)。
 
 ---
 
@@ -164,24 +178,7 @@
 
 ### 4.2 CLI を呼ぶ約束
 
-- 呼び方: シェルを使わず、引数の配列で渡す。env は `{**os.environ, "AGENT_LINK_PROJECT_ROOT": <root>}`、cwd は root。
-  プロジェクトの root は登録簿（`registry.json`）から名前で引く。iPhone からパスは受け取らない。
-- 実行ファイルの場所は `AGENT_LINK_BIN`（既定は `agent-link`）。
-- 検索語や文のように `-` で始まりうる値は、`--` のあとに置いて渡す。
-- 終了コードから HTTP の状態への読み替えは `cli.py` の 1 か所:
-
-| CLI の結果 | Web の返し方 |
-|---|---|
-| 終了コード 0 で標準出力が JSON | 200（JSON をそのまま返す） |
-| 終了コード 0 で標準出力が JSON でない | 502「…の応答を読めませんでした」 |
-| 終了コード 2（入力の誤り） | 400 |
-| 終了コード 3（見つからない） | 404 |
-| 終了コード 4（状態の衝突） | 409 |
-| 終了コード 1 とそのほか | 502 |
-| CLI が起動できない | 503（設定の場所を確かめる文） |
-| 時間切れ | 504 |
-
-`detail` は標準エラーの空でない最後の行（`sai-progress` で始まる行は除く）。無ければ「<CLI 名> が失敗しました」。
+`cli.py` が、シェルを使わず引数の配列で `agent-link` を呼ぶ（env は `AGENT_LINK_PROJECT_ROOT=<root>`、cwd は root。root は登録簿から名前で引く）。終了コードから HTTP の状態への読み替え（2 → 400、3 → 404、4 → 409、そのほか → 502、起動できない → 503、時間切れ → 504）も `cli.py` の 1 か所で行う。**読み替えの表と呼び方の全文は [`docs/for-developers.md`](./docs/for-developers.md)。**
 
 ### 4.3 `agent-link-web api`
 
@@ -226,6 +223,7 @@
 4. **画面を足す。** 新しい JS に `window.SaiRoutes` で登録し、`index.html` に枠と読み込みを足し、`sw.js` の版と `ASSETS` を上げる。`ui.js` の部品を使い、390px と 1280px の両方で確かめる。画面の文言は英語にする。
 5. **文書を直す。** `README.md`（使い方）・この文書（仕組みが変わったとき）・`docs/integration.md`（API と住所）・`docs/for-developers.md`（Web が読む JSON の項目）・`CONCEPT.md`（概念と用語が増えたとき）。
    Web が読む項目を変えたら、`docs/for-developers.md` と `apps/web` を**一緒に**直す。
+6. **遠隔の子に関わる命令を足すとき**: 遠隔の機械から呼べる命令は、`crates/agent-link-engine/src/remote.rs` の `gate_plan` が決める。通す物を増やすときは、門番の試験（`crates/agent-link-cli/tests/remote_gate.rs`）と `docs/remote.md` を一緒に直す。
 
 ---
 
@@ -251,30 +249,58 @@
 
 ```
 agent-link/
-├── crates/                   # Rust のワークスペース（3 クレート）
-│   ├── agent-link-engine/    # lib  実行エンジン（DB・常駐・パース・オーケストレーター）
-│   ├── agent-link-view/      # lib  Web と CLI が使う組み立て処理（描画は持たない）
-│   └── agent-link-cli/       # bin  agent-link
-├── waggle/                   # 独立 [workspace] の vendor クレート群（exclude 済み）
+├── crates/                        # Rust のワークスペース（3 クレート）
+│   ├── agent-link-engine/         # lib  実行エンジン（DB・常駐・パース・オーケストレーター）
+│   │   ├── src/
+│   │   │   ├── run_export.rs      # 実行の書き出し（web/runs/*.json）
+│   │   │   ├── registry.rs        # 登録簿 registry.json
+│   │   │   ├── transcript.rs      # 会話の記録（.jsonl）の読み取り
+│   │   │   ├── cc_cost.rs         # cc の費用と枠の値（cc-cost/・cc-rate-limits.json）
+│   │   │   ├── pane.rs            # 擬似 pane の型と、headless・tmux への窓口
+│   │   │   ├── tmux.rs            # tmux の呼び出し
+│   │   │   ├── headless.rs        # headless の実行
+│   │   │   ├── remote.rs          # 遠隔の子（中継・門番・ssh の部品）
+│   │   │   ├── settings.rs        # settings.json（config_var を含む）
+│   │   │   └── project.rs         # プロジェクトと AGENT_LINK_HOME の決め方
+│   │   ├── assets/                # init が配る block・template・skill・remote-guide.md
+│   │   └── tests/
+│   ├── agent-link-view/           # lib  CLI が使う表示用の組み立て（描画は持たない）
+│   │   └── src/
+│   │       ├── run_docs.rs        # run の文書の組み立て
+│   │       └── workflow/          # Workflow の配置の計算
+│   └── agent-link-cli/            # bin  agent-link
+│       ├── src/
+│       │   ├── cli.rs             # 命令の定義（clap）
+│       │   ├── views.rs           # Web が読む JSON を出す命令
+│       │   ├── def_files.rs       # 定義ファイル（block・template・settings）の読み書き
+│       │   ├── cmd_remote.rs      # remote setup・remote check・remote-gate
+│       │   └── cmd_schema.rs      # schema --json
+│       └── tests/
+├── waggle/                        # 独立 [workspace] の vendor クレート群（exclude 済み）
 ├── apps/
-│   └── web/                  # Web の窓口（8400）
-│       ├── bin/agent-link-web  # Web の CLI（apps/web/.venv の Python で動く）
-│       ├── src/agent_link_web/ # サーバ（§4.1）
-│       │   └── static/       # 画面（§4.4）
-│       ├── hooks/            # cc のフック（cc_question.py・cc_register.py）
-│       └── tests/            # test_*.js（node）と test_*.py（素の python）
-├── docs/                     # 開発者向けの文書
-│   ├── integration.md        # Web の API と画面の住所・各 API が呼ぶ CLI の命令
-│   ├── for-developers.md     # CLI の約束と Web が読む JSON の項目
-│   ├── switch-over.md        # sai-moon と並べて使う手順書
-│   ├── remote.md             # 遠隔の機械（wsl-server など）で子の claude を動かす手順書
-│   └── plan/                 # 計画書（終わった物は読むだけ。進行中の物は書く）
-├── .agent-link/              # このプロジェクト自身の中のデータ（.gitignore 済み）
-├── CONCEPT.md                # 概念と用語の定義
-├── AGENTS.md                 # このリポジトリで作業するエージェントへの指示
-├── CLAUDE.md                 # @AGENTS.md の 1 行
-├── README.md                 # 概要・入れ方・最初の一歩
-└── ARCHITECTURE.md           # この文書
+│   └── web/                       # Web の窓口（8400）
+│       ├── bin/agent-link-web     # Web の CLI（apps/web/.venv の Python で動く）
+│       ├── src/agent_link_web/    # サーバ（§4.1）
+│       │   └── static/            # 画面（§4.4）
+│       ├── hooks/                 # cc のフック（cc_question.py・cc_register.py）
+│       └── tests/                 # test_*.js（node）と test_*.py（素の python）
+├── scripts/
+│   └── agent-link-setup           # 入れ方・点検・消し方の台本（install・doctor・uninstall）
+├── docs/                          # 開発者向けの文書（役割は冒頭の表）
+│   ├── design.md                  # 現在の設計（不変条件・層と境界）
+│   ├── decisions.md               # 過去の決定（日付・理由・状態）
+│   ├── for-developers.md          # 契約の正（CLI と Web の間）
+│   ├── integration.md             # 契約の正（Web の HTTP の住所と画面の住所）
+│   ├── remote.md                  # 遠隔の機械で子の claude を動かす手順書
+│   ├── switch-over.md             # sai-moon と並べて使う手順書
+│   └── plan/                      # 計画書（終わった物は読むだけ。進行中の物は書く）
+├── .github/workflows/ci.yml       # CI（AGENTS.md の命令と同じ）
+├── .agent-link/                   # このプロジェクト自身の中のデータ（.gitignore 済み）
+├── CONCEPT.md                     # 概念と用語の定義
+├── AGENTS.md                      # このリポジトリで作業するエージェントへの指示
+├── CLAUDE.md                      # @AGENTS.md の 1 行
+├── README.md                      # 概要・入れ方・最初の一歩・環境変数と config の表
+└── ARCHITECTURE.md                # この文書
 ```
 
 ---
@@ -286,7 +312,7 @@ agent-link/
 | **端末の画面（TUI）** | やめた。画面は Web だけ。TUI にしか無かった処理は、先にコア（`agent-link-view`）へ移してある |
 | **MCP の `agent-link`**（エージェントの道具） | やめた。エージェントは CLI を Bash で呼ぶ。外部の MCP（serena・playwright・donsetch・headroom）は残る |
 | **global の cc フック** | `~/.claude/settings.json` にもプロジェクトの `.claude/settings.json` にも**入れない**。`.agent-link/cc-settings.json` に書き、run の cc に `--settings` で渡す（sai-moon と同じプロジェクトで取り合わないため） |
-| **Mac の常駐（launchd）・herdr・cc のコマンド承認・遠隔ブラウザ・5 時間枠・pi** | 持たない。daemon と Web は手で起こす。headless の実行（擬似 pane）で動く。engine の `herdr.rs` は擬似 pane の型などの名残 |
+| **Mac の常駐（launchd）・herdr・cc のコマンド承認・遠隔ブラウザ（画面の遠隔操作）・5 時間枠・pi** | 持たない。daemon と Web は手で起こす。headless の実行（擬似 pane）で動く。engine の `pane.rs` は擬似 pane の型と、headless・tmux への窓口。遠隔の子（`task create` の `host`）は持つ（§1.1） |
 | **論文・研究（Paper・Research）・Radio・MLflow・sai-ts・sai-prep** | 持たない（sai-tree の機能） |
 | **多人数モード・サーバ（ログイン・コンテナ）・Customer サポート** | 持たない（sai-tree の機能） |
 | **runner の選択（`runner: user`・`agent-link card start\|finish`・gl・pi）・provider・tag** | やめた。runner は cc だけ。block 定義の `tag`・`provider`・`round` と settings.json の `default_provider` も使わない。古い `runner`・`provider`・`tag` の項目は読み飛ばし、書き出さない |
@@ -302,13 +328,11 @@ agent-link/
 範囲外:
 
 - sai-tree プロジェクトの古い記録（run 1〜289）を agent-link に移すこと。
-- agent-link を Linux に置くこと。
+- agent-link 本体を Linux に置くこと（遠隔の機械で子の claude を動かすことは範囲内）。
 - sai-tree で直した実行エンジンを agent-link に移す仕組み（手で移す）。
 
 ---
 
 ## 9. 経緯
 
-- sai-tree（研究室の Linux 多人数サーバ）を複製して、agent-link を作った（要件定義書 `docs/plan/requirements.md`）。sai-moon・sai-tree は読み取り専用で、直さない。
-- 作業は U01〜U07 の計画書（`docs/plan/unit-U*.md`）の順に進めた。U01〜U04 が論文・研究・多人数モード・周辺アプリの削除、U05・U06 が名前の変更（Rust・Web）、U07 が文書・CI と切り替えの手順書。
-- そのあと簡素化を行った（`docs/plan/` の簡素化の計画書）。cc だけにする・合言葉と Account をなくす・done と round をなくして日付フォルダにする・Workflow の子の表示の切り替え・画面と CLI の文を英語にする、を行い、文書を合わせた。
+過去の決定（取り出しと改名・簡素化・遠隔の子・設計の見直し）は、日付・理由・状態つきで [`docs/decisions.md`](./docs/decisions.md) にある。
