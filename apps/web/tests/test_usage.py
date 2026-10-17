@@ -56,7 +56,7 @@ def write_cc_home(
 
 
 def test_cc_card_single() -> None:
-    """単独モード: `AGENT_LINK_HOME` の枠の値と費用から cc_card() が形どおりに返る（計画 U02）。"""
+    """単独モード: `AGENT_LINK_HOME` の枠の値と費用から cc_card() が形どおりに返る。"""
     saved = os.environ.get("AGENT_LINK_HOME")
     with tempfile.TemporaryDirectory() as tmp:
         home = Path(tmp)

@@ -250,7 +250,7 @@ def mark_resolved_elsewhere_qid(qid: str) -> bool:
 def expire_stale_questions(agent: str, older_than_sec: float, now: float | None = None) -> int:
     """指定エージェントの open な質問のうち，古すぎるものを expired にする．
 
-    pi の拡張は最大5分しか取りに来ない（05 §3.1）ため，10分経ったら切る。
+    呼び出し側が決めた秒数より古い質問を切る。
     件数を返す。
     """
     base = time.time() if now is None else now

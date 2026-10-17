@@ -112,7 +112,7 @@ def cc_cost(homes: list[Path], now: float) -> dict:
 
 
 def cc_card(homes: list[Path] | None = None, now: float | None = None) -> dict:
-    """Claude（cc）のカード（枠の値と費用・計画 U02）。枠の値が無いときは ``limits`` が None。"""
+    """Claude（cc）のカード（枠の値と費用）。枠の値が無いときは ``limits`` が None。"""
     now = time.time() if now is None else now
     homes = cc_homes() if homes is None else homes
     return {"limits": cc_limits(homes, now), "cost": cc_cost(homes, now)}

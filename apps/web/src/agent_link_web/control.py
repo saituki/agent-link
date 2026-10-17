@@ -1,8 +1,8 @@
-"""agent-link の呼び出し（Project タブ・計画 06、List は計画 14、
-task.md 作成と新形式 todo の実行は計画 15、
-一覧・Dashboard・常駐の操作の移設は実装計画 C）。
+"""agent-link の呼び出し（Project タブ・List は、
+task.md 作成と新形式 todo の実行は、
+一覧・Dashboard・常駐の操作の移設は）。
 
- agent-link-web は DB を直接開かない（00 §2）ため，ここはすべて CLI に頼る。
+ agent-link-web は DB を直接開かないため，ここはすべて CLI に頼る。
  - 一覧       : 登録簿（`registry.load_registry`）+ `agent-link project summary`
  - Dashboard  : `agent-link project dashboard --period …`（cwd = プロジェクトの root）
  - 常駐の操作 : `agent-link daemon <start|stop>`（cwd = プロジェクトの root・文字出力）
@@ -10,10 +10,10 @@ task.md 作成と新形式 todo の実行は計画 15、
  - List 画面  : `agent-link run tree / run log|stats|history <id> / run md <id> --kind … /
    doc list --run <id> / doc read <token>`
    （cwd = root かつ `AGENT_LINK_PROJECT_ROOT` = root。値の検査と
-   400 / 404 / 409 / 502 もここで・共有契約「Web が CLI を呼ぶ約束」）
- - 作成フォーム: `agent-link card options / create`（計画 15 §1.5。入力は task_text に統一）
- - ▶ 実行     : `agent-link card run <run_id>`（新形式 todo・計画 15）
- - Workflow と定義の編集（U3）:
+   400 / 404 / 409 / 502 もここで・Web が CLI を呼ぶ約束）
+ - 作成フォーム: `agent-link card options / create`（。入力は task_text に統一）
+ - ▶ 実行     : `agent-link card run <run_id>`（新形式 todo）
+ - Workflow と定義の編集:
      - Workflow 盤面: `agent-link workflow`
      - 定義（block / template / settings）: `agent-link def list / show / write / delete`
        （検査と 400 / 404 / 409 / 502 の分け方もここで）
@@ -36,40 +36,40 @@ from agent_link_web.config import settings
 
 logger = logging.getLogger("agent_link_web")
 
-# 同じプロジェクトの書き出しは 60 秒に 1 回まで（06 §3.3）
+# 同じプロジェクトの書き出しは 60 秒に 1 回まで
 _EXPORT_INTERVAL = 60.0
 _last_export: dict[str, float] = {}
 
 _PERIODS = ("week", "month", "all")
 
-# 同じプロジェクトの最小集計は 5 秒に 1 回まで（一覧のたびに呼ぶと重い・実装計画 C C1）
+# 同じプロジェクトの最小集計は 5 秒に 1 回まで（一覧のたびに呼ぶと重い）
 _SUMMARY_TTL = 5.0
 # キーはプロジェクト名
 _summary_cache: dict[str, tuple[float, dict]] = {}
 
-# --- List 画面（計画 14 §3.3）で受け取る値の検査 ---
-# `agent-link phone run --view` が返す 3 種（計画 12 §3.2）
+# --- List 画面で受け取る値の検査 ---
+# `agent-link run <view>` が返す 3 種
 _PHONE_VIEWS = ("log", "stats", "history")
-# `agent-link phone md --kind` が返す 4 種（計画 12 §3.2。system は固定部分・U6）
+# `agent-link run md --kind` が返す 4 種（。system は固定部分）
 _PHONE_MD_KINDS = ("task", "message", "report", "system")
 # 保存できる md（task は未実行の todo カードだけ。確かめるのは agent-link）
 _PHONE_MD_WRITABLE = ("task",)
-# waggle トークンとブロック ID に許す文字（英数字と -_.:・長さ上限付き・計画 12 §3.3）
+# waggle トークンとブロック ID に許す文字（英数字と -_.:・長さ上限付き）
 _PHONE_TOKEN_RE = re.compile(r"^[A-Za-z0-9._:-]{1,128}$")
 # History の呼び出しの番号（cc の tool_use.id・pi の toolCall.id の形。`/` は入れない）
 _PHONE_CALL_ID_RE = re.compile(r"[A-Za-z0-9_-]{1,80}")
 
-# --- task.md 作成フォーム（計画 15 §1.5・§3.3）で受け取る値の検査 ---
+# --- task.md 作成フォームで受け取る値の検査 ---
 # thinking は一覧の値だけ
 _CARD_THINKING = ("none", "low", "medium", "high", "xhigh", "max")
 # model に許す文字
 _CARD_MODELS = ("opus", "sonnet", "haiku")
-# task_text の上限（100KB・UTF-8 のバイト数で数える・計画 15 §3.3）
+# task_text の上限（100KB・UTF-8 のバイト数で数える）
 _TASK_TEXT_MAX = 100 * 1024
 
 
 def _project_summary(name: str, root: str) -> dict:
-    """1 プロジェクトの最小集計（`agent-link phone summary`・実装計画 C C1）。
+    """1 プロジェクトの最小集計（`agent-link project summary`）。
 
     - DB が無い・root が無い・失敗したときは `running=0` / `last_executed_at=None`
       を返す（一覧は止めない）。
@@ -86,7 +86,7 @@ def _project_summary(name: str, root: str) -> dict:
     if not root:
         return empty
     try:
-        data = _phone_json(["project", "summary"], root=root, timeout=10.0)
+        data = _cli_json(["project", "summary"], root=root, timeout=10.0)
     except HTTPException as e:
         logger.warning(f"最小集計に失敗（一覧は続けます）: {name}: {e.detail}")
         return empty
@@ -102,8 +102,8 @@ def list_projects() -> list[dict]:
     """登録簿の全プロジェクト（最後に動いた順・`last_executed_at` が無い物は最後）．
 
     - 一覧そのものは登録簿（`registry.load_registry`）から作る。
-    - `running` と `last_executed_at` は DB が要るので `agent-link phone summary`
-      で聞く（root と DB が両方あるプロジェクトだけ・実装計画 C C1）。
+    - `running` と `last_executed_at` は DB が要るので `agent-link project summary`
+      で聞く（root と DB が両方あるプロジェクトだけ）。
     """
     projects = []
     for row in registry.load_registry():
@@ -144,7 +144,7 @@ def find_project(name: str) -> dict:
 
 
 def export_runs(project: dict) -> None:
-    """`agent-link phone export` で実行を書き出させる（メッセージ画面が開けるよう・06 §3.3）。
+    """`agent-link run export` で実行を書き出させる（メッセージ画面が開けるよう）。
 
     - root / db が無い物は呼ばない。
     - 失敗はログだけ（画面は止めない）。
@@ -168,7 +168,7 @@ def export_runs(project: dict) -> None:
             [settings.sai_link_bin, "run", "export"],
             app="agent-link",
             cwd=root,
-            env=_phone_env(root),
+            env=_cli_env(root),
             timeout=10,
         )
     except HTTPException as e:
@@ -176,7 +176,7 @@ def export_runs(project: dict) -> None:
 
 
 def dashboard(name: str, period: str) -> dict:
-    """カード型 Dashboard（06 §3.3）．`recent` に description / linkable を足す。"""
+    """カード型 Dashboard．`recent` に description / linkable を足す。"""
     if period not in _PERIODS:
         raise HTTPException(
             status_code=400, detail="period must be one of week, month, all."
@@ -185,8 +185,8 @@ def dashboard(name: str, period: str) -> dict:
     if not project.get("db_exists"):
         raise HTTPException(status_code=404, detail="This project has no run records yet.")
     export_runs(project)
-    data = _phone_json(["project", "dashboard", "--period", period], root=project["root"])
-    # recent の各行に description と linkable を足す（06 §3.3）。
+    data = _cli_json(["project", "dashboard", "--period", period], root=project["root"])
+    # recent の各行に description と linkable を足す。
     # メッセージ画面は書き出しファイルが無いと開けないため。
     root = project.get("root") or ""
     exported = {
@@ -205,7 +205,7 @@ def dashboard(name: str, period: str) -> dict:
 
 
 def daemon(name: str, action: str) -> dict:
-    """常駐の起動・停止（06 §3.3・実装計画 C C1）．CLI は文字出力なので run_cli で呼ぶ。
+    """常駐の起動・停止．CLI は文字出力なので run_cli で呼ぶ。
 
     - プロジェクト名から登録簿を引く（無ければ 404）。root が無い場合も 404。
     - 実行の記録が無い（DB が無い）プロジェクトでも起動できる。
@@ -220,20 +220,20 @@ def daemon(name: str, action: str) -> dict:
         [settings.sai_link_bin, "daemon", action],
         app="agent-link",
         cwd=root,
-        env=_phone_env(root),
+        env=_cli_env(root),
         timeout=30.0,
     )
     if proc.returncode == 0:
         lines = [ln for ln in (proc.stdout or "").splitlines() if ln.strip()]
         fallback = "Start requested." if action == "start" else "Stop requested."
         return {"ok": True, "message": lines[-1].strip() if lines else fallback}
-    # 失敗は JSON を返す命令と同じ読み替え（共有契約「Web が CLI を呼ぶ約束」）
+    # 失敗は JSON を返す命令と同じ読み替え（Web が CLI を呼ぶ約束）
     logger.warning(f"常駐の操作に失敗: {name} {action}")
     raise_for_failure("agent-link", proc)
     raise AssertionError("raise_for_failure は必ず失敗させる")
 
 
-def _phone_env(root: str) -> dict:
+def _cli_env(root: str) -> dict:
     """`agent-link <新しい命令>` 用の環境変数。
 
     `AGENT_LINK_PROJECT_ROOT` はデーモン起動時に設定された値が優先されるため，
@@ -245,7 +245,7 @@ def _phone_env(root: str) -> dict:
     return env
 
 
-def _phone_json(
+def _cli_json(
     args: list[str],
     *,
     root: str,
@@ -254,9 +254,9 @@ def _phone_json(
 ):
     """`agent-link <新しい命令>`（cwd = プロジェクトの root）を呼んで JSON を返す。
 
-    読み替えは `cli.run_json` の 1 か所に集めた（共有契約「Web が CLI を呼ぶ約束」）。
+    読み替えは `cli.run_json` の 1 か所に集めた（Web が CLI を呼ぶ約束）。
     終了コード 3 は文に関係なく 404，2 は 400，4 は 409，1 とそのほかは 502。
-    `stdin_text` は標準入力へ渡す（`card create` の JSON・計画 15 §1.5）。
+    `stdin_text` は標準入力へ渡す（`card create` の JSON）。
 
     テストが `control.run_cli` を差し替えても効くよう，`runner` にこのモジュールの
     `run_cli`（差し替え可能な名前）を渡す。
@@ -265,15 +265,15 @@ def _phone_json(
         [settings.sai_link_bin, *args],
         app="agent-link",
         cwd=root,
-        env=_phone_env(root),
+        env=_cli_env(root),
         timeout=timeout,
         input_text=stdin_text,
         runner=run_cli,
     )
 
 
-def _phone_project(name: str) -> dict:
-    """List 画面が呼ぶ CLI の前に登録簿を確かめる（計画 12 §3.1）。
+def _cli_project(name: str) -> dict:
+    """List 画面が呼ぶ CLI の前に登録簿を確かめる。
 
     - 名前で登録簿から引き（無ければ 404）。
     - root / db が無い物は呼ばない（404）。
@@ -287,75 +287,75 @@ def _phone_project(name: str) -> dict:
 
 
 def _check_run_id(run_id: int) -> None:
-    """run_id は正の整数だけ（外から来る値なので必ず確かめる・計画 12 §3.3）。"""
+    """run_id は正の整数だけ（外から来る値なので必ず確かめる）。"""
     if not isinstance(run_id, int) or isinstance(run_id, bool) or run_id <= 0:
         raise HTTPException(status_code=400, detail="run_id must be an integer of 1 or more.")
 
 
-def phone_tree(name: str) -> dict:
-    """`agent-link run tree`（左サイドバーと同じツリー・計画 12 §3.2）。"""
-    project = _phone_project(name)
-    return _phone_json(["run", "tree"], root=project["root"])
+def cli_tree(name: str) -> dict:
+    """`agent-link run tree`（左サイドバーと同じツリー）。"""
+    project = _cli_project(name)
+    return _cli_json(["run", "tree"], root=project["root"])
 
 
-def phone_run_view(name: str, run_id: int, view: str) -> dict:
-    """`agent-link run log|stats|history <id>`（Log / Stats / History・計画 12 §3.2）。"""
+def cli_run_view(name: str, run_id: int, view: str) -> dict:
+    """`agent-link run log|stats|history <id>`（Log / Stats / History）。"""
     _check_run_id(run_id)
     if view not in _PHONE_VIEWS:
         raise HTTPException(
             status_code=400,
             detail="view must be one of log, stats, history.",
         )
-    project = _phone_project(name)
-    return _phone_json(["run", view, str(run_id)], root=project["root"])
+    project = _cli_project(name)
+    return _cli_json(["run", view, str(run_id)], root=project["root"])
 
 
-def phone_run_call(name: str, run_id: int, call_id: str) -> dict:
-    """`agent-link run history <id> --call <call_id> --json`（History の 1 呼び出しの全文・C11）。
+def cli_run_call(name: str, run_id: int, call_id: str) -> dict:
+    """`agent-link run history <id> --call <call_id> --json`（History の 1 呼び出しの全文）。
 
     `call_id` の形が通らなければ CLI を呼ばず 400。見つからなければ CLI の 3 から 404。
     """
     _check_run_id(run_id)
     if not isinstance(call_id, str) or not _PHONE_CALL_ID_RE.fullmatch(call_id):
         raise HTTPException(status_code=400, detail="call_id must be at most 80 characters of letters, digits, - and _.")
-    project = _phone_project(name)
-    return _phone_json(
+    project = _cli_project(name)
+    return _cli_json(
         ["run", "history", str(run_id), "--call", call_id, "--json"], root=project["root"]
     )
 
 
-def phone_md(name: str, run_id: int, kind: str) -> dict:
-    """`agent-link run md <id> --kind <kind>`（無いときは 404・計画 12 §3.2）。"""
+def cli_md(name: str, run_id: int, kind: str) -> dict:
+    """`agent-link run md <id> --kind <kind>`（無いときは 404）。"""
     _check_run_id(run_id)
     if kind not in _PHONE_MD_KINDS:
         raise HTTPException(
             status_code=400,
             detail="kind must be one of task, message, report, system.",
         )
-    project = _phone_project(name)
-    return _phone_json(["run", "md", str(run_id), "--kind", kind], root=project["root"])
+    project = _cli_project(name)
+    return _cli_json(["run", "md", str(run_id), "--kind", kind], root=project["root"])
 
 
-def phone_md_save(name: str, run_id: int, kind: str, text) -> dict:
+def cli_md_save(name: str, run_id: int, kind: str, text) -> dict:
     """`agent-link run md <id> --kind <kind> --write`（本文は標準入力・保存後の本文を返す）。
 
     - 未実行のカードでない task（実行済み・送信済み）は 404（CLI の文をそのまま使う）。
-    - frontmatter を壊す内容などその他の失敗は共有契約の読み替え。
+    - frontmatter を壊す内容などその他の失敗は CLI の約束どおりの読み替え。
     """
     _check_run_id(run_id)
     if kind not in _PHONE_MD_WRITABLE:
         raise HTTPException(status_code=400, detail="Only task can be saved.")
     if not isinstance(text, str) or len(text.encode("utf-8")) > _TASK_TEXT_MAX:
         raise HTTPException(status_code=400, detail="The text must be a string of at most 100KB.")
-    project = _phone_project(name)
-    return _phone_json(
+    project = _cli_project(name)
+    return _cli_json(
         ["run", "md", str(run_id), "--kind", kind, "--write"],
         root=project["root"],
         stdin_text=text,
     )
 
 
-def phone_waggle(name: str, run_id: int, token: str | None = None) -> dict:
+def cli_waggle(name: str, run_id: int, token: str | None = None) -> dict:
     """`agent-link doc list --run <id> --json` / `doc read <token> --json`（成果物の一覧と本文）。
 
     画面が読む項目（`items[].token|label|description|status|ref`・`token|label|text`）は
@@ -368,11 +368,11 @@ def phone_waggle(name: str, run_id: int, token: str | None = None) -> dict:
         args = ["doc", "read", token, "--json"]
     else:
         args = ["doc", "list", "--run", str(run_id), "--json"]
-    project = _phone_project(name)
-    return _phone_json(args, root=project["root"])
+    project = _cli_project(name)
+    return _cli_json(args, root=project["root"])
 
 
-# --- 文書の検索（`phone search`）で受け取る値の検査 ---
+# --- 文書の検索（`doc search`）で受け取る値の検査 ---
 
 _SEARCH_CATEGORIES = ("task", "message", "waggle")
 _SEARCH_WORD_MAX = 200
@@ -396,7 +396,7 @@ def _search_day(label: str, value: str | None) -> str | None:
     return v
 
 
-def phone_search(
+def cli_search(
     name: str,
     word: str,
     category: str = "",
@@ -407,7 +407,7 @@ def phone_search(
     to_id: int | None = None,
     limit: int = 50,
 ) -> dict:
-    """`agent-link phone search`（task / message / waggle の本文検索・会話検索の画面の文書の検索）。
+    """`agent-link doc search`（task / message / waggle の本文検索・会話検索の画面の文書の検索）。
 
     外から来る値は CLI を呼ぶ前に全部確かめる（通らなければ 400）。
     """
@@ -445,11 +445,11 @@ def phone_search(
     ):
         if value is not None:
             args += [flag, str(value)]
-    project = _phone_project(name)
-    return _phone_json(args, root=project["root"], timeout=60.0)
+    project = _cli_project(name)
+    return _cli_json(args, root=project["root"], timeout=60.0)
 
 
-# --- 会話の検索（`agent-link session search`・共有契約「会話の検索の口」・U10） ---
+# --- 会話の検索（`agent-link session search`・会話の検索の口） ---
 
 # run の番号は N または N-M
 _SESSION_RANGE_RE = re.compile(r"^\d+(-\d+)?$")
@@ -476,7 +476,7 @@ def _session_subset(label: str, value: str | None, allowed: tuple) -> str | None
     return ",".join(x for x in allowed if x in picked)
 
 
-def phone_session_search(
+def cli_session_search(
     name: str,
     word: str | None = None,
     run_id: str | None = None,
@@ -485,7 +485,7 @@ def phone_session_search(
     status: str | None = None,
     sess_type: str | None = None,
 ) -> dict:
-    """`agent-link session search`（エージェントの会話の履歴の検索・U10）。
+    """`agent-link session search`（エージェントの会話の履歴の検索）。
 
     外から来る値は CLI を呼ぶ前に全部確かめる（通らなければ 400）。
     返り値は `{"items": 先頭 200 件, "truncated": 201 件目があるか}`。
@@ -531,8 +531,8 @@ def phone_session_search(
         if value is not None:
             args += [flag, value]
     args.append("--json")
-    project = _phone_project(name)
-    data = _phone_json(args, root=project["root"], timeout=60.0)
+    project = _cli_project(name)
+    data = _cli_json(args, root=project["root"], timeout=60.0)
     if isinstance(data, dict):
         items = data.get("items") or []
     else:
@@ -541,14 +541,14 @@ def phone_session_search(
     return {"items": items[:_SESSION_LIMIT], "truncated": truncated}
 
 
-def phone_card_options(name: str) -> dict:
-    """`agent-link card options`（ウィザードの選択肢・計画 15 §1.5）。block は絞らない。"""
-    project = _phone_project(name)
-    return _phone_json(["card", "options"], root=project["root"])
+def cli_card_options(name: str) -> dict:
+    """`agent-link card options`（ウィザードの選択肢）。block は絞らない。"""
+    project = _cli_project(name)
+    return _cli_json(["card", "options"], root=project["root"])
 
 
 def _validate_card_payload(payload: dict) -> dict:
-    """作成フォームが送る値を CLI を呼ぶ前に確かめる（計画 15 §3.3）。
+    """作成フォームが送る値を CLI を呼ぶ前に確かめる。
 
     - `block` は必須で、英数字と `-_.:` のみ
     - `task_text` は 100KB（UTF-8 のバイト数）まで
@@ -630,57 +630,57 @@ def _validate_card_payload(payload: dict) -> dict:
     }
 
 
-def phone_card_create(name: str, payload: dict) -> dict:
-    """`agent-link card create`（stdin に JSON・作成後は todo に配置・計画 15 §1.5）。"""
+def cli_card_create(name: str, payload: dict) -> dict:
+    """`agent-link card create`（stdin に JSON・作成後は todo に配置）。"""
     data = _validate_card_payload(payload)
-    project = _phone_project(name)
-    return _phone_json(
+    project = _cli_project(name)
+    return _cli_json(
         ["card", "create"],
         root=project["root"],
         stdin_text=json.dumps(data, ensure_ascii=False),
     )
 
 
-def phone_card_start(name: str, run_id: int) -> dict:
-    """`agent-link card run <run_id>`（新形式 todo の ▶ 実行・計画 15）。
+def cli_card_start(name: str, run_id: int) -> dict:
+    """`agent-link card run <run_id>`（新形式 todo の ▶ 実行）。
 
     - 成功: `{'run_id': N, 'message': '実行を要求しました'}` をそのまま返す。
     - 未実行カードが無い（終了コード 3）: 404。
-    - 常駐停止などその他: 共有契約の読み替え（1 とそのほかは 502）。
+    - 常駐停止などその他: CLI の約束どおりの読み替え（1 とそのほかは 502）。
     """
     _check_run_id(run_id)
-    project = _phone_project(name)
-    return _phone_json(
+    project = _cli_project(name)
+    return _cli_json(
         ["card", "run", str(run_id)],
         root=project["root"],
     )
 
 
-def phone_finalize(name: str, run_id: int) -> dict:
-    """`agent-link run finalize <run_id>`（メッセージ画面の ■ 終了・計画書 A の D2）。
+def cli_finalize(name: str, run_id: int) -> dict:
+    """`agent-link run finalize <run_id>`（メッセージ画面の ■ 終了）。
 
     - 成功: `{'run_id': N, 'message': '終了を要求しました'}` をそのまま返す。
     - その run が無い（終了コード 3）: 404。
-    - 実行中でない・子ブロック・常駐停止など: 共有契約の読み替え（1 とそのほかは 502）。
+    - 実行中でない・子ブロック・常駐停止など: CLI の約束どおりの読み替え（1 とそのほかは 502）。
     """
     _check_run_id(run_id)
-    project = _phone_project(name)
-    return _phone_json(
+    project = _cli_project(name)
+    return _cli_json(
         ["run", "finalize", str(run_id)],
         root=project["root"],
     )
 
 
 def run_send(name: str, run_id: int, text: str) -> dict:
-    """`agent-link run send <run_id> --json`（本文は標準入力・共有契約 C2）。
+    """`agent-link run send <run_id> --json`（本文は標準入力）。
 
     - 成功: `{'run_id', 'pane_id', 'status': 'sent'}` をそのまま返す。
     - 空の文（終了コード 2）: 400。無い実行（3）: 404。
     - 終了している・質問待ち（4）: 409。
     """
     _check_run_id(run_id)
-    project = _phone_project(name)
-    return _phone_json(
+    project = _cli_project(name)
+    return _cli_json(
         ["run", "send", str(run_id)],
         root=project["root"],
         stdin_text=text,
@@ -688,59 +688,59 @@ def run_send(name: str, run_id: int, text: str) -> dict:
 
 
 def run_interrupt(name: str, run_id: int) -> dict:
-    """`agent-link run interrupt <run_id> --json`（共有契約 C2）。
+    """`agent-link run interrupt <run_id> --json`。
 
     - 成功: `{'run_id', 'status', 'agent_status'}` をそのまま返す。
     - 無い実行（3）: 404。終了している（4）: 409。
     """
     _check_run_id(run_id)
-    project = _phone_project(name)
-    return _phone_json(
+    project = _cli_project(name)
+    return _cli_json(
         ["run", "interrupt", str(run_id)],
         root=project["root"],
     )
 
 
-def phone_advance(name: str, run_id: int) -> dict:
-    """`agent-link run advance <run_id>`（review → done → Workflow の移動・計画書 A の U10）。
+def cli_advance(name: str, run_id: int) -> dict:
+    """`agent-link run advance <run_id>`（review → done → Workflow の移動）。
 
     - 成功: `{'run_id': N, 'from': '…', 'to': '…'}` をそのまま返す。
     - その run が無い（終了コード 3）: 404。
-    - review / done 以外・run フォルダが無いとき: 共有契約の読み替え。
+    - review / done 以外・run フォルダが無いとき: CLI の約束どおりの読み替え。
     """
     _check_run_id(run_id)
-    project = _phone_project(name)
-    return _phone_json(
+    project = _cli_project(name)
+    return _cli_json(
         ["run", "advance", str(run_id)],
         root=project["root"],
     )
 
 
-def phone_rm(name: str, run_id: int) -> dict:
+def cli_rm(name: str, run_id: int) -> dict:
     """`agent-link run rm <run_id> --yes`（List の項目を消す。子の実行も一緒に消える）。
 
     - 成功: `{'run_id': N, 'executions': 消した実行の数}`。
-    - その run が無い（終了コード 3）: 404。実行中など: 共有契約の読み替え。
+    - その run が無い（終了コード 3）: 404。実行中など: CLI の約束どおりの読み替え。
     """
     _check_run_id(run_id)
-    project = _phone_project(name)
-    return _phone_json(
+    project = _cli_project(name)
+    return _cli_json(
         ["run", "rm", str(run_id), "--yes"],
         root=project["root"],
     )
 
 
-def phone_card_docs(name: str) -> dict:
+def cli_card_docs(name: str) -> dict:
     """`agent-link card docs`（最近の文書・task_text に貼る候補）。"""
-    project = _phone_project(name)
-    return _phone_json(["card", "docs"], root=project["root"])
+    project = _cli_project(name)
+    return _cli_json(["card", "docs"], root=project["root"])
 
 
 # 実行予定時刻（`YYYY-MM-DD HH:MM`。ブラウザの datetime-local の `T` 区切りも受ける）
 _SCHEDULE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}$")
 
 
-def phone_card_schedule(name: str, run_id: int, at: str) -> dict:
+def cli_card_schedule(name: str, run_id: int, at: str) -> dict:
     """`agent-link card schedule <run_id> [--at …]`（todo の実行予定時刻）。
 
     `at` が空なら予定を消す。形が違えば CLI を呼ばずに 400。
@@ -752,16 +752,16 @@ def phone_card_schedule(name: str, run_id: int, at: str) -> dict:
         if not _SCHEDULE_RE.match(at):
             raise HTTPException(status_code=400, detail="The time format is invalid.")
         args += ["--at", at.replace("T", " ")]
-    project = _phone_project(name)
-    return _phone_json(args, root=project["root"])
+    project = _cli_project(name)
+    return _cli_json(args, root=project["root"])
 
 
-# --- Workflow と定義の編集（U3・共有契約 C-A1） ---
+# --- Workflow と定義の編集 ---
 # agent-link-tui の中にしか無い Workflow の盤面と block / template / settings の編集を、
-# Web からも同じ CLI 経由でできるようにする（agent-link-web は DB を開かない・00 §2）。
+# Web からも同じ CLI 経由でできるようにする（agent-link-web は DB を開かない）。
 # 外から来る値（kind / scope / 名前 / 本文）は、CLI を呼ぶ前に必ずここで確かめる。
 
-# 編集できる定義の種類（`phone def --kind`）
+# 編集できる定義の種類（`def --kind`）
 _DEF_KINDS = ("block", "template", "settings")
 # 定義の置き場（そのプロジェクト / 全体で共通の `~/.agent-link/`）
 _DEF_SCOPES = ("project", "global")
@@ -773,8 +773,8 @@ _DEF_SETTINGS_NAME = "settings"
 _DEF_TEXT_MAX = 256 * 1024
 
 
-def _phone_def_project(name: str) -> dict:
-    """定義の編集の前に登録簿を確かめる（U3 §変更内容 1）。
+def _cli_def_project(name: str) -> dict:
+    """定義の編集の前に登録簿を確かめる。
 
     実行の記録（DB）が無くても block は書けるので、root が無いときだけ 404 にする。
     """
@@ -784,10 +784,10 @@ def _phone_def_project(name: str) -> dict:
     return project
 
 
-def _phone_def_json(args: list[str], *, root: str, stdin_text: str | None = None):
-    """`agent-link def …`（cwd = プロジェクトの root）を呼んで JSON を返す（U3 §変更内容 1）。
+def _cli_def_json(args: list[str], *, root: str, stdin_text: str | None = None):
+    """`agent-link def …`（cwd = プロジェクトの root）を呼んで JSON を返す。
 
-    読み替えは共有契約「Web が CLI を呼ぶ約束」と同じ（`cli.run_json` の 1 か所）。
+    読み替えは Web が CLI を呼ぶ約束と同じ（`cli.run_json` の 1 か所）。
     - 終了コード 0: 標準出力の JSON をそのまま返す。
     - 2: 400（検査に通らない中身の誤り）・3: 404・4: 409・1 とそのほか: 502。
     - `stdin_text` は本文を標準入力へ渡す（`write`）。
@@ -796,7 +796,7 @@ def _phone_def_json(args: list[str], *, root: str, stdin_text: str | None = None
         [settings.sai_link_bin, "def", *args],
         app="agent-link",
         cwd=root,
-        env=_phone_env(root),
+        env=_cli_env(root),
         timeout=20.0,
         input_text=stdin_text,
         runner=run_cli,
@@ -804,7 +804,7 @@ def _phone_def_json(args: list[str], *, root: str, stdin_text: str | None = None
 
 
 def _validate_def(kind, scope, def_name) -> None:
-    """定義の指定（kind / scope / 名前）を確かめる（違反は 400・U3 §変更内容 1）。"""
+    """定義の指定（kind / scope / 名前）を確かめる（違反は 400）。"""
     if kind not in _DEF_KINDS:
         raise HTTPException(
             status_code=400, detail="kind must be one of block, template, settings."
@@ -834,36 +834,36 @@ def _validate_def_text(text) -> str:
     return text
 
 
-def phone_workflow(name: str, subtasks: bool = False) -> dict:
+def cli_workflow(name: str, subtasks: bool = False) -> dict:
     """Workflow 盤面（`agent-link workflow`・`subtasks` が真なら `--subtasks` で子の実行も含める）。
 
-    実行の記録が要るため、root と DB が両方無いプロジェクトは 404（`_phone_project`）。
+    実行の記録が要るため、root と DB が両方無いプロジェクトは 404（`_cli_project`）。
     """
-    project = _phone_project(name)
+    project = _cli_project(name)
     argv = ["workflow", "--subtasks"] if subtasks else ["workflow"]
-    return _phone_json(argv, root=project["root"], timeout=30.0)
+    return _cli_json(argv, root=project["root"], timeout=30.0)
 
 
-def phone_def_list(name: str) -> dict:
-    """定義の一覧（`agent-link def list`・U3 §変更内容 1）。"""
-    project = _phone_def_project(name)
-    return _phone_def_json(["list"], root=project["root"])
+def cli_def_list(name: str) -> dict:
+    """定義の一覧（`agent-link def list`）。"""
+    project = _cli_def_project(name)
+    return _cli_def_json(["list"], root=project["root"])
 
 
-def phone_def_show(name: str, kind: str, scope: str, def_name: str) -> dict:
-    """定義 1 件の中身（`agent-link def show`・U3 §変更内容 1）。"""
+def cli_def_show(name: str, kind: str, scope: str, def_name: str) -> dict:
+    """定義 1 件の中身（`agent-link def show`）。"""
     _validate_def(kind, scope, def_name)
-    project = _phone_def_project(name)
-    return _phone_def_json(
+    project = _cli_def_project(name)
+    return _cli_def_json(
         ["show", "--kind", kind, "--scope", scope, "--name", def_name],
         root=project["root"],
     )
 
 
-def phone_def_write(
+def cli_def_write(
     name: str, kind: str, scope: str, def_name: str, text, create: bool = False
 ) -> dict:
-    """定義の保存（`agent-link def write`・本文は標準入力・U3 §変更内容 1）。
+    """定義の保存（`agent-link def write`・本文は標準入力）。
 
     - 検査に通らない本文（壊れた frontmatter 等）は 400（agent-link が終了コード 2 で返す）。
     - 無い定義は 404、`--create` で同じ名前があるときは 409。
@@ -876,17 +876,17 @@ def phone_def_write(
     args = ["write", "--kind", kind, "--scope", scope, "--name", def_name]
     if create:
         args.append("--create")
-    project = _phone_def_project(name)
-    return _phone_def_json(args, root=project["root"], stdin_text=body)
+    project = _cli_def_project(name)
+    return _cli_def_json(args, root=project["root"], stdin_text=body)
 
 
-def phone_def_delete(name: str, kind: str, scope: str, def_name: str) -> dict:
-    """定義の削除（`agent-link def delete`・U3 §変更内容 1）。settings は消せない（400）。"""
+def cli_def_delete(name: str, kind: str, scope: str, def_name: str) -> dict:
+    """定義の削除（`agent-link def delete`）。settings は消せない（400）。"""
     _validate_def(kind, scope, def_name)
     if kind == "settings":
         raise HTTPException(status_code=400, detail="settings cannot be deleted.")
-    project = _phone_def_project(name)
-    return _phone_def_json(
+    project = _cli_def_project(name)
+    return _cli_def_json(
         ["delete", "--kind", kind, "--scope", scope, "--name", def_name],
         root=project["root"],
     )

@@ -1,14 +1,14 @@
-"""ホームの集計（`GET /api/home`・U3 §変更内容 3）と合計のダッシュボード
-（`GET /api/home/overview`・U02 §1）の小さなテスト（assert だけ）。
+"""ホームの集計（`GET /api/home`）と合計のダッシュボード
+（`GET /api/home/overview`）の小さなテスト（assert だけ）。
 
 確かめること:
 - 質問・承認の `project` / `run_id`（session_id を含む実行を探す）
 - `title` / `summary` の取り方（1 番目の質問・command → file_path → tool_input の JSON）と 200 文字で切る
-- `projects` の review（run_id と label の並び）と todo の数え方（`phone tree` のフォルダ）・`todo_runs`
+- `projects` の review（run_id と label の並び）と todo の数え方（`run tree` のフォルダ）・`todo_runs`
 - `papers` の項目が無いこと
 - 1 プロジェクトの失敗が `errors` に入り、ほかのプロジェクトは出ること
 - 10 秒の覚え置き（2 回目は集めない）
-- 合計（`build_overview`）は各プロジェクトのダッシュボードを足し合わせること（U02 §1）
+- 合計（`build_overview`）は各プロジェクトのダッシュボードを足し合わせること
 
 実行:
     cd <作業用コピー>
@@ -50,7 +50,7 @@ PROJECTS = [
     {"name": "gone", "root": "", "root_exists": False, "db_exists": True},
 ]
 
-# `agent-link phone tree` の返答（トップの todo / running / review / done フォルダ）
+# `agent-link run tree` の返答（トップの todo / running / review / done フォルダ）
 TREE = {
     "items": [
         {
@@ -82,7 +82,7 @@ TREE = {
     ]
 }
 
-# `agent-link phone dashboard --period week` の返答（2 プロジェクト分）
+# `agent-link project dashboard --period week` の返答（2 プロジェクト分）
 DASHBOARDS = {
     "agent-link-web": {
         "name": "agent-link-web",
@@ -220,7 +220,7 @@ def setup(fake: Fake) -> None:
     def list_projects():
         return [dict(p) for p in PROJECTS]
 
-    def phone_tree(name: str) -> dict:
+    def cli_tree(name: str) -> dict:
         fake.tree_calls.append(name)
         if name in fake.fail_tree:
             raise HTTPException(status_code=502, detail="agent-link failed.")
@@ -240,7 +240,7 @@ def setup(fake: Fake) -> None:
         return json.loads(json.dumps(DASHBOARDS[name]))
 
     home.control.list_projects = list_projects
-    home.control.phone_tree = phone_tree
+    home.control.cli_tree = cli_tree
     home.control.dashboard = dashboard
     home.runs.load_runs = load_runs
     home.runs.run_session_ids = run_session_ids
@@ -302,7 +302,7 @@ def test_projects(fake: Fake) -> None:
     assert first["last_executed_at"] == "2026-09-26 10:12:03", first
     assert first["review"] == [{"run_id": 54, "label": "ID54/📋 plan"}], first
     assert first["todo"] == 2, first  # todo フォルダの run は 2 件
-    # todo の行そのものも同じ内容で返す（画面の todo カードが押せるようにするため・U02 §2）
+    # todo の行そのものも同じ内容で返す（画面の todo カードが押せるようにするため）
     assert first["todo_runs"] == [
         {"run_id": 56, "label": "ID56/kantoku"},
         {"run_id": 57, "label": "ID57/👷 worker"},
@@ -385,7 +385,7 @@ def test_route() -> None:
     assert ("GET", "/api/home/overview") in got, sorted(got)
 
 
-# --- 合計のダッシュボード（U02 §1） ---
+# --- 合計のダッシュボード ---
 
 
 def test_overview_sum(fake: Fake) -> None:

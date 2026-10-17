@@ -3,7 +3,7 @@
 確かめること:
 - Workflow: `agent-link workflow`（`?subtasks=1` なら `--subtasks` 付き）を cwd = プロジェクトの root・`AGENT_LINK_PROJECT_ROOT` = 同じ root で呼ぶ
 - 定義の一覧・読み出し・保存・削除の引数（`--kind` / `--scope` / `--name` / `--create`）と本文は標準入力
-- `_phone_def_json` の終了コードの分け方（0 / 2 / 3 / 4（同じ名前の定義があります）/ その他）
+- `_cli_def_json` の終了コードの分け方（0 / 2 / 3 / 4（同じ名前の定義があります）/ その他）
 - 検査に通らない値（kind / scope / 名前 / 256KB 超 / settings の削除）は 400 で、CLI を 1 回も呼ばない
 - 実行の記録（DB）が無いプロジェクトでも定義を編集できる（root が無いときだけ 404）
 - 新しい住所が登録済みで、`/papers/…` の固定の住所が `{paper_id:int}` に取られない
@@ -45,7 +45,7 @@ def expect(code: int, fn) -> HTTPException:
         fn()
     except HTTPException as e:
         assert e.status_code == code, f"{code} のはずが {e.status_code}: {e.detail}"
-        assert str(e.detail).strip(), f"{code} のときは日本語で理由を書く"
+        assert str(e.detail).strip(), f"{code} のときは英語で理由を書く"
         return e
     raise AssertionError(f"{code} になるはず")
 
@@ -114,7 +114,7 @@ def test_workflow(cli: FakeCli) -> None:
     cli.stdout = json.dumps(WORKFLOW_JSON)
     cli.stderr = ""
     cli.calls.clear()
-    out = control.phone_workflow("demo")
+    out = control.cli_workflow("demo")
     assert out == WORKFLOW_JSON, out
     call = cli.last
     assert call["args"] == ["agent-link", "workflow"], call["args"]
@@ -130,9 +130,9 @@ def test_workflow_subtasks(cli: FakeCli) -> None:
     cli.returncode = 0
     cli.stdout = json.dumps(WORKFLOW_JSON)
     cli.calls.clear()
-    assert control.phone_workflow("demo", True) == WORKFLOW_JSON
+    assert control.cli_workflow("demo", True) == WORKFLOW_JSON
     assert cli.last["args"] == ["agent-link", "workflow", "--subtasks"], cli.last["args"]
-    assert control.phone_workflow("demo", False) == WORKFLOW_JSON
+    assert control.cli_workflow("demo", False) == WORKFLOW_JSON
     assert cli.last["args"] == ["agent-link", "workflow"], cli.last["args"]
 
     # 住所の側: `subtasks` を bool のクエリとして受ける（既定は偽）
@@ -146,9 +146,9 @@ def test_workflow_subtasks(cli: FakeCli) -> None:
 def test_workflow_404(cli: FakeCli) -> None:
     """root か DB が無いプロジェクトは CLI を呼ばずに 404。"""
     cli.calls.clear()
-    expect(404, lambda: control.phone_workflow("fresh"))
-    expect(404, lambda: control.phone_workflow("gone"))
-    expect(404, lambda: control.phone_workflow("unknown"))
+    expect(404, lambda: control.cli_workflow("fresh"))
+    expect(404, lambda: control.cli_workflow("gone"))
+    expect(404, lambda: control.cli_workflow("unknown"))
     assert cli.calls == [], f"検査前に CLI が呼ばれた: {cli.calls}"
 
 
@@ -173,30 +173,30 @@ LIST_JSON = {
 
 
 def test_def_list(cli: FakeCli) -> None:
-    """定義の一覧は `phone def list`。DB が無くても呼べる（root だけ要る）。"""
+    """定義の一覧は `def list`。DB が無くても呼べる（root だけ要る）。"""
     cli.returncode = 0
     cli.stdout = json.dumps(LIST_JSON)
     cli.stderr = ""
     cli.calls.clear()
-    assert control.phone_def_list("demo") == LIST_JSON
+    assert control.cli_def_list("demo") == LIST_JSON
     assert cli.last["args"] == ["agent-link", "def", "list"], cli.last["args"]
     # 実行の記録が無いプロジェクトでも定義の一覧は出せる
     cli.calls.clear()
-    control.phone_def_list("fresh")
+    control.cli_def_list("fresh")
     assert cli.last["cwd"] == "/tmp/fresh-root", cli.last["cwd"]
     # フォルダが無いプロジェクトは 404（CLI を呼ばない）
     cli.calls.clear()
-    expect(404, lambda: control.phone_def_list("gone"))
+    expect(404, lambda: control.cli_def_list("gone"))
     assert cli.calls == [], cli.calls
 
 
 def test_def_show(cli: FakeCli) -> None:
-    """読み出しは `phone def show --kind … --scope … --name …`。"""
+    """読み出しは `def show --kind … --scope … --name …`。"""
     cli.returncode = 0
     cli.stdout = json.dumps({"kind": "block", "name": "kantoku", "text": "hello"})
     cli.stderr = ""
     cli.calls.clear()
-    control.phone_def_show("demo", "block", "project", "kantoku")
+    control.cli_def_show("demo", "block", "project", "kantoku")
     assert cli.last["args"] == [
         "agent-link",
         "def",
@@ -217,7 +217,7 @@ def test_def_write(cli: FakeCli) -> None:
     cli.stdout = json.dumps({"exists": True, "text": "hello"})
     cli.stderr = ""
     cli.calls.clear()
-    out = control.phone_def_write("demo", "block", "project", "kantoku", "hello")
+    out = control.cli_def_write("demo", "block", "project", "kantoku", "hello")
     assert out == {"exists": True, "text": "hello"}, out
     call = cli.last
     assert call["args"] == [
@@ -236,14 +236,14 @@ def test_def_write(cli: FakeCli) -> None:
 
     # create: true
     cli.calls.clear()
-    control.phone_def_write("demo", "template", "global", "sai-base", "本文", True)
+    control.cli_def_write("demo", "template", "global", "sai-base", "本文", True)
     args = cli.last["args"]
     assert args[-1] == "--create", args
     assert "sai-base" in args and "--scope" in args, args
 
     # settings は名前が settings だけ
     cli.calls.clear()
-    control.phone_def_write("demo", "settings", "project", "settings", "{}", False)
+    control.cli_def_write("demo", "settings", "project", "settings", "{}", False)
     assert cli.last["input_text"] == "{}", cli.last["input_text"]
 
 
@@ -251,37 +251,37 @@ def test_def_write_validation(cli: FakeCli) -> None:
     """検査に通らない値は 400 で、CLI を 1 回も呼ばない。"""
     cli.calls.clear()
     # kind / scope
-    expect(400, lambda: control.phone_def_write("demo", "note", "project", "x", "t"))
-    expect(400, lambda: control.phone_def_write("demo", "block", "team", "x", "t"))
+    expect(400, lambda: control.cli_def_write("demo", "note", "project", "x", "t"))
+    expect(400, lambda: control.cli_def_write("demo", "block", "team", "x", "t"))
     # 名前（英数字から始まり・英数字と -_ だけ・64 文字まで）
     for bad in ("", "-x", "_x", "a b", "a.md", "あ", "x" * 65, "a/b", "a\nb"):
-        expect(400, lambda bad=bad: control.phone_def_write("demo", "block", "project", bad, "t"))
-        expect(400, lambda bad=bad: control.phone_def_show("demo", "template", "global", bad))
+        expect(400, lambda bad=bad: control.cli_def_write("demo", "block", "project", bad, "t"))
+        expect(400, lambda bad=bad: control.cli_def_show("demo", "template", "global", bad))
     # settings の名前は settings だけ
-    expect(400, lambda: control.phone_def_write("demo", "settings", "project", "x", "{}"))
-    expect(400, lambda: control.phone_def_delete("demo", "settings", "project", "settings2"))
+    expect(400, lambda: control.cli_def_write("demo", "settings", "project", "x", "{}"))
+    expect(400, lambda: control.cli_def_delete("demo", "settings", "project", "settings2"))
     # 本文（文字列・256KB まで）
-    expect(400, lambda: control.phone_def_write("demo", "block", "project", "x", 123))
-    expect(400, lambda: control.phone_def_write("demo", "block", "project", "x", None))
+    expect(400, lambda: control.cli_def_write("demo", "block", "project", "x", 123))
+    expect(400, lambda: control.cli_def_write("demo", "block", "project", "x", None))
     expect(
         400,
-        lambda: control.phone_def_write("demo", "block", "project", "x", "あ" * 100_000),
+        lambda: control.cli_def_write("demo", "block", "project", "x", "あ" * 100_000),
     )
     # create は真偽値
     expect(
         400,
-        lambda: control.phone_def_write("demo", "block", "project", "x", "t", "yes"),
+        lambda: control.cli_def_write("demo", "block", "project", "x", "t", "yes"),
     )
     assert cli.calls == [], f"検査前に CLI が呼ばれた: {cli.calls}"
 
 
 def test_def_delete(cli: FakeCli) -> None:
-    """削除は `phone def delete …`。settings は 400 で CLI を呼ばない。"""
+    """削除は `def delete …`。settings は 400 で CLI を呼ばない。"""
     cli.returncode = 0
     cli.stdout = '{"deleted": true}'
     cli.stderr = ""
     cli.calls.clear()
-    out = control.phone_def_delete("demo", "template", "project", "sai-base")
+    out = control.cli_def_delete("demo", "template", "project", "sai-base")
     assert out == {"deleted": True}, out
     assert cli.last["args"] == [
         "agent-link",
@@ -295,13 +295,13 @@ def test_def_delete(cli: FakeCli) -> None:
         "sai-base",
     ], cli.last["args"]
     cli.calls.clear()
-    e = expect(400, lambda: control.phone_def_delete("demo", "settings", "project", "settings"))
+    e = expect(400, lambda: control.cli_def_delete("demo", "settings", "project", "settings"))
     assert "settings cannot be deleted" in str(e.detail), e.detail
     assert cli.calls == [], cli.calls
 
 
 def test_def_exit_codes(cli: FakeCli) -> None:
-    """`_phone_def_json` の終了コードの分け方（0 / 2 / 3 / 4 / その他）。
+    """`_cli_def_json` の終了コードの分け方（0 / 2 / 3 / 4 / その他）。
 
     `def write --create` は，同じ名前があるとき終了コード 4 で
     「同じ名前の定義があります」を出す（409 になる）。
@@ -310,13 +310,13 @@ def test_def_exit_codes(cli: FakeCli) -> None:
     cli.returncode = 3
     cli.stdout = ""
     cli.stderr = "定義が見つかりません"
-    e = expect(404, lambda: control.phone_def_show("demo", "block", "project", "nope"))
+    e = expect(404, lambda: control.cli_def_show("demo", "block", "project", "nope"))
     assert str(e.detail) == "定義が見つかりません", e.detail
 
     # 2 = 検査に通らない（利用者が書いた中身の誤り）→ 400 に理由をそのまま
     cli.returncode = 2
     cli.stderr = "frontmatter が読めません"
-    e = expect(400, lambda: control.phone_def_write("demo", "block", "project", "x", "---\n"))
+    e = expect(400, lambda: control.cli_def_write("demo", "block", "project", "x", "---\n"))
     assert "frontmatter が読めません" in str(e.detail), e.detail
     assert e.status_code == 400, e.status_code
 
@@ -325,42 +325,42 @@ def test_def_exit_codes(cli: FakeCli) -> None:
     cli.stderr = "同じ名前の定義があります"
     e = expect(
         409,
-        lambda: control.phone_def_write("demo", "block", "project", "x", "t", True),
+        lambda: control.cli_def_write("demo", "block", "project", "x", "t", True),
     )
     assert str(e.detail) == "同じ名前の定義があります", e.detail
 
     # 1 で別の文言 → 502
     cli.returncode = 1
     cli.stderr = "HOME が分かりません"
-    e = expect(502, lambda: control.phone_def_show("demo", "block", "global", "x"))
+    e = expect(502, lambda: control.cli_def_show("demo", "block", "global", "x"))
     assert "HOME が分かりません" in str(e.detail), e.detail
 
     # 1 で stderr が空 → 502 の既定の文
     cli.returncode = 1
     cli.stderr = ""
-    e = expect(502, lambda: control.phone_def_show("demo", "block", "project", "x"))
+    e = expect(502, lambda: control.cli_def_show("demo", "block", "project", "x"))
     assert str(e.detail) == "agent-link failed.", e.detail
 
     # 0 でも JSON が読めなければ 502
     cli.returncode = 0
     cli.stdout = "not json"
-    e = expect(502, lambda: control.phone_def_show("demo", "block", "project", "x"))
+    e = expect(502, lambda: control.cli_def_show("demo", "block", "project", "x"))
     assert str(e.detail) == "Could not read the response from agent-link.", e.detail
 
 
 def test_def_errors_not_truncated(cli: FakeCli) -> None:
-    """失敗の理由は標準エラーの最後の行をそのまま使う（切り詰めない・共有契約）。"""
+    """失敗の理由は標準エラーの最後の行をそのまま使う（切り詰めない・CLI の約束）。"""
     cli.returncode = 2
     cli.stderr = "あ" * 500
-    e = expect(400, lambda: control.phone_def_write("demo", "block", "project", "x", "t"))
+    e = expect(400, lambda: control.cli_def_write("demo", "block", "project", "x", "t"))
     assert str(e.detail) == "あ" * 500, len(str(e.detail))
     cli.returncode = 1
     cli.stderr = "い" * 500
-    e = expect(502, lambda: control.phone_def_show("demo", "block", "project", "x"))
+    e = expect(502, lambda: control.cli_def_show("demo", "block", "project", "x"))
     assert str(e.detail) == "い" * 500, len(str(e.detail))
 
 
-# --- 住所の登録（AC1） ---
+# --- 住所の登録 ---
 
 
 def test_routes() -> None:

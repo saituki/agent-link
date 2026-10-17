@@ -19,7 +19,7 @@ from agent_link_web import registry
 load_dotenv(Path(__file__).resolve().parent.parent.parent / ".env")
 
 # Web のデータ（DB・公開鍵・ログ）はソースのフォルダではなく利用者全体の置き場に置く。
-# 置き場は `<AGENT_LINK_HOME>/web/`（`AGENT_LINK_HOME` が無ければ `~/.agent-link`。U17 の共有契約）。
+# 置き場は `<AGENT_LINK_HOME>/web/`（`AGENT_LINK_HOME` が無ければ `~/.agent-link`。）。
 # ソースのフォルダには置かない。
 DATA_DIR = registry.sai_home() / "web"
 DB_PATH = DATA_DIR / "agent_link_web.db"
@@ -33,12 +33,12 @@ class Settings:
     claude_sessions_dir: Path = Path(
         os.getenv("CLAUDE_SESSIONS_DIR", str(Path.home() / ".claude" / "projects"))
     )
-    # agent-link が実行ごとに書き出す JSON の置き場（00 §3.1）。
+    # agent-link が実行ごとに書き出す JSON の置き場。
     # 手元確認では AGENT_LINK_WEB_RUNS_DIR で一時フォルダに差し替えられる。
     runs_dir: Path = Path(
         os.getenv("AGENT_LINK_WEB_RUNS_DIR", str(registry.sai_home() / "web" / "runs"))
     )
-    # agent-link CLI（Project タブが呼ぶ・00 §8）
+    # agent-link CLI（Project タブが呼ぶ）
     sai_link_bin: str = os.getenv("AGENT_LINK_BIN", "agent-link")
 
 

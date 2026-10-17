@@ -1,13 +1,13 @@
-"""状態の監視ループ．5秒おきに headless の実行の `state.json` を見て通知する（U03）。
+"""状態の監視ループ．5秒おきに headless の実行の `state.json` を見て通知する。
 
 通知の対象は **agent-link が書き出した headless の実行だけ**
-（`herdr_pane_id` が `hl-` で始まる物・共有契約 C1）。
+（`herdr_pane_id` が `hl-` で始まる物）。
 
 通知の条件は2つだけ（増やすと無視されるようになるため増やさない）:
 1. 判断が必要になった（質問の登録）— 質問を登録したときに `questions.py` が出す
 2. 長い作業が終わった（3分以上 working / blocked が続いた後に idle）
 
-新しい仕組みは増やさない．実行の状態は `runs.headless_state`（C1 の `state.json`）から読む。
+新しい仕組みは増やさない．実行の状態は `runs.headless_state`（`state.json`）から読む。
 """
 
 from __future__ import annotations
@@ -31,7 +31,7 @@ _working_since: dict[str, float] = {}
 
 
 def notify_status_change(run: dict, state: str, prev: str, now: float) -> None:
-    """状態が変わったときの通知を出す（見出しはプロジェクト名・計画書 A の U05）．
+    """状態が変わったときの通知を出す（見出しはプロジェクト名）．
 
     監視ループから切り出したもの．テストから引数を確かめられる．
     """

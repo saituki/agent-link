@@ -37,7 +37,7 @@ from agent_link_web import webcli  # noqa: E402
 # 偽のサーバが受け取ったもの（テストの中から読む）
 RECEIVED: list[dict] = []
 
-# `question` の応答に入れる問い（`phone_api.py` のテストと同じ形）
+# `question` の応答に入れる問い（`cli_api.py` のテストと同じ形）
 QUESTIONS = [
     {
         "question": "資料はどれですか",
@@ -203,7 +203,7 @@ class WebCliTest(unittest.TestCase):
     def setUp(self) -> None:
         RECEIVED.clear()
 
-    # --- --help に命令が並ぶ（AC1 の一部）
+    # --- --help に命令が並ぶ
     def test_help_lists_commands(self) -> None:
         text = webcli.build_parser().format_help()
         for name in ("serve", "projects", "home", "questions", "question",

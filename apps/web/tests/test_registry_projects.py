@@ -1,12 +1,12 @@
-"""プロジェクト一覧・Dashboard・常駐の操作（実装計画 C C1・C2）の小さなテスト。
+"""プロジェクト一覧・Dashboard・常駐の操作の小さなテスト。
 
 確かめること:
 - `registry.load_registry` は `~/.agent-link/registry.json` から `kind == "link"` だけを引き，
   `root_exists` / `db_exists` / `daemon_alive` を足す（`AGENT_LINK_HOME` で差し替える）
 - `control.list_projects` は項目名と並び順を今までどおりにし，
-  `agent-link phone summary` は root と DB が両方あるプロジェクトだけで呼ぶ
+  `agent-link project summary` は root と DB が両方あるプロジェクトだけで呼ぶ
 - 最小集計は 5 秒だけ覚える／失敗しても一覧は止めない
-- `control.dashboard` は `agent-link phone dashboard --period <p>` を root で呼ぶ
+- `control.dashboard` は `agent-link project dashboard --period <p>` を root で呼ぶ
 - `control.daemon` は `agent-link daemon <start|stop>` を root で呼ぶ
 
 実行:
@@ -35,7 +35,7 @@ def expect(code: int, fn) -> HTTPException:
         fn()
     except HTTPException as e:
         assert e.status_code == code, f"{code} のはずが {e.status_code}: {e.detail}"
-        assert str(e.detail).strip(), f"{code} のときは日本語で理由を書く"
+        assert str(e.detail).strip(), f"{code} のときは英語で理由を書く"
         return e
     raise AssertionError(f"{code} になるはず")
 
@@ -61,7 +61,7 @@ class FakeCli:
         return subprocess.CompletedProcess(list(args), self.returncode, out, self.stderr)
 
     def link_calls(self) -> list[list[str]]:
-        """agent-link を呼んだ argv を全部取り出す（U09 で接頭辞の `phone` が消えた）。"""
+        """agent-link を呼んだ argv を全部取り出す。"""
         return [c["args"] for c in self.calls]
 
 
@@ -245,7 +245,7 @@ def _stub_project(project: dict):
 
 
 def test_dashboard(base: Path) -> None:
-    """`agent-link phone dashboard --period <p>` を root で呼ぶ。recent にも足す。"""
+    """`agent-link project dashboard --period <p>` を root で呼ぶ。recent にも足す。"""
     root = str(base / "alpha")
     project = {
         "name": "alpha",
@@ -370,7 +370,7 @@ def test_daemon(base: Path) -> None:
         assert res == {"ok": True, "message": "Start requested."}, res
         assert cli.calls[-1]["args"] == [settings.sai_link_bin, "daemon", "start"], cli.calls[-1]
 
-        # 失敗は 502 に stderr の最後の行（共有契約の読み替え）
+        # 失敗は 502 に stderr の最後の行（CLI の約束どおりの読み替え）
         cli.returncode = 1
         cli.stderr = "実行中の作業があるため停止しませんでした"
         e = expect(502, lambda: control.daemon("alpha", "stop"))

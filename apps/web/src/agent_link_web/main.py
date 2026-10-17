@@ -109,12 +109,12 @@ _static_dir = Path(__file__).resolve().parent / "static"
 
 @app.get("/manifest.json", include_in_schema=False)
 def serve_manifest() -> FileResponse:
-    # PWA の設定ファイル．認証付きでも iPhone が読み込めるよう個別に返す．
+    # PWA の設定ファイル．iPhone が読み込めるよう個別に返す．
     return FileResponse(_static_dir / "manifest.json")
 
 
-# --- agent-link の実行（02 §2.2） ---
-# 旧 /api/sessions* は画面から使わなくなったため，この3本に置き換えた（02 §2.3）。
+# --- agent-link の実行 ---
+# 旧 /api/sessions* は画面から使わなくなったため，この3本に置き換えた。
 
 
 def _runs_view() -> tuple[list[dict], set[str]]:
@@ -123,7 +123,7 @@ def _runs_view() -> tuple[list[dict], set[str]]:
 
 
 def _find_run(project_name: str, run_id: int) -> dict:
-    """<project_name>/<run_id> の実行を探す（00 §3.7）．無ければ 404．"""
+    """<project_name>/<run_id> の実行を探す．無ければ 404．"""
     for run in runs.load_runs():
         if run.get("project_name") == project_name and run.get("run_id") == run_id:
             return run
@@ -148,7 +148,7 @@ def _withdraw_open_questions(project_name: str, run_id: int, text: str) -> list[
 def api_days(q: str | None = None) -> dict:
     """日付ごとのまとめ（新しい日が先）．
 
-    q を付けたときは検索結果（日付をまたいだ実行の一覧）も返す（02 §3.2）．
+    q を付けたときは検索結果（日付をまたいだ実行の一覧）も返す．
     """
     run_list, qids = _runs_view()
     body: dict = {"days": runs.build_days(run_list, qids)}
@@ -180,9 +180,9 @@ def api_run_items(
 ) -> dict:
     """会話の項目（旧 GET /api/sessions/{id} と同じ {items, next_cursor} 形）．
 
-    読むファイルは Run の transcript_path（00 §3.7）。
-    headless の実行では，生成中の文を `state.json`（共有契約 C1）から足す。
-    返す形は `{items, next_cursor, live, partial, error}`（共有契約 C6）。
+    読むファイルは Run の transcript_path。
+    headless の実行では，生成中の文を `state.json`から足す。
+    返す形は `{items, next_cursor, live, partial, error}`。
     """
     run = _find_run(project_name, run_id)
     agent = "claude"
@@ -262,7 +262,7 @@ def api_pending_questions() -> dict:
 
 
 class QuestionResolvedRequest(BaseModel):
-    """pi の拡張から「PC で答えた」の知らせ（05 §3.1）．空でよい．"""
+    """pi の拡張から「PC で答えた」の知らせ．空でよい．"""
 
 
 @app.post("/api/questions/{qid}/resolved")
@@ -317,7 +317,7 @@ def api_session_questions(
     session_id: str
 ) -> dict:
     # 質問の登録（POST /api/questions）は必ず登録情報も一緒に保存するので，
-    # 登録情報の pane_id だけで対応づける（全 jsonl 走査はやめた・02 §2.3）
+    # 登録情報の pane_id だけで対応づける（全 jsonl 走査はやめた）
     reg = store.get_registration(session_id)
     if reg is None:
         raise HTTPException(status_code=404, detail="Session not found.")
@@ -325,7 +325,7 @@ def api_session_questions(
     questions.refresh_question_state(
         session_id, reg.get("pane_id") or None, reg.get("agent")
     )
-    # open / answered / resolved_elsewhere を画面に出す（05 §1 の2番）:
+    # open / answered / resolved_elsewhere を画面に出す:
     # 回答済みは「回答済み: …」の1行，PC で答えた分は「PC で回答済み」の1行に
     # 変わるため，消さずに返す．expired は返さない．
     return {"questions": store.list_questions_for_session(session_id)}
@@ -334,7 +334,7 @@ def api_session_questions(
 class AnswerItem(BaseModel):
     """1問分の回答．選択肢の番号か自由文のどちらか．
 
-    choice_indices は複数選択のときの番号の配列（05 §1 の2番）．
+    choice_indices は複数選択のときの番号の配列．
     """
 
     choice_index: int | None = None
@@ -382,7 +382,7 @@ def api_send_text(
     run_id: int,
     req: SendRequest,
 ) -> dict:
-    """テキスト送信（`agent-link run send <run_id> --json`・共有契約 C2）．
+    """テキスト送信（`agent-link run send <run_id> --json`）．
 
     本文は標準入力で渡す。失敗の読み替えは `cli.run_json` に任せる
     （CLI の 4 → 409・3 → 404）。
@@ -403,7 +403,7 @@ def api_interrupt(
     project_name: str,
     run_id: int,
 ) -> dict:
-    """実行中の run を中断する（`agent-link run interrupt <run_id> --json`・C2）．
+    """実行中の run を中断する（`agent-link run interrupt <run_id> --json`）．
 
     無い実行では CLI を呼ばずに 404 を返す。
     質問が開いているときは esc を送らず，質問を文なしで取り下げる（esc はフックごと止めて
@@ -425,7 +425,7 @@ class WithdrawRequest(BaseModel):
 def api_withdraw_question(
     qid: str, req: WithdrawRequest | None = None
 ) -> dict:
-    """未回答の質問を取り下げる（質問カードの「質問を止める」・U03）。
+    """未回答の質問を取り下げる（質問カードの「質問を止める」）。
 
     open でなければ 409。文は 8000 文字まで。
     """
@@ -443,18 +443,18 @@ def api_withdraw_question(
 def api_run_finalize(
     project_name: str, run_id: int
 ) -> dict:
-    """メッセージ画面の ■ 終了（`agent-link phone finalize <run_id>`・計画書 A の D2）。
+    """メッセージ画面の ■ 終了（`agent-link run finalize <run_id>`）。
 
     完了の処理そのもの（DB 保存・成果物のまとめ・pane を閉じる）は agent-link の
     デーモンが行う。ここは要求を出すだけ。
     """
     _find_run(project_name, run_id)  # 無い run は 404（CLI を呼ばない）
-    return control.phone_finalize(project_name, run_id)
+    return control.cli_finalize(project_name, run_id)
 
 
-# --- Project タブ（計画 06） ---
+# --- Project タブ ---
 # 外部 CLI（agent-link）を呼ぶため，これらは `def` で書く
-# （FastAPI が別スレッドで動かし，CLI を待つ間サーバー全体を止めない・06 §3.4）。
+# （FastAPI が別スレッドで動かし，CLI を待つ間サーバー全体を止めない）。
 
 
 class DaemonRequest(BaseModel):
@@ -486,18 +486,18 @@ def api_project_daemon(
     return control.daemon(name, req.action)
 
 
-# --- List 画面（計画 14 §3.3・`agent-link phone …` 経由） ---
-# 外から来る値（run_id / view / kind / token）は control 側で確かめる（計画 14 §3.3）。
-# CLI の呼び出しは `def` で書く（外部 CLI を待つ間サーバー全体を止めない・06 §3.4）。固有の
+# --- List 画面（`agent-link …` 経由） ---
+# 外から来る値（run_id / view / kind / token）は control 側で確かめる。
+# CLI の呼び出しは `def` で書く（外部 CLI を待つ間サーバー全体を止めない）。固有の
 # 見出し（tree / runs / …）なので，他の `/api/projects/{name}/…` と住所が衝突しない。
 # 旧 `GET …/todo` と `POST …/run`（todo 一覧とカード実行）は、
-# 新形式 todo（tree の todo フォルダと `POST …/runs/{run_id}/start`）に置き換えた（計画 15）。
+# 新形式 todo（tree の todo フォルダと `POST …/runs/{run_id}/start`）に置き換えた。
 
 
 @app.get("/api/projects/{name}/tree")
 def api_project_tree(name: str) -> dict:
-    """引き出しツリー（`phone tree`・計画 12 §3.2）。"""
-    return control.phone_tree(name)
+    """引き出しツリー（`run tree`）。"""
+    return control.cli_tree(name)
 
 
 @app.get("/api/projects/{name}/search")
@@ -512,36 +512,36 @@ def api_project_search(
     to_id: int | None = None,
     limit: int = 50,
 ) -> dict:
-    """文書（task / message / waggle）の検索（`phone search`・会話検索の画面の文書の検索）。
+    """文書（task / message / waggle）の検索（`doc search`・会話検索の画面の文書の検索）。
 
     `q` は空白区切りの AND。`category` はカンマ区切り（空なら全部）。`since` / `until` は
     `YYYY-MM-DD`、`block` は完全一致、`from_id` / `to_id` は run_id の範囲。
     """
-    return control.phone_search(name, q, category, since, until, block, from_id, to_id, limit)
+    return control.cli_search(name, q, category, since, until, block, from_id, to_id, limit)
 
 
 @app.get("/api/projects/{name}/runs/{run_id:int}/view/{view}")
 def api_project_run_view(
     name: str, run_id: int, view: str
 ) -> dict:
-    """run の中身（Log / Stats / History・計画 12 §3.2）。"""
-    return control.phone_run_view(name, run_id, view)
+    """run の中身（Log / Stats / History）。"""
+    return control.cli_run_view(name, run_id, view)
 
 
 @app.get("/api/projects/{name}/runs/{run_id:int}/history/calls/{call_id}")
 def api_project_run_history_call(
     name: str, run_id: int, call_id: str
 ) -> dict:
-    """History の 1 呼び出しの全文（`agent-link run history <id> --call <call_id>`・C11）。"""
-    return control.phone_run_call(name, run_id, call_id)
+    """History の 1 呼び出しの全文（`agent-link run history <id> --call <call_id>`）。"""
+    return control.cli_run_call(name, run_id, call_id)
 
 
 @app.get("/api/projects/{name}/runs/{run_id:int}/md/{kind}")
 def api_project_run_md(
     name: str, run_id: int, kind: str
 ) -> dict:
-    """run の md（task / message / report / system・無いときは 404・計画 12 §3.2）。"""
-    return control.phone_md(name, run_id, kind)
+    """run の md（task / message / report / system・無いときは 404）。"""
+    return control.cli_md(name, run_id, kind)
 
 
 @app.put("/api/projects/{name}/runs/{run_id:int}/md/{kind}")
@@ -552,30 +552,30 @@ def api_project_run_md_save(
     payload: dict = Body(...),
 ) -> dict:
     """task（未実行の todo カードだけ）の保存（body は `{"text": …}`）。"""
-    return control.phone_md_save(name, run_id, kind, payload.get("text"))
+    return control.cli_md_save(name, run_id, kind, payload.get("text"))
 
 
 @app.get("/api/projects/{name}/runs/{run_id:int}/waggle")
 def api_project_run_waggle(
     name: str, run_id: int
 ) -> dict:
-    """run が保存した成果物の一覧（計画 12 §3.2）。"""
-    return control.phone_waggle(name, run_id)
+    """run が保存した成果物の一覧。"""
+    return control.cli_waggle(name, run_id)
 
 
 @app.get("/api/projects/{name}/runs/{run_id:int}/waggle/{waggle_token}")
 def api_project_run_waggle_item(
     name: str, run_id: int, waggle_token: str
 ) -> dict:
-    """成果物 1 件の本文（計画 12 §3.2）．
+    """成果物 1 件の本文．
 
-    住所の名前は計画 12 §3.3 の `{token}` と同じ形（URL のセグメント 1 つ）だが，
+    住所の名前は他の `{token}` と同じ形（URL のセグメント 1 つ）だが，
     変数名は `waggle_token`（`token` という名前のクエリと混ざらないように）。
     """
-    return control.phone_waggle(name, run_id, waggle_token)
+    return control.cli_waggle(name, run_id, waggle_token)
 
 
-# --- task.md 作成フォーム（計画 15 §1.5・§3.3・`agent-link phone card …` 経由） ---
+# --- task.md 作成フォーム（`agent-link card …` 経由） ---
 # 外から来る値（block / 送る JSON の中身）は control 側で CLI を呼ぶ前に確かめる。固有の
 # 見出し（card）なので，他の `/api/projects/{name}/…` と住所が衝突しない。
 
@@ -585,39 +585,39 @@ def api_project_card_options(
     name: str
 ) -> dict:
     """作成フォームの選択肢（block / model / thinking）。"""
-    return control.phone_card_options(name)
+    return control.cli_card_options(name)
 
 
 @app.post("/api/projects/{name}/card")
 def api_project_card(
     name: str, payload: dict = Body(...)
 ) -> dict:
-    """カード（task.md）の作成（`phone card create`・作成後は todo に配置）。"""
-    return control.phone_card_create(name, payload)
+    """カード（task.md）の作成（`card create`・作成後は todo に配置）。"""
+    return control.cli_card_create(name, payload)
 
 
 @app.post("/api/projects/{name}/runs/{run_id:int}/start")
 def api_project_run_start(
     name: str, run_id: int
 ) -> dict:
-    """新形式 todo の ▶ 実行（`phone card run <run_id>`・計画 15）。"""
-    return control.phone_card_start(name, run_id)
+    """新形式 todo の ▶ 実行（`card run <run_id>`）。"""
+    return control.cli_card_start(name, run_id)
 
 
 @app.post("/api/projects/{name}/runs/{run_id:int}/advance")
 def api_project_run_advance(
     name: str, run_id: int
 ) -> dict:
-    """review → Workflow（日付フォルダ）の移動（`phone advance <run_id>`）。"""
-    return control.phone_advance(name, run_id)
+    """review → Workflow（日付フォルダ）の移動（`run advance <run_id>`）。"""
+    return control.cli_advance(name, run_id)
 
 
 @app.delete("/api/projects/{name}/runs/{run_id:int}")
 def api_project_run_delete(
     name: str, run_id: int
 ) -> dict:
-    """List の項目を消す（`phone rm <run_id>`・子の実行と run フォルダも消える）。"""
-    return control.phone_rm(name, run_id)
+    """List の項目を消す（`run rm <run_id>`・子の実行と run フォルダも消える）。"""
+    return control.cli_rm(name, run_id)
 
 
 @app.post("/api/projects/{name}/runs/{run_id:int}/schedule")
@@ -628,7 +628,7 @@ def api_project_run_schedule(
     at = payload.get("at") if isinstance(payload, dict) else None
     if at is not None and not isinstance(at, str):
         raise HTTPException(status_code=400, detail="The time format is invalid.")
-    return control.phone_card_schedule(name, run_id, at or "")
+    return control.cli_card_schedule(name, run_id, at or "")
 
 
 @app.get("/api/projects/{name}/card/docs")
@@ -636,12 +636,12 @@ def api_project_card_docs(
     name: str
 ) -> dict:
     """最近の文書（task_text に `waggle:<tok>:path:<path>` を貼る候補）。"""
-    return control.phone_card_docs(name)
+    return control.cli_card_docs(name)
 
 
-# --- 会話の検索（U10） ---
+# --- 会話の検索 ---
 # `agent-link session search`（エージェントの会話の履歴）を Web から使う。
-# 検査は control.phone_session_search が CLI を呼ぶ前に全部行う。
+# 検査は control.cli_session_search が CLI を呼ぶ前に全部行う。
 
 
 @app.get("/api/projects/{name}/sessions/search")
@@ -655,7 +655,7 @@ def api_project_session_search(
     type: str | None = Query(default=None),
 ) -> dict:
     """会話の検索（先頭 200 件・`{"items", "truncated"}`）。"""
-    return control.phone_session_search(
+    return control.cli_session_search(
         name,
         word=word,
         run_id=id,
@@ -666,13 +666,13 @@ def api_project_session_search(
     )
 
 
-# --- ホーム（U3 §変更内容 3） ---
+# --- ホーム ---
 # 答えを待っている質問・確認を待っている承認・動いているプロジェクト・論文の要対応を
 # 1 本の住所で集める（画面から全部を別々に呼ぶと回数が多くなるため）。
-# 集める本体は `home.py`（外部 CLI を待つので `def` で書く・06 §3.4）。 
+# 集める本体は `home.py`（外部 CLI を待つので `def` で書く）。 
 
 
-# --- Workflow と定義の編集（U3 §変更内容 1・共有契約 C-A1） ---
+# --- Workflow と定義の編集 ---
 # agent-link-tui の Workflow 盤面と block / template / settings の編集を Web から行う。
 # 外から来る値（kind / scope / 名前 / 本文）は control 側で CLI を呼ぶ前に確かめる。
 
@@ -680,24 +680,24 @@ def api_project_session_search(
 @app.get("/api/projects/{name}/workflow")
 def api_project_workflow(name: str, subtasks: bool = Query(default=False)) -> dict:
     """Workflow 盤面（`agent-link workflow`・`?subtasks=1` で子の実行も含める）。"""
-    return control.phone_workflow(name, subtasks)
+    return control.cli_workflow(name, subtasks)
 
 
 @app.get("/api/projects/{name}/defs")
 def api_project_defs(name: str) -> dict:
-    """定義の一覧（`phone def list`・U3 C-A1）。"""
-    return control.phone_def_list(name)
+    """定義の一覧（`def list`）。"""
+    return control.cli_def_list(name)
 
 
 @app.get("/api/projects/{name}/defs/{kind}/{scope}/{def_name}")
 def api_project_def_show(
     name: str, kind: str, scope: str, def_name: str
 ) -> dict:
-    """定義 1 件の中身（`phone def show`）。
+    """定義 1 件の中身（`def show`）。
 
     住所の `{def_name}` は変数名も `def_name` にする。
     """
-    return control.phone_def_show(name, kind, scope, def_name)
+    return control.cli_def_show(name, kind, scope, def_name)
 
 
 @app.put("/api/projects/{name}/defs/{kind}/{scope}/{def_name}")
@@ -709,7 +709,7 @@ def api_project_def_write(
     payload: dict = Body(...),
 ) -> dict:
     """定義の保存（body は `{"text": …, "create": false}`・`create` が真なら `--create`）。"""
-    return control.phone_def_write(
+    return control.cli_def_write(
         name, kind, scope, def_name, payload.get("text"), bool(payload.get("create"))
     )
 
@@ -718,23 +718,23 @@ def api_project_def_write(
 def api_project_def_delete(
     name: str, kind: str, scope: str, def_name: str
 ) -> dict:
-    """定義の削除（`phone def delete`・settings は 400「settings は消せません」）。"""
-    return control.phone_def_delete(name, kind, scope, def_name)
+    """定義の削除（`def delete`・settings は 400「settings は消せません」）。"""
+    return control.cli_def_delete(name, kind, scope, def_name)
 
 
 @app.get("/api/home")
 def api_home() -> dict:
-    """ホームの集計（質問・承認・プロジェクト・論文の要対応・U3 C-A3）。"""
+    """ホームの集計（質問・承認・プロジェクト・論文の要対応）。"""
     return home.build_home()
 
 
 @app.get("/api/home/overview")
 def api_home_overview(period: str = "week") -> dict:
-    """全プロジェクトの合計のダッシュボード（U02 §1・`period` は week / month / all）。
+    """全プロジェクトの合計のダッシュボード（`period` は week / month / all）。
 
     `/api/home` とは別の住所にしてある。`/api/home` は 15 秒ごとに読み直すので、
     期間を変えて読み直すものと混ぜない（画面の「今週 / 今月 / 全期間」の切り替え）。
-    CLI（各プロジェクトの `phone dashboard`）を待つので `def` で書く。
+    CLI（各プロジェクトの `project dashboard`）を待つので `def` で書く。
     """
     return home.build_overview(period)
 
@@ -770,7 +770,7 @@ async def _revalidate_static(request: Request, call_next):
 
 @app.middleware("http")
 async def _frame_guard(request: Request, call_next):
-    """agent-link-web を枠（iframe）に入れさせない（要件定義書 §5）。
+    """agent-link-web を枠（iframe）に入れさせない（要件定義書）。
 
     ts のオリジンの JS が agent-link-web を枠に入れて、利用者に押させる悪用を防ぐ。
     既に付いている値は上書きしない。

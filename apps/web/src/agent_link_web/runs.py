@@ -1,11 +1,11 @@
 """agent-link の書き出しファイル（~/.agent-link/web/runs/<project>/<run_id>.json）の
 読み込みと，画面ごとの集計．
 
-方針（00 §3 を正とする）:
+方針:
 - agent-link-web はこのフォルダを読むだけ。agent-link の DB には触らない。
 - mtime が変わったファイルだけ読み直す（数百件でも毎回全部読まない）。
 - 壊れた JSON・schema_version が 1 以外のファイルは飛ばしてログに出す。
-- 「どの日の実行か」は started_at を日本時間に直した日付で決める（00 §3.6）。
+- 「どの日の実行か」は started_at を日本時間に直した日付で決める。
 """
 
 from __future__ import annotations
@@ -22,10 +22,10 @@ from agent_link_web import registry
 
 logger = logging.getLogger("agent_link_web")
 
-# 00 §3.6: 日付は日本時間で区切る（UTC の日のまま区切ると朝9時前の実行が前日になる）
+# 日付は日本時間で区切る（UTC の日のまま区切ると朝9時前の実行が前日になる）
 _JST = timezone(timedelta(hours=9))
 
-# 一覧に出してよい実行状態（todo / pending は未実行なので載せない・00 §3.2）
+# 一覧に出してよい実行状態（todo / pending は未実行なので載せない）
 _VISIBLE_STATUSES = ("running", "completed", "failed", "cancelled")
 
 # 実行中の失敗・中止の数え方（画面上は failed にまとめて出す）
@@ -54,18 +54,18 @@ def _parse_time(value: object) -> datetime | None:
     except ValueError:
         return None
     if dt.tzinfo is None:
-        # DB 由来の無タイムゾーン文字列は UTC とみなす（00 §3.2 は UTC 指定）
+        # DB 由来の無タイムゾーン文字列は UTC とみなす
         dt = dt.replace(tzinfo=timezone.utc)
     return dt
 
 
 def run_key(run: dict) -> str:
-    """agent-link-web 内での実行の識別子（00 §3.7）: <project_name>/<run_id>．"""
+    """agent-link-web 内での実行の識別子: <project_name>/<run_id>．"""
     return f"{run.get('project_name', '')}/{run.get('run_id', '')}"
 
 
 def run_date(run: dict) -> str | None:
-    """その実行が「どの日」か（日本時間・YYYY-MM-DD）．00 §3.6．"""
+    """その実行が「どの日」か（日本時間・YYYY-MM-DD）．"""
     dt = _parse_time(run.get("started_at")) or _parse_time(run.get("updated_at"))
     if dt is None:
         return None
@@ -108,7 +108,7 @@ def _read_run(path: Path) -> dict | None:
     if not isinstance(raw.get("run_id"), int) or not isinstance(raw.get("project_name"), str):
         logger.warning(f"run_id / project_name が不正（飛ばします）: {path}")
         return None
-    # 未実行は一覧に出さない（00 §3.2 / 00 §5）
+    # 未実行は一覧に出さない
     if raw.get("status") not in _VISIBLE_STATUSES:
         return None
     return raw
@@ -168,11 +168,11 @@ def load_runs(runs_dir: Path | None = None) -> list[dict]:
     return [run for _, run in found.values() if run is not None]
 
 
-# --- 実行と質問の対応づけ（00 §3.7） ---
+# --- 実行と質問の対応づけ ---
 
 
 def _transcript_session_ids(path: Path) -> frozenset[str]:
-    """transcript 先頭数行からセッション ID を拾う（00 §3.7）．
+    """transcript 先頭数行からセッション ID を拾う．
 
     cc: 先頭行の sessionId。pi: 先頭行 type:session の id。
     mtime が変わっていない間は前回の結果を使う。
@@ -216,8 +216,8 @@ def _transcript_session_ids(path: Path) -> frozenset[str]:
 def run_session_ids(run: dict) -> set[str]:
     """その実行に関係するセッション ID の集合（質問との対応づけに使う）．
 
-    - cc: 質問の session_id ＝ agent_session_id（00 §3.7）
-    - pi: 質問の session_id ＝ transcript 先頭行の id（00 §3.7）
+    - cc: 質問の session_id ＝ agent_session_id
+    - pi: 質問の session_id ＝ transcript 先頭行の id
     両方入れておけば片方しか見えない質問にも当たる。
     """
     ids: set[str] = set()
@@ -231,7 +231,7 @@ def run_session_ids(run: dict) -> set[str]:
 
 
 def question_session_id(run: dict) -> str | None:
-    """画面から /api/questions?session_id=… に渡す ID（00 §3.7）．"""
+    """画面から /api/questions?session_id=… に渡す ID．"""
     sid = run.get("agent_session_id")
     if isinstance(sid, str) and sid:
         return sid
@@ -256,26 +256,26 @@ def open_question_session_ids() -> set[str]:
 
 
 def has_question(run: dict, question_session_ids) -> bool:
-    """その実行に未回答の質問があるか（00 §3.7 の対応で判定）．"""
+    """その実行に未回答の質問があるか．"""
     return bool(run_session_ids(run) & set(question_session_ids))
 
 
-# --- headless の実行の状態（共有契約 C1） ---
+# --- headless の実行の状態 ---
 
-# 擬似 pane の id は `hl-` + 12 桁の 16 進（C1）
+# 擬似 pane の id は `hl-` + 12 桁の 16 進
 _HEADLESS_ID_RE = re.compile(r"^hl-[0-9a-f]{12}$")
 # 生成中の文は末尾 20000 文字まで返す
 _PARTIAL_LIMIT = 20000
 
 
 def is_headless(run: dict) -> bool:
-    """headless の実行か（擬似 pane の id が `hl-` で始まるか・C1）．"""
+    """headless の実行か（擬似 pane の id が `hl-` で始まるか）．"""
     pane_id = run.get("herdr_pane_id")
     return isinstance(pane_id, str) and pane_id.startswith("hl-")
 
 
 def headless_state(run: dict) -> dict | None:
-    """headless の実行の状態を `state.json` から読む（C1）．
+    """headless の実行の状態を `state.json` から読む．
 
     返す: `{"state", "partial", "error", "turn"}`．
     読めない・形が違う・headless でないときは None。
@@ -311,7 +311,7 @@ def headless_state(run: dict) -> dict | None:
 
 
 def live_status(run: dict, question_session_ids=frozenset()) -> str | None:
-    """実行の今の状態（working / blocked / idle）を返す（C6）．
+    """実行の今の状態（working / blocked / idle）を返す．
 
     - 質問が open の実行は `blocked`。
     - headless の `state.json` が `working` / `idle` / `blocked` ならその値。
@@ -339,7 +339,7 @@ def run_to_api(
     run: dict,
     question_session_ids=frozenset(),
 ) -> dict:
-    """画面に渡す Run（02 §2.2 の形）．"""
+    """画面に渡す Run．"""
     return {
         "key": run_key(run),
         "project_name": run.get("project_name") or "",
@@ -363,7 +363,7 @@ def run_to_api(
 
 
 def order_runs(runs: list[dict]) -> list[dict]:
-    """1つの日付・1プロジェクト分の並べ替え（02 §1 の2番）．
+    """1つの日付・1プロジェクト分の並べ替え．
 
     - 開始時刻の新しい順。
     - サブタスク（parent_run_id あり）は同じ範囲に親が居れば親の直下に
@@ -398,7 +398,7 @@ def order_runs(runs: list[dict]) -> list[dict]:
 
 
 def build_days(runs: list[dict], question_session_ids=frozenset()) -> list[dict]:
-    """日付ごとのまとめ（02 §2.2 /api/days）．新しい日が先．"""
+    """日付ごとのまとめ（/api/days）．新しい日が先．"""
     by_date: dict[str, list[dict]] = defaultdict(list)
     for r in runs:
         d = run_date(r)
@@ -416,7 +416,7 @@ def build_days(runs: list[dict], question_session_ids=frozenset()) -> list[dict]
         for r in rs:
             stats = r.get("stats")
             if not isinstance(stats, dict):
-                continue  # 実行中は stats が null（00 §3.4）
+                continue  # 実行中は stats が null
             total = (stats.get("cost_usd") or {}).get("total")
             if isinstance(total, (int, float)):
                 cost += float(total)
@@ -445,7 +445,7 @@ def build_days(runs: list[dict], question_session_ids=frozenset()) -> list[dict]
 def build_day(
     runs: list[dict], date: str, question_session_ids=frozenset(),
 ) -> dict:
-    """1日の実行一覧（02 §2.2 /api/days/{date}）"""
+    """1日の実行一覧（/api/days/{date}）"""
     day_runs = [r for r in runs if run_date(r) == date]
     grouped: dict[str, list[dict]] = defaultdict(list)
     for r in day_runs:
@@ -477,7 +477,7 @@ def build_day(
 
 
 def search_runs(runs: list[dict], keyword: str, question_session_ids=frozenset()) -> list[dict]:
-    """日付をまたいで説明・ブロック名・プロジェクト名に一致した実行（02 §3.2）．"""
+    """日付をまたいで説明・ブロック名・プロジェクト名に一致した実行．"""
     kw = (keyword or "").strip()
     if not kw:
         return []

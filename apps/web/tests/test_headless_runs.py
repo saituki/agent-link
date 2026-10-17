@@ -1,12 +1,12 @@
-"""headless の実行の状態と，送信・中断・質問の API の小さなテスト（U03）。
+"""headless の実行の状態と，送信・中断・質問の API の小さなテスト。
 
-確かめること（共有契約 C1・C2・C6）:
-- `headless_state` が `state.json` を読み，`stopped` は `live` が None（AC2）
-- `status` が `completed` でも `idle` の headless 実行は `live == "idle"`（AC2）
-- `GET …/items` が `partial` を返し，`transcript_path` が無くても `live` と `partial` を返す（AC2）
-- `POST …/send` が `agent-link run send <id> --json` を本文を標準入力にして呼ぶ（AC3）
-- `POST …/interrupt` は無い実行で CLI を呼ばずに 404（AC3）
-- cc の質問に答えると，キーを送らずに `answered` になり `GET /api/questions/{qid}` が答えを返す（AC4）
+確かめること:
+- `headless_state` が `state.json` を読み，`stopped` は `live` が None
+- `status` が `completed` でも `idle` の headless 実行は `live == "idle"`
+- `GET …/items` が `partial` を返し，`transcript_path` が無くても `live` と `partial` を返す
+- `POST …/send` が `agent-link run send <id> --json` を本文を標準入力にして呼ぶ
+- `POST …/interrupt` は無い実行で CLI を呼ばずに 404
+- cc の質問に答えると，キーを送らずに `answered` になり `GET /api/questions/{qid}` が答えを返す
 - 承認の住所（`/api/approvals*`）が無い
 
 実行:
@@ -37,7 +37,7 @@ def expect(code: int, fn) -> HTTPException:
         fn()
     except HTTPException as e:
         assert e.status_code == code, f"{code} のはずが {e.status_code}: {e.detail}"
-        assert str(e.detail).strip(), f"{code} のときは日本語で理由を書く"
+        assert str(e.detail).strip(), f"{code} のときは英語で理由を書く"
         return e
     raise AssertionError(f"{code} になるはず")
 
@@ -101,7 +101,7 @@ def make_run(
     transcript_path: str | None = None,
     project_name: str = "demo",
 ) -> dict:
-    """00 §3.2 の形のダミー実行を作る。"""
+    """ダミー実行を作る。"""
     return {
         "schema_version": 1,
         "project_name": project_name,
@@ -133,7 +133,7 @@ def write_state(
     error: str = "",
     pane_id: str = PANE_ID,
 ) -> Path:
-    """headless の `state.json`（C1）を一時フォルダに書く。"""
+    """headless の `state.json`を一時フォルダに書く。"""
     headless = Path(root) / ".agent-link" / "engine" / "headless" / pane_id
     headless.mkdir(parents=True, exist_ok=True)
     path = headless / "state.json"
@@ -155,7 +155,7 @@ def write_state(
 
 
 def test_headless_state_reads_state_json() -> None:
-    """`headless_state` が `state.json` を読み，live の値になる（AC2）。"""
+    """`headless_state` が `state.json` を読み，live の値になる。"""
     with tempfile.TemporaryDirectory() as tmp:
         write_state(tmp, "working", partial="生成中の文")
         run = make_run(1, pane_id=PANE_ID, project_root=tmp)
@@ -195,7 +195,7 @@ def test_headless_state_reads_state_json() -> None:
 
 
 def test_items_returns_partial_without_transcript() -> None:
-    """`/items` が `partial` を返し，transcript が無くても live と partial を返す（AC2）。"""
+    """`/items` が `partial` を返し，transcript が無くても live と partial を返す。"""
     with tempfile.TemporaryDirectory() as tmp:
         fresh_db(tmp)
         write_state(tmp, "working", partial="途中の文", error="")
@@ -224,7 +224,7 @@ def test_items_returns_partial_without_transcript() -> None:
 
 
 def test_items_live_blocked_when_question_open() -> None:
-    """open の質問がある実行は `live` が `blocked`（共有契約 C6）。"""
+    """open の質問がある実行は `live` が `blocked`。"""
     with tempfile.TemporaryDirectory() as tmp:
         fresh_db(tmp)
         store.save_question("claude", "sess-1", "", "tu-9", [{"question": "どれ？"}])
@@ -239,7 +239,7 @@ def test_items_live_blocked_when_question_open() -> None:
 
 
 def test_send_calls_run_send_with_stdin() -> None:
-    """`/send` が `agent-link run send <id> --json` を本文を標準入力にして呼ぶ（AC3）。"""
+    """`/send` が `agent-link run send <id> --json` を本文を標準入力にして呼ぶ。"""
     fresh_db(tempfile.mkdtemp(prefix="agent-link-web-headless-"))  # 質問の取り下げを見るため DB が要る
     cli = FakeCli()
     cli.returncode = 0
@@ -269,7 +269,7 @@ def test_send_calls_run_send_with_stdin() -> None:
 
 
 def test_interrupt_missing_run_is_404_without_cli() -> None:
-    """`/interrupt` は無い実行で CLI を呼ばずに 404（AC3）。"""
+    """`/interrupt` は無い実行で CLI を呼ばずに 404。"""
     fresh_db(tempfile.mkdtemp(prefix="agent-link-web-headless-"))  # 質問の取り下げを見るため DB が要る
     cli = FakeCli()
     original_run_cli = control.run_cli
@@ -306,7 +306,7 @@ def test_interrupt_missing_run_is_404_without_cli() -> None:
 
 
 def test_cc_question_answer_and_get() -> None:
-    """cc の質問に答えると answered になり，GET /api/questions/{qid} が答えを返す（AC4）。"""
+    """cc の質問に答えると answered になり，GET /api/questions/{qid} が答えを返す。"""
     with tempfile.TemporaryDirectory() as tmp:
         fresh_db(tmp)
         q = store.save_question(
@@ -327,7 +327,7 @@ def test_cc_question_answer_and_get() -> None:
 
 
 def test_routes() -> None:
-    """新しい住所があり，承認の住所は無い（共有契約 C6）。"""
+    """新しい住所があり，承認の住所は無い。"""
     paths = set()
     for route in main.app.routes:
         for method in getattr(route, "methods", None) or []:

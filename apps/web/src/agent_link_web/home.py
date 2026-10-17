@@ -1,13 +1,13 @@
-"""ホーム画面の集計（`GET /api/home`・U02 §1 / U3 §変更内容 3）。
+"""ホーム画面の集計（`GET /api/home`）。
 
-1 本の住所で次をまとめて返す（共有契約 C-A3）:
+1 本の住所で次をまとめて返す:
 - 答えを待っている質問（`store.list_open_questions`）
-- 動いているプロジェクト（`control.list_projects` + `control.phone_tree` の review / todo の一覧）
+- 動いているプロジェクト（`control.list_projects` + `control.cli_tree` の review / todo の一覧）
 
 `GET /api/home/overview`（`build_overview`）は全プロジェクトのダッシュボードを足し合わせたもの。
-各プロジェクトの `phone dashboard` の JSON を足し合わせるだけで、それ以外の集計は作らない。
+各プロジェクトの `project dashboard` の JSON を足し合わせるだけで、それ以外の集計は作らない。
 
-大原則（`docs/integration.md` §3）どおり、他アプリの DB は開かない。
+大原則（`docs/integration.md` §2）どおり、他アプリの DB は開かない。
 登録簿と agent-link の CLI の JSON だけを使う。
 
 1 つのプロジェクトが失敗しても全体は止めない（`errors` に「<名前>: <理由>」を足す）。
@@ -37,7 +37,7 @@ _HOME_WORKERS = 4
 _OVERVIEW_PERIODS = ("week", "month", "all")
 # 合計の「最近のアクティビティ」が出す件数
 _OVERVIEW_RECENT = 20
-# summary で足し合わせる数（agent-link phone dashboard .summary と同じ名前）
+# summary で足し合わせる数（agent-link project dashboard .summary と同じ名前）
 _SUMMARY_KEYS = (
     "executions",
     "completed",
@@ -125,7 +125,7 @@ def _home_questions() -> list[dict]:
 
 
 def _folder_runs(items, label: str) -> list[dict]:
-    """`phone tree` の中の top レベルの `label` フォルダにある run を数える前提で取り出す。"""
+    """`run tree` の中の top レベルの `label` フォルダにある run を数える前提で取り出す。"""
     out: list[dict] = []
     for node in items if isinstance(items, list) else []:
         if not isinstance(node, dict) or node.get("type") != "folder":
@@ -154,9 +154,9 @@ def _folder_runs(items, label: str) -> list[dict]:
 
 
 def _home_project(row: dict) -> dict:
-    """1 プロジェクトのホームの行（`phone tree` の review / todo を使う）。"""
+    """1 プロジェクトのホームの行（`run tree` の review / todo を使う）。"""
     name = str(row.get("name") or "")
-    tree = control.phone_tree(name) or {}
+    tree = control.cli_tree(name) or {}
     items = tree.get("items") if isinstance(tree, dict) else None
     review = _folder_runs(items, "review")
     todo = _folder_runs(items, "todo")
@@ -167,7 +167,7 @@ def _home_project(row: dict) -> dict:
         "last_executed_at": row.get("last_executed_at"),
         "review": review,
         "todo": len(todo),
-        # 件数だけだった todo を、行ごと返す（画面の todo カードが押せるようにするため・U02 §2）
+        # 件数だけだった todo を、行ごと返す（画面の todo カードが押せるようにするため）
         "todo_runs": todo,
     }
 
@@ -216,7 +216,7 @@ def _build() -> dict:
 
 
 def build_home() -> dict:
-    """ホームの集計（`GET /api/home`・U3 §変更内容 3）。
+    """ホームの集計（`GET /api/home`）。
 
     10 秒だけ覚える（開くたび・更新するたびに全プロジェクトの CLI を呼ばないため）。
     """
@@ -235,11 +235,11 @@ def forget() -> None:
     _overview_cache.clear()
 
 
-# --- 全プロジェクトの合計（`GET /api/home/overview`・U02 §1） ---
+# --- 全プロジェクトの合計（`GET /api/home/overview`） ---
 
 
 def _overview_project(name: str, period: str) -> dict:
-    """1 プロジェクトのダッシュボード（`agent-link phone dashboard`）。"""
+    """1 プロジェクトのダッシュボード（`agent-link project dashboard`）。"""
     return control.dashboard(name, period)
 
 
@@ -369,7 +369,7 @@ def _build_overview(period: str) -> dict:
 
 
 def build_overview(period: str = "week") -> dict:
-    """全プロジェクトの合計のダッシュボード（`GET /api/home/overview`・U02 §1）。
+    """全プロジェクトの合計のダッシュボード（`GET /api/home/overview`）。
 
     期間は `week` / `month` / `all`（それ以外は CLI を呼ぶ前に 400）。
     期間ごとに 10 秒だけ覚える。

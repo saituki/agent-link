@@ -220,7 +220,7 @@ def cmd_home(_args: argparse.Namespace) -> object:
 
 
 def cmd_usage(_args: argparse.Namespace) -> object:
-    """使用量（Usage のカード・Claude の枠と費用・OpenRouter・DeepSeek）。"""
+    """使用量（Usage のカード・Claude の枠と費用）。"""
     return request_json("GET", "/api/usage")
 
 
