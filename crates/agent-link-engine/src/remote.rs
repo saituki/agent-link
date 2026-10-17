@@ -15,7 +15,7 @@ use std::path::Path;
 use std::process::{Command, Output, Stdio};
 use std::time::{Duration, Instant};
 
-use crate::herdr::shell_escape_single_quotes;
+use crate::common::shell_escape_single_quotes;
 
 /// 遠隔の `$HOME` の下の置き場。
 pub const REMOTE_DIR: &str = ".agent-link-remote";

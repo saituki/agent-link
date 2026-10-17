@@ -1,7 +1,7 @@
 //! # cc の対話モード（tmux 経路）
 //!
 //! cc は `claude -p` の子プロセスではなく、tmux の session の中で動く対話モードの `claude` として走る。
-//! 擬似 pane（[`crate::headless`] の置き場）に空の印 `tmux` があれば、その pane の操作はすべてここへ回る。
+//! 擬似 pane（[`crate::headless`] の置き場。窓口は [`crate::pane`]）に空の印 `tmux` があれば、その pane の操作はすべてここへ回る。
 //!
 //! - session 名 = pane id（`hl-…`）。環境変数 `HERDR_PANE_ID`・`AGENT_LINK_AGENT_TRANSPORT`・`AGENT_LINK_PROJECT_ROOT` を入れる。
 //! - 状態（`working` / `idle` / `blocked`）は cc のフックが `state.json` に書く（[`set_state_from_hook`]）。
@@ -16,7 +16,7 @@ use std::time::Duration;
 use serde_json::{json, Value};
 
 use crate::headless::{self, HeadlessState};
-use crate::herdr::{HerdrError, PaneInfo};
+use crate::pane::{PaneError, PaneInfo};
 
 /// 印のファイル名（置き場の中の空のファイル。共有契約 C-T1）。
 const MARK: &str = "tmux";
@@ -30,7 +30,7 @@ pub fn is_tmux(id: &str) -> bool {
 }
 
 /// cc を tmux の session で起こす（対話モードの `command` を 1 つの引数で渡す）。
-pub fn run(id: &str, command: &str) -> Result<(), HerdrError> {
+pub fn run(id: &str, command: &str) -> Result<(), PaneError> {
     let dir = headless::pane_dir(id);
     std::fs::create_dir_all(dir.join("inbox"))?;
     std::fs::write(dir.join(MARK), b"")?;
@@ -101,7 +101,7 @@ pub fn run(id: &str, command: &str) -> Result<(), HerdrError> {
 }
 
 /// 入力中の文を `draft.txt` に上書きする。
-pub fn send_text(id: &str, text: &str) -> Result<(), HerdrError> {
+pub fn send_text(id: &str, text: &str) -> Result<(), PaneError> {
     let dir = headless::pane_dir(id);
     if !dir.is_dir() {
         return Err(headless::pane_gone(id));
@@ -115,7 +115,7 @@ pub fn send_text(id: &str, text: &str) -> Result<(), HerdrError> {
 /// - `esc` / `escape` / `ctrl+c` は `Escape` を送り、Stop フックが呼ばれない中断を補うため `idle` にする。
 /// - それ以外は、`draft.txt` があれば bracketed paste で貼ってから確定キー（`Alt+Enter` は `M-Enter`、他は Enter）を送る。
 ///   無ければ確定キーだけを送る（`submit_prompt_verified` の再送で同じ文が 2 回入らないため）。
-pub fn send_keys(id: &str, keys: &str) -> Result<(), HerdrError> {
+pub fn send_keys(id: &str, keys: &str) -> Result<(), PaneError> {
     let dir = headless::pane_dir(id);
     if !dir.is_dir() {
         return Err(headless::pane_gone(id));
@@ -147,7 +147,7 @@ pub fn send_keys(id: &str, keys: &str) -> Result<(), HerdrError> {
 ///
 /// `stopped` と、session が無い・`state.json` が読めないときは `Err`（pane が消えた扱い）。
 /// `starting` は `unknown` にする（起動中に文を送らないため）。
-pub fn status(id: &str) -> Result<PaneInfo, HerdrError> {
+pub fn status(id: &str) -> Result<PaneInfo, PaneError> {
     let dir = headless::pane_dir(id);
     let state = headless::read_state(&dir).ok_or_else(|| headless::pane_gone(id))?;
     if state.state == "stopped" || !has_session(id) {
@@ -159,7 +159,7 @@ pub fn status(id: &str) -> Result<PaneInfo, HerdrError> {
 }
 
 /// 画面の末尾 `lines` 行を返す（`capture-pane`）。
-pub fn read_output(id: &str, lines: u32) -> Result<String, HerdrError> {
+pub fn read_output(id: &str, lines: u32) -> Result<String, PaneError> {
     let start = format!("-{}", lines.max(1));
     let out = tmux(&["capture-pane", "-p", "-t", id, "-S", start.as_str()])?;
     check(&out, id, "read screen")?;
@@ -167,7 +167,7 @@ pub fn read_output(id: &str, lines: u32) -> Result<String, HerdrError> {
 }
 
 /// session を閉じ、状態を `stopped` にする（session が無くても失敗にしない）。
-pub fn close(id: &str) -> Result<(), HerdrError> {
+pub fn close(id: &str) -> Result<(), PaneError> {
     let dir = headless::pane_dir(id);
     if !dir.is_dir() {
         return Ok(());
@@ -294,7 +294,7 @@ pub fn seed_claude_json(mut value: Value, dirs: &[&str], api_key: Option<&str>) 
 // ============================================================================
 
 /// tmux の命令を実行する（引数を分けて渡す。シェルを通さない）。上限は [`TMUX_TIMEOUT`]。
-fn tmux(args: &[&str]) -> Result<Output, HerdrError> {
+fn tmux(args: &[&str]) -> Result<Output, PaneError> {
     let child = Command::new("tmux")
         .args(args)
         .stdin(Stdio::null())
@@ -324,7 +324,7 @@ fn tmux(args: &[&str]) -> Result<Output, HerdrError> {
 }
 
 /// tmux の命令が失敗したら、標準エラーの最後の行を理由にして返す。
-fn check(out: &Output, id: &str, what: &str) -> Result<(), HerdrError> {
+fn check(out: &Output, id: &str, what: &str) -> Result<(), PaneError> {
     if out.status.success() {
         return Ok(());
     }
@@ -419,8 +419,8 @@ fn seed_home_claude_json(dirs: &[&str]) -> std::io::Result<()> {
     std::fs::rename(&tmp, &path)
 }
 
-fn api_error(message: String) -> HerdrError {
-    HerdrError::ApiError { message }
+fn api_error(message: String) -> PaneError {
+    PaneError::ApiError { message }
 }
 
 // ============================================================================

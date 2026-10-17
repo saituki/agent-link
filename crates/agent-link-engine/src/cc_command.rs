@@ -24,12 +24,12 @@
 //! `--permission-mode acceptEdits` と `--allowedTools`（[`CC_ALLOWED_TOOLS`]）で渡す。
 //!
 //! 構築されたコマンドは `orchestrator` が `AGENT_LINK_*` 環境変数を前置し、
-//! `HerdrClient::run_in_pane()` で実行します（cc は tmux の session の中で動く）。
+//! `PaneClient::run_in_pane()` で実行します（cc は tmux の session の中で動く）。
 
 use std::path::{Path, PathBuf};
 
 use crate::block_config::BlockConfig;
-use crate::herdr::shell_escape_single_quotes;
+use crate::common::shell_escape_single_quotes;
 
 /// Claude Code のプロンプト本文を確定送信するキー。
 ///

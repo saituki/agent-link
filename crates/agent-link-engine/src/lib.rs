@@ -1,7 +1,7 @@
 //! # agent-link — AI コーディングエージェントワークフローエンジン
 //!
 //! agent-link はブロック定義ファイル（Markdown + YAML frontmatter）のパース、
-//! 検証、起動コマンドの構築、herdr CLI 連携を提供するライブラリです。
+//! 検証、起動コマンドの構築、擬似 pane の窓口（`pane`）を提供するライブラリです。
 //!
 //! ## ブロック定義ファイルのフォーマット
 //!
@@ -45,7 +45,7 @@
 //! - `parser` — フロントマターパーサー（`parse_block_file`, `parse_block_string`）
 //! - `validation` — バリデーションロジック（`validate`, `ValidationResult`）
 //! - `error` — エラー型（`ParseError`）
-//! - `herdr` — herdr CLI 連携（ペイン操作、シェルエスケープ）
+//! - `pane` — 擬似 pane の窓口（`headless` / `tmux` への回し先）
 //! - `settings` — `.agent-link/settings.json` の読み込み・WIP と同時実行の上限・環境変数
 //! - `session` — JSONL セッションファイル管理（作成・読み取り・クリーンアップ）
 //! - `init` — プロジェクト初期化（`PROJECTROOT/.agent-link/` の作成）
@@ -56,7 +56,7 @@
 pub mod block_config;
 pub mod error;
 pub mod headless;
-pub mod herdr;
+pub mod pane;
 pub mod parser;
 pub mod settings;
 pub mod validation;

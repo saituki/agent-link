@@ -1,6 +1,6 @@
 //! # エージェント実行オーケストレーター
 //!
-//! ブロック定義ファイルのパースから herdr pane 上でのエージェント実行、
+//! ブロック定義ファイルのパースから擬似 pane 上でのエージェント実行、
 //! プロンプト注入、完了待機、出力抽出、クリーンアップまでの
 //! 完全なパイプラインを提供します。
 //!
@@ -22,7 +22,7 @@
 //!
 //! ```ignore
 //! use agent_link_engine::orchestrator::spawn_pipeline;
-//! use agent_link_engine::herdr::SplitDirection;
+//! use agent_link_engine::pane::SplitDirection;
 //!
 //! let handle = spawn_pipeline(prepared, SplitDirection::Right, 300_000, false);
 //! // TUI の描画ループ内で進捗をポーリング
@@ -56,7 +56,7 @@ use std::time::{Duration, Instant};
 use serde::{Deserialize, Serialize};
 
 use crate::block_config::BlockConfig;
-use crate::herdr::{HerdrClient, HerdrError, SplitDirection};
+use crate::pane::{PaneClient, PaneError, SplitDirection};
 use crate::cc_command::CcCommandBuilder;
 use crate::placeholder::{
     resolve_placeholder_values, shift_headings, split_fixed_and_variable, PlaceholderValue,
@@ -100,7 +100,7 @@ pub struct PipelineConfig {
     pub keep_pane: bool,
     /// 実行ID（ペインラベル用。CLI/TUI から設定される）
     pub run_id: Option<i64>,
-    /// バッチ実行時に事前作成された herdr タブの ID（U2・R4。None は従来の分割方式）
+    /// バッチ実行時に事前作成されたタブの ID（U2・R4。None は従来の分割方式）
     pub tab_id: Option<String>,
     /// 動的 pane 配置で決定した分割基準ペインの ID（U2・R4 案X。None は既定の分割方式）
     pub base_pane_id: Option<String>,
@@ -165,7 +165,7 @@ pub struct PipelineResult {
     pub output: String,
     /// 終了コード（0 = 成功、1 = エラー、130 = ユーザーキャンセル）
     pub exit_code: i32,
-    /// 作成された herdr pane の ID
+    /// 作成された擬似 pane の ID
     pub pane_id: String,
     /// 実行時間（ミリ秒）
     pub elapsed_ms: u64,
@@ -192,8 +192,8 @@ pub struct PipelineResult {
 /// パイプライン実行エラー。
 #[derive(Debug, thiserror::Error)]
 pub enum OrchestratorError {
-    #[error("herdr operation error: {0}")]
-    HerdrError(#[from] HerdrError),
+    #[error("pane operation error: {0}")]
+    Pane(#[from] PaneError),
     #[error("Command build error: {0}")]
     CommandError(String),
     #[error("Session file error: {0}")]
@@ -426,7 +426,7 @@ pub struct PreparedPipeline {
     pub pi_args: Vec<String>,
     /// セッションディレクトリのパス
     pub session_dir: PathBuf,
-    /// 最初のメッセージ（`herdr.send_text` で 1 通で送る文）。
+    /// 最初のメッセージ（`PaneClient::send_text` で 1 通で送る文）。
     ///
     /// 最初に `# task_text` の節を置き、そのほかの入力値を `# <id>` の節にして並べる
     /// （節の作り方は `split_fixed_and_variable`）。template と block.md の本文（固定部分）は
@@ -449,7 +449,7 @@ pub struct PreparedPipeline {
     pub git_commit_before: Option<String>,
     /// 実行ID（ペインラベル用。`prepare_pipeline()` では設定されず、呼び出し元が設定する）
     pub run_id: Option<i64>,
-    /// バッチ実行時に事前作成された herdr タブの ID（U2・R4。None は従来の分割方式）
+    /// バッチ実行時に事前作成されたタブの ID（U2・R4。None は従来の分割方式）
     pub tab_id: Option<String>,
     /// 動的 pane 配置で決定した分割基準ペインの ID（U2・R4 案X。None は既定の分割方式）
     pub base_pane_id: Option<String>,
@@ -480,7 +480,7 @@ pub struct PreparedPipeline {
 pub enum PipelineProgress {
     /// 開始前（スレッド起動直後）
     Pending,
-    /// herdr pane 分割中
+    /// 擬似 pane 作成中
     SplittingPane,
     /// 待機中（シェル初期化 / pi初期化 / アイドル確認 / 作業開始確認 / 完了待機）
     Waiting {
@@ -512,7 +512,7 @@ pub enum PipelineProgress {
         git_commit_before: Option<String>,
         /// pi終了時のHEADコミットハッシュ
         git_commit_after: Option<String>,
-        /// 実行に使用した herdr pane ID（自動削除用）
+        /// 実行に使用した擬似 pane ID（自動削除用）
         pane_id: String,
     },
     /// 失敗
@@ -594,7 +594,7 @@ impl PipelineHandle {
 /// 3. セッションファイル（JSONL）作成
 /// 4. 起動コマンド構築（cc）
 ///
-/// **この時点では herdr 操作は一切行いません。**
+/// **この時点では pane 操作は一切行いません。**
 /// 戻り値の `PreparedPipeline.pi_command` をユーザーに表示し、
 /// 確認を得てから `spawn_pipeline()` に渡してください。
 ///
@@ -751,20 +751,20 @@ pub fn prepare_pipeline(config: &PipelineConfig) -> Result<PreparedPipeline, Orc
     // ── 設定ファイル (env:) の環境変数をコマンド先頭に付与 ──
     // `.agent-link/settings.json` と `~/.agent-link/settings.json` の `env` を、
     // エージェントの実行ファイルより前に並べる。
-    // 値は shell のシングルクォートで囲む（herdr::shell_escape_single_quotes）。
+    // 値は shell のシングルクォートで囲む（common::shell_escape_single_quotes）。
     // 予約キー（AGENT_LINK_* の 4 つ）は設定の読み込み側で破棄される。
     // ここは AGENT_LINK_* を付ける「前」に入れる。あとから付く AGENT_LINK_* が
     // この行の上に重なるので、最終的な並びは「AGENT_LINK_* → env → 実行ファイル」になる。
     if let Some(env_pairs) = crate::settings::agent_env_pairs().filter(|_| !is_remote) {
         let rendered: String = env_pairs
             .iter()
-            .map(|(k, v)| format!("{}={} ", k, crate::herdr::shell_escape_single_quotes(v)))
+            .map(|(k, v)| format!("{}={} ", k, crate::common::shell_escape_single_quotes(v)))
             .collect();
         agent_command = format!("{rendered}{agent_command}");
     }
 
     // ── エージェント用の環境変数をコマンド先頭に付与 ──
-    // エージェントプロセスは herdr ペインのシェルで起動されるため、
+    // エージェントプロセスは擬似 pane のシェルで起動されるため、
     // `AGENT_LINK_PROJECT_ROOT`（= プロジェクトルート）と `AGENT_LINK_PARENT_RUN_ID`（= 実行 ID）を
     // シェル変数として先頭に前置する。
     // - AGENT_LINK_PROJECT_ROOT: 実行の中で `.agent-link/` をプロジェクトルート基準で解決するため
@@ -777,7 +777,7 @@ pub fn prepare_pipeline(config: &PipelineConfig) -> Result<PreparedPipeline, Orc
         // shell エスケープして渡す。
         format!(
             "AGENT_LINK_IS_SUBTASK=1 AGENT_LINK_BIN={} ",
-            crate::herdr::shell_escape_single_quotes(&crate::cc_command::sai_link_exe())
+            crate::common::shell_escape_single_quotes(&crate::cc_command::sai_link_exe())
         )
     } else {
         String::new()
@@ -788,7 +788,7 @@ pub fn prepare_pipeline(config: &PipelineConfig) -> Result<PreparedPipeline, Orc
         // 遠隔の環境変数は `remote_script` が組んだ
     } else if let Some(project_root) = std::env::var_os("AGENT_LINK_PROJECT_ROOT") {
         let root_str = project_root.to_string_lossy().to_string();
-        let escaped_root = crate::herdr::shell_escape_single_quotes(&root_str);
+        let escaped_root = crate::common::shell_escape_single_quotes(&root_str);
         if let Some(run_id) = config.run_id {
             agent_command = format!(
                 "AGENT_LINK_PROJECT_ROOT={} AGENT_LINK_PARENT_RUN_ID={} AGENT_LINK_BLOCK_NAME={} {}{}",
@@ -822,7 +822,7 @@ pub fn prepare_pipeline(config: &PipelineConfig) -> Result<PreparedPipeline, Orc
             if !dir.as_os_str().is_empty() {
                 agent_command = format!(
                     "PATH={}:$PATH {}",
-                    crate::herdr::shell_escape_single_quotes(&dir.to_string_lossy()),
+                    crate::common::shell_escape_single_quotes(&dir.to_string_lossy()),
                     agent_command
                 );
             }
@@ -879,7 +879,7 @@ struct RemoteScriptParts<'a> {
 ///
 /// tmux の `-e` は ssh を越えないので、中継とフックが Mac へ送る環境変数を、ここで直に書く。
 fn remote_script(p: &RemoteScriptParts) -> String {
-    let q = crate::herdr::shell_escape_single_quotes;
+    let q = crate::common::shell_escape_single_quotes;
     let home = p.home.trim_end_matches('/');
     let mut s = format!(
         "cd {} && HERDR_PANE_ID={} AGENT_LINK_PROJECT_ROOT={} AGENT_LINK_PARENT_RUN_ID={} \
@@ -1027,7 +1027,7 @@ fn write_system_prompt_file(run_id: Option<i64>, system_prompt: &str) -> Option<
 /// # 引数
 ///
 /// * `prepared` — `prepare_pipeline()` の戻り値
-/// * `direction` — herdr ペイン分割方向
+/// * `direction` — pane の分割方向
 /// * `timeout_ms` — エージェント完了待機のタイムアウト（ミリ秒）
 /// * `keep_pane` — デバッグ用に実行後ペインを維持するか
 ///
@@ -1824,15 +1824,15 @@ pub fn subtask_run_cwd(
     dir.is_dir().then_some(dir)
 }
 
-/// 実行完了後の herdr pane を自動削除する（D5。sai-write 正常完了時のみ）。
+/// 実行完了後の擬似 pane を自動削除する（D5。sai-write 正常完了時のみ）。
 ///
 /// pane_id が空の場合は何もしない。
 pub fn close_execution_pane(pane_id: &str) {
     if pane_id.is_empty() {
         return;
     }
-    let herdr = HerdrClient::new();
-    match herdr.close_pane(pane_id) {
+    let pane_client = PaneClient::new();
+    match pane_client.close_pane(pane_id) {
         Ok(()) => {
             eprintln!("[agent-link] pane を自動削除しました: {}", pane_id);
         }
@@ -1902,7 +1902,7 @@ pub fn request_main_block_finalize(store: &crate::db::SaiStore, run_id: i64, pan
 /// * `overrides` — 実行時オーバーライド（§6）
 /// * `parent_run_id` — メイン: None / サブ: Some
 /// * `batch_id` — タスクバッチ ID（P3-A。サブ実行のフェーズ合成に使用。メインは None）
-/// * `tab_id` — バッチ実行時に事前作成された herdr タブの ID（U2・R4。None は従来の分割方式）
+/// * `tab_id` — バッチ実行時に事前作成されたタブの ID（U2・R4。None は従来の分割方式）
 /// * `watcher_map` — デーモンの実行監視マップ（デーモン稼働時のみ。None なら自己ポーリング）
 /// * `card_path` — kanban 実行に使ったカードのプロジェクト相対パス（R121 二段階更新用。None 可）
 #[allow(clippy::too_many_arguments)]
@@ -2539,7 +2539,7 @@ pub struct SubtaskSettings {
 /// * `batch_id` — タスクバッチ ID（P3-A。DAG のフェーズ合成に使用）
 /// * `card_run_id` — 起こす todo カードの run_id（U2。`Some` なら予約済みの run_id と
 ///   `task.md`（`sci_*` を含む）をそのまま使う。`None` は従来どおり新規に run を作る）
-/// * `tab_id` — バッチ実行時に事前作成された herdr タブの ID（U2・R4。None は従来の分割方式）
+/// * `tab_id` — バッチ実行時に事前作成されたタブの ID（U2・R4。None は従来の分割方式）
 /// * `direction` — タブ内分割方向（U2・R4。タスクのバッチ内インデックスで交互分割。None はデフォルト）
 /// * `watcher_map` — デーモンの実行監視マップ（デーモン稼働時のみ。None なら自己ポーリング）
 #[allow(clippy::too_many_arguments)]
@@ -2862,7 +2862,7 @@ fn execute_pipeline_background(
     completion_rx: Option<mpsc::Receiver<CompletionEvent>>,
 ) {
     let start = Instant::now();
-    let herdr = HerdrClient::new();
+    let pane_client = PaneClient::new();
 
     // ---- キャンセルチェックマクロ ----
     macro_rules! check_cancel {
@@ -2884,9 +2884,9 @@ fn execute_pipeline_background(
         .as_ref()
         .map(|p| p.to_string_lossy().to_string());
     // pane_id 指定あり（task_manager が用意した擬似 pane）は状態を読むだけ。
-    // 無ければ擬似 pane を新しく作る（herdr の分割は呼ばない）。
+    // 無ければ擬似 pane を新しく作る（pane の分割は呼ばない）。
     let pane_info = if let Some(pid) = prepared.pane_id.as_deref() {
-        match herdr.get_pane_status(pid) {
+        match pane_client.get_pane_status(pid) {
             Ok(p) => p,
             Err(e) => {
                 let msg = format!("Failed to get the pane to use (pane={}): {}", pid, e);
@@ -2905,10 +2905,10 @@ fn execute_pipeline_background(
         }
     };
 
-    // ---- ペインにラベルを設定（互換のため呼ぶだけ。herdr は使わない） ----
+    // ---- ペインにラベルを設定（互換のため呼ぶだけ） ----
     if let Some(run_id) = prepared.run_id {
         let label = format!("sai-{}-{}", prepared.block_name, run_id);
-        let _ = herdr.rename_pane(&pane_info.pane_id, &label);
+        let _ = pane_client.rename_pane(&pane_info.pane_id, &label);
     }
     // sai-phone 書き出し用に pane_id を run セッション dir へ控える。
     // DB の herdr_pane_id は完了時にしか入らず，ラベルはプロジェクト間で重なるため。
@@ -2923,12 +2923,12 @@ fn execute_pipeline_background(
     let launch_command = match cwd_str.as_deref() {
         Some(cwd) => format!(
             "cd {} && {}",
-            crate::herdr::shell_escape_single_quotes(cwd),
+            crate::common::shell_escape_single_quotes(cwd),
             prepared.pi_command
         ),
         None => prepared.pi_command.clone(),
     };
-    if let Err(e) = herdr.run_in_pane(&pane_info.pane_id, &launch_command) {
+    if let Err(e) = pane_client.run_in_pane(&pane_info.pane_id, &launch_command) {
         let msg = format!("Failed to start the agent: {}", e);
         *progress.lock().unwrap() = PipelineProgress::Failed { error: msg };
         return;
@@ -2952,7 +2952,7 @@ fn execute_pipeline_background(
 
     // ---- Step 10: アイドル状態確認 (30秒タイムアウト、中断可能) ----
     match wait_for_status_cancelable(
-        &herdr,
+        &pane_client,
         &pane_info.pane_id,
         &["idle", "done"],
         30_000,
@@ -2984,7 +2984,7 @@ fn execute_pipeline_background(
     };
 
     match submit_prompt_verified(
-        &herdr,
+        &pane_client,
         &pane_info.pane_id,
         &prepared.expanded_prompt,
         prepared.submit_key,
@@ -3009,7 +3009,7 @@ fn execute_pipeline_background(
     // 完了判定は「pi idle/done」ではなく「自分の run_id の sai-write 検出」（D4）。
     // `execute_completion_normal` は廃止し、全ブロックを sai-write 方式に統一する（§7.1.3・D22）。
     execute_completion_with_doc_write(
-        &herdr,
+        &pane_client,
         &pane_info.pane_id,
         timeout_ms,
         keep_pane,
@@ -3235,7 +3235,7 @@ fn should_finalize_run_batch(parent_run_id: Option<i64>) -> bool {
 /// ユーザーが ctrl+d で pi を終了 → pane 削除 した場合でも、
 /// "completed" ステータスになる。
 fn execute_completion_with_doc_write(
-    herdr: &HerdrClient,
+    pane_client: &PaneClient,
     pane_id: &str,
     timeout_ms: u64,
     _keep_pane: bool,
@@ -3269,7 +3269,7 @@ fn execute_completion_with_doc_write(
     // timeout 超過時、子ブロックは失敗にせず通知を繰り返し送るので deadline を延ばす
     let mut deadline = Instant::now() + Duration::from_millis(timeout_ms);
     let mut waggle_tokens: Vec<String> = Vec::new();
-    // pane 消滅判定の連続エラーカウント（一時的な herdr エラーへの耐性）
+    // pane 消滅判定の連続エラーカウント（一時的なエラーへの耐性）
     let mut pane_error_count: u32 = 0;
     // 認証切れの画面確認を次にいつ行うか（30 秒ごと）
     let mut next_screen_check = Instant::now();
@@ -3430,18 +3430,17 @@ fn execute_completion_with_doc_write(
                 }
                 Err(mpsc::RecvTimeoutError::Timeout) => {
                     // pane 消滅チェック（§4.2 ケース3・4）
-                    // 閉じた pane への herdr 操作は exit コードやエラー種別が不定
-                    // （ApiError / HerdrCliError / HerdrTimeout 等）のため、
+                    // 閉じた pane への操作はエラー種別が不定（ApiError / IoError 等）のため、
                     // 連続エラーで pane 消滅と判定する（一時エラーはグレースで回避）。
                     // ユーザーが ctrl+d で pi を終了 → pane を削除した場合（ケース4）、
                     // その時点で利用可能な出力を抽出して正常完了とする。
-                    match herdr.get_pane_status(pane_id) {
+                    match pane_client.get_pane_status(pane_id) {
                         Ok(info) => {
                             pane_error_count = 0;
                             // 認証切れ（cc が 401 で止まった）の検出。画面は 30 秒に 1 回だけ読む。
                             if Instant::now() >= next_screen_check {
                                 next_screen_check = Instant::now() + Duration::from_secs(30);
-                                let screen = herdr.read_pane_output(pane_id, 40).unwrap_or_default();
+                                let screen = pane_client.read_pane_output(pane_id, 40).unwrap_or_default();
                                 let line = auth_error_line(&screen);
                                 // agent が 401 の文言をファイルの内容として表示しているだけなら、
                                 // 画面は動く。同じ画面が 2 回続いたときだけ止まっているとみなす。
@@ -3588,7 +3587,7 @@ fn execute_completion_with_doc_write(
             };
 
             // --- 1. エージェントの状態をチェック ---
-            let pi_done = match herdr.get_pane_status(pane_id) {
+            let pi_done = match pane_client.get_pane_status(pane_id) {
                 Ok(info) => {
                     // blocked は質問の答え待ち。取り消さず、idle / done になるまで待つ
                     info.agent_status == "idle" || info.agent_status == "done"
@@ -3703,7 +3702,7 @@ pub struct TurnResult {
 ///
 /// # 引数
 ///
-/// * `herdr` — herdr クライアント
+/// * `pane_client` — pane クライアント
 /// * `pane_id` — 送信先の既存 pane
 /// * `message` — 送信する追加指示テキスト
 /// * `timeout_ms` — 完了待機のタイムアウト（ミリ秒）
@@ -3714,7 +3713,7 @@ pub struct TurnResult {
 /// * `run_id` — このターンの実行の ID。`Some` のときは、この run の `file_written` だけを集める
 ///   （ほかの run の文書を取り込まないため）。`None` は絞らない
 pub fn send_turn_to_pane(
-    herdr: &HerdrClient,
+    pane_client: &PaneClient,
     pane_id: &str,
     message: &str,
     timeout_ms: u64,
@@ -3727,7 +3726,7 @@ pub fn send_turn_to_pane(
     let start = Instant::now();
 
     // 1. pane の生存確認（cwd は worktree の場合があるためコミット取得に利用）
-    let pane_cwd = match herdr.get_pane_status(pane_id) {
+    let pane_cwd = match pane_client.get_pane_status(pane_id) {
         Ok(info) => info.cwd.clone(),
         Err(e) => {
             return Err(OrchestratorError::CommandError(format!(
@@ -3738,7 +3737,7 @@ pub fn send_turn_to_pane(
     };
 
     // 2. プロンプト送信（送信確認 + 再送つき、F6。キャンセルフラグはこの経路では未使用）
-    submit_prompt_verified(herdr, pane_id, message, submit_key, None)?;
+    submit_prompt_verified(pane_client, pane_id, message, submit_key, None)?;
 
     // 5. 完了待機（idle/done で完了、blocked でキャンセル、タイムアウトで失敗）
     let waggle_db_path = crate::project::db_path();
@@ -3783,7 +3782,7 @@ pub fn send_turn_to_pane(
         }
 
         // pane 状態の確認
-        match herdr.get_pane_status(pane_id) {
+        match pane_client.get_pane_status(pane_id) {
             Ok(info) => {
                 pane_error_count = 0;
                 if info.agent_status == "idle" || info.agent_status == "done" {
@@ -3921,7 +3920,7 @@ fn interruptible_sleep(
 ///
 /// # 引数
 ///
-/// * `herdr` — herdr クライアント
+/// * `pane_client` — pane クライアント
 /// * `pane_id` — 送信先 pane
 /// * `text` — 送信するプロンプト本文
 /// * `submit_key` — 確定キー（`cc_command::CC_SUBMIT_KEY`。`Alt+Enter`。
@@ -3941,7 +3940,7 @@ fn interruptible_sleep(
 /// `agent_api::task_manage`（作業中タスクへの直接 `send`）からも使うため `pub(crate)`。
 /// シグネチャは変わらない（共有契約）。
 pub(crate) fn submit_prompt_verified(
-    herdr: &HerdrClient,
+    pane_client: &PaneClient,
     pane_id: &str,
     text: &str,
     submit_key: &str,
@@ -3959,7 +3958,7 @@ pub(crate) fn submit_prompt_verified(
     };
 
     // 1. テキストを入力欄へ送る（1 回だけ。再送は確定キーのみ）
-    herdr
+    pane_client
         .send_text(pane_id, text)
         .map_err(|e| OrchestratorError::CommandError(format!("Failed to send text: {}", e)))?;
 
@@ -3970,7 +3969,7 @@ pub(crate) fn submit_prompt_verified(
 
         // 2. 入力欄が整うのを待ってから確定キーを送る
         std::thread::sleep(Duration::from_millis(300));
-        herdr.send_keys(pane_id, submit_key).map_err(|e| {
+        pane_client.send_keys(pane_id, submit_key).map_err(|e| {
             OrchestratorError::CommandError(format!("Failed to send the confirm key: {}", e))
         })?;
 
@@ -3980,7 +3979,7 @@ pub(crate) fn submit_prompt_verified(
             if cancelled(cancel_flag) {
                 return Err(OrchestratorError::Cancelled);
             }
-            match herdr.get_pane_status(pane_id) {
+            match pane_client.get_pane_status(pane_id) {
                 Ok(info) if info.agent_status == "working" => return Ok(()),
                 // blocked は「文を受け取り、質問を出した」状態
                 Ok(info) if info.agent_status == "blocked" => return Ok(()),
@@ -4009,10 +4008,10 @@ pub(crate) fn submit_prompt_verified(
 /// キャンセル可能なステータスポーリング。
 ///
 /// `wait_for_status` のキャンセル対応版。
-/// 250ms 間隔で herdr のペイン状態をポーリングし、
+/// 250ms 間隔で擬似 pane の状態をポーリングし、
 /// 各イテレーションでキャンセルフラグをチェックします。
 fn wait_for_status_cancelable(
-    herdr: &HerdrClient,
+    pane_client: &PaneClient,
     pane_id: &str,
     target_statuses: &[&str],
     timeout_ms: u64,
@@ -4045,17 +4044,14 @@ fn wait_for_status_cancelable(
             elapsed_secs: elapsed / 1000,
         };
 
-        match herdr.get_pane_status(pane_id) {
+        match pane_client.get_pane_status(pane_id) {
             Ok(info) => {
                 if target_statuses.contains(&info.agent_status.as_str()) {
                     return Ok(());
                 }
             }
-            Err(HerdrError::HerdrNotFound) => {
-                return Err(HerdrError::HerdrNotFound.into());
-            }
             Err(_) => {
-                // その他のエラーはリトライ
+                // エラーはリトライ
             }
         }
 
@@ -4074,7 +4070,7 @@ fn wait_for_status_cancelable(
 /// 指定されたステータスになるまでポーリングします（キャンセル非対応、テスト用）。
 #[cfg(test)]
 fn wait_for_status(
-    herdr: &HerdrClient,
+    pane_client: &PaneClient,
     pane_id: &str,
     target_statuses: &[&str],
     timeout_ms: u64,
@@ -4086,14 +4082,11 @@ fn wait_for_status(
             return Err(OrchestratorError::Timeout { timeout_ms });
         }
 
-        match herdr.get_pane_status(pane_id) {
+        match pane_client.get_pane_status(pane_id) {
             Ok(info) => {
                 if target_statuses.contains(&info.agent_status.as_str()) {
                     return Ok(());
                 }
-            }
-            Err(HerdrError::HerdrNotFound) => {
-                return Err(HerdrError::HerdrNotFound.into());
             }
             Err(_) => {}
         }
@@ -4105,7 +4098,7 @@ fn wait_for_status(
 /// 指定されたステータスになるまでポーリングします（blocked検出付き、キャンセル非対応、テスト用）。
 #[cfg(test)]
 fn wait_for_status_with_cancellation(
-    herdr: &HerdrClient,
+    pane_client: &PaneClient,
     pane_id: &str,
     target_statuses: &[&str],
     timeout_ms: u64,
@@ -4117,7 +4110,7 @@ fn wait_for_status_with_cancellation(
             return Err(OrchestratorError::Timeout { timeout_ms });
         }
 
-        match herdr.get_pane_status(pane_id) {
+        match pane_client.get_pane_status(pane_id) {
             Ok(info) => {
                 if info.agent_status == "blocked" {
                     return Err(OrchestratorError::Cancelled);
@@ -4125,9 +4118,6 @@ fn wait_for_status_with_cancellation(
                 if target_statuses.contains(&info.agent_status.as_str()) {
                     return Ok(());
                 }
-            }
-            Err(HerdrError::HerdrNotFound) => {
-                return Err(HerdrError::HerdrNotFound.into());
             }
             Err(_) => {}
         }
@@ -4664,11 +4654,11 @@ mod tests {
         config.block_config.name = "sai-test-main".to_string();
 
         let prepared = prepare_pipeline(&config).expect("prepare_pipeline に失敗");
-        let escaped = crate::herdr::shell_escape_single_quotes("a b'c");
+        let escaped = crate::common::shell_escape_single_quotes("a b'c");
         assert!(
             prepared.pi_command.contains(&format!(
                 "AGENT_LINK_TEST_QUOTE={} claude ",
-                crate::herdr::shell_escape_single_quotes("a b'c")
+                crate::common::shell_escape_single_quotes("a b'c")
             )),
             "値がシングルクォートで囲まれるべき: {}",
             prepared.pi_command
@@ -5019,24 +5009,14 @@ mod tests {
 
     #[test]
     fn test_wait_for_status_timeout() {
-        let herdr = HerdrClient::with_binary("/nonexistent/herdr_binary");
-        let result = wait_for_status(&herdr, "test-pane", &["idle"], 100);
-        match result {
-            Err(OrchestratorError::HerdrError(HerdrError::HerdrNotFound)) => {}
-            Err(OrchestratorError::HerdrError(HerdrError::IoError(_))) => {}
-            _ => {}
-        }
+        let pane = PaneClient::new();
+        let _ = wait_for_status(&pane, "test-pane", &["idle"], 100);
     }
 
     #[test]
     fn test_wait_for_status_with_cancellation_timeout() {
-        let herdr = HerdrClient::with_binary("/nonexistent/herdr_binary");
-        let result = wait_for_status_with_cancellation(&herdr, "test-pane", &["idle"], 100);
-        match result {
-            Err(OrchestratorError::HerdrError(HerdrError::HerdrNotFound)) => {}
-            Err(OrchestratorError::HerdrError(HerdrError::IoError(_))) => {}
-            _ => {}
-        }
+        let pane = PaneClient::new();
+        let _ = wait_for_status_with_cancellation(&pane, "test-pane", &["idle"], 100);
     }
 
     // ---- OrchestratorError ----
@@ -5052,9 +5032,12 @@ mod tests {
         let msg = format!("{}", err_cancelled);
         assert!(msg.contains("Cancelled"));
 
-        let err_herdr = OrchestratorError::HerdrError(HerdrError::HerdrNotFound);
-        let msg = format!("{}", err_herdr);
-        assert!(msg.contains("herdr"));
+        let err_pane = OrchestratorError::Pane(PaneError::ApiError {
+            message: "gone".to_string(),
+        });
+        let msg = format!("{}", err_pane);
+        assert!(msg.contains("pane"));
+        assert!(msg.contains("gone"));
     }
 
     #[test]
@@ -5875,7 +5858,7 @@ mod tests {
         let dir = std::path::Path::new(&exe).parent().unwrap().to_string_lossy().to_string();
         let expected = format!(
             "PATH={}:$PATH AGENT_LINK_PARENT_RUN_ID=77 AGENT_LINK_BLOCK_NAME=sai-test-main claude {}",
-            crate::herdr::shell_escape_single_quotes(&dir),
+            crate::common::shell_escape_single_quotes(&dir),
             prepared.pi_args.join(" ")
         );
         assert_eq!(prepared.pi_command, expected);
@@ -6057,7 +6040,7 @@ mod tests {
     /// request_main_block_finalize が
     /// 1. finalize_request 通知を pending/ に書き込む
     /// 2. DB を completed + finalized=true にする
-    /// ことを検証する（U4・R8/R9）。pane 削除は herdr 不在のためベストエフォートで
+    /// ことを検証する（U4・R8/R9）。pane 削除は pane が無いためベストエフォートで
     /// 失敗するが、全体は成功（最終状態は completed）になる。
     #[test]
     fn test_request_main_block_finalize() {
@@ -6074,7 +6057,7 @@ mod tests {
         let run_id = store.create_execution(block_id, None).unwrap();
         store.update_execution_status(run_id, "running").unwrap();
 
-        // Ctrl+D 2回目相当の finalize を実行（herdr 不在のため pane 削除は失敗で無視）
+        // Ctrl+D 2回目相当の finalize を実行（pane が無いため pane 削除は失敗で無視）
         request_main_block_finalize(&store, run_id, "pane-finalize-test");
 
         // 1. finalize_request 通知が pending/ に書き込まれている

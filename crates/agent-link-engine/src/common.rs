@@ -262,6 +262,22 @@ pub fn truncate_str(s: &str, max_chars: usize) -> String {
     }
 }
 
+/// シェル用にシングルクォートをエスケープする。
+///
+/// `'` を `'\''`（クォートを閉じる + エスケープ + クォートを開く）に置換し、
+/// 全体を `'...'` で囲む。
+///
+/// ```
+/// use agent_link_engine::common::shell_escape_single_quotes;
+///
+/// assert_eq!(shell_escape_single_quotes("hello"), "'hello'");
+/// assert_eq!(shell_escape_single_quotes("it's"), "'it'\\''s'");
+/// ```
+pub fn shell_escape_single_quotes(value: &str) -> String {
+    let escaped = value.replace('\'', "'\\''");
+    format!("'{}'", escaped)
+}
+
 // ============================================================================
 // テスト
 // ============================================================================

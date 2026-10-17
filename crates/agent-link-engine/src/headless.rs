@@ -1,6 +1,6 @@
 //! # cc（tmux）の擬似 pane の共通部分
 //!
-//! sai-tree では herdr の pane を使わず、cc を擬似 pane として扱う。
+//! cc を擬似 pane として扱う。窓口は [`crate::pane`]（型 `PaneInfo` と `PaneError` もそこにある）。
 //! cc は tmux の対話モードで動かし、置き場に印 `tmux` がある pane の操作は
 //! [`crate::tmux`] へ回す（`run` / `send_text` / `send_keys` / `status` / `read_output` / `close`）。
 //! pi の子プロセス（監督スレッド）は U04 で消した。
@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
-use crate::herdr::{HerdrError, PaneInfo};
+use crate::pane::{PaneError, PaneInfo};
 
 /// 実行中の pane_id を控えるファイル名（run セッション dir 直下・orchestrator が書く）。
 pub const PANE_ID_FILE: &str = "herdr_pane_id";
@@ -65,7 +65,7 @@ pub struct HeadlessState {
 }
 
 /// 新しい擬似 pane を作る。
-pub fn new_pane(cwd: Option<&str>) -> Result<PaneInfo, HerdrError> {
+pub fn new_pane(cwd: Option<&str>) -> Result<PaneInfo, PaneError> {
     let hex: String = crate::cc_command::generate_uuid_v4()
         .chars()
         .filter(|c| c.is_ascii_hexdigit())
@@ -91,12 +91,12 @@ pub fn new_pane(cwd: Option<&str>) -> Result<PaneInfo, HerdrError> {
 }
 
 /// 起動コマンドを書き、cc を tmux で起こす。
-pub fn run(id: &str, command: &str) -> Result<(), HerdrError> {
+pub fn run(id: &str, command: &str) -> Result<(), PaneError> {
     crate::tmux::run(id, command)
 }
 
 /// 入力を送る（tmux の pane だけ。印の無い擬似 pane は動かせない）。
-pub fn send_text(id: &str, text: &str) -> Result<(), HerdrError> {
+pub fn send_text(id: &str, text: &str) -> Result<(), PaneError> {
     if crate::tmux::is_tmux(id) {
         return crate::tmux::send_text(id, text);
     }
@@ -104,7 +104,7 @@ pub fn send_text(id: &str, text: &str) -> Result<(), HerdrError> {
 }
 
 /// キーを送る（tmux の pane だけ）。
-pub fn send_keys(id: &str, keys: &str) -> Result<(), HerdrError> {
+pub fn send_keys(id: &str, keys: &str) -> Result<(), PaneError> {
     if crate::tmux::is_tmux(id) {
         return crate::tmux::send_keys(id, keys);
     }
@@ -115,7 +115,7 @@ pub fn send_keys(id: &str, keys: &str) -> Result<(), HerdrError> {
 ///
 /// `stopped` と、置き場が無い・`state.json` が読めないときは
 /// `Err`（pane が消えた扱い）。
-pub fn status(id: &str) -> Result<PaneInfo, HerdrError> {
+pub fn status(id: &str) -> Result<PaneInfo, PaneError> {
     if crate::tmux::is_tmux(id) {
         return crate::tmux::status(id);
     }
@@ -132,7 +132,7 @@ pub fn status(id: &str) -> Result<PaneInfo, HerdrError> {
 }
 
 /// tmux の pane の末尾 `lines` 行を返す。印の無い擬似 pane は出力が無い。
-pub fn read_output(id: &str, lines: u32) -> Result<String, HerdrError> {
+pub fn read_output(id: &str, lines: u32) -> Result<String, PaneError> {
     if crate::tmux::is_tmux(id) {
         return crate::tmux::read_output(id, lines);
     }
@@ -140,7 +140,7 @@ pub fn read_output(id: &str, lines: u32) -> Result<String, HerdrError> {
 }
 
 /// tmux の pane を閉じる。印の無い擬似 pane は止めるものが無い。
-pub fn close(id: &str) -> Result<(), HerdrError> {
+pub fn close(id: &str) -> Result<(), PaneError> {
     if crate::tmux::is_tmux(id) {
         return crate::tmux::close(id);
     }
@@ -192,8 +192,8 @@ pub(crate) fn pane_info(id: &str, cwd: Option<&str>, status: &str) -> PaneInfo {
 }
 
 /// pane が消えたときのエラー。
-pub(crate) fn pane_gone(id: &str) -> HerdrError {
-    HerdrError::ApiError {
+pub(crate) fn pane_gone(id: &str) -> PaneError {
+    PaneError::ApiError {
         message: format!("pane not found: {}", id),
     }
 }

@@ -1,12 +1,9 @@
 //! # オーケストレーター統合テスト
 //!
-//! モック herdr を使用してパイプライン全体の結合テストを実行します。
-//!
-//! テストは `tests/fixtures/mock_herdr.sh` を使用し、実際の herdr 環境に
-//! 依存しません。
+//! パイプラインの設定とエラー表示の結合テスト。
 
 use agent_link_engine::block_config::BlockConfig;
-use agent_link_engine::herdr::{HerdrClient, SplitDirection};
+use agent_link_engine::pane::SplitDirection;
 use agent_link_engine::orchestrator::{OrchestratorError, PipelineConfig};
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -14,20 +11,6 @@ use std::path::PathBuf;
 // ---------------------------------------------------------------------------
 // ヘルパー
 // ---------------------------------------------------------------------------
-
-/// モック herdr スクリプトの絶対パスを取得します。
-fn mock_herdr_path() -> PathBuf {
-    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("tests")
-        .join("fixtures")
-        .join("mock_herdr.sh");
-    assert!(
-        path.exists(),
-        "モック herdr スクリプトが見つかりません: {}",
-        path.display()
-    );
-    path
-}
 
 /// フィクスチャファイルの絶対パスを取得します。
 fn fixture_path(name: &str) -> PathBuf {
@@ -76,21 +59,12 @@ fn test_config() -> PipelineConfig {
 }
 
 // ---------------------------------------------------------------------------
-// テストケース（モック herdr が必要）
+// テストケース
 // ---------------------------------------------------------------------------
 
-/// 正常系: パイプライン全体が成功することを確認。
-///
-/// このテストはモック herdr が利用可能な場合にのみ実行されます。
+/// 正常系: パイプラインの設定が組み立てられることを確認。
 #[test]
 fn test_pipeline_success() {
-    // 環境変数でモックが設定されていない場合でも直接モックを指定してテスト
-    let herdr_client = HerdrClient::with_binary(mock_herdr_path().to_string_lossy().to_string());
-    if !herdr_client.is_herdr_available() {
-        eprintln!("モック herdr が利用不可のためテストをスキップします");
-        return;
-    }
-
     // このテストは実際の pi エージェントが必要なため、
     // ユニットテストとしては現実的ではありません。
     // run_pipeline() はブロッキング呼び出しであり、pi が起動されるため
@@ -315,10 +289,13 @@ fn test_pipeline_error_display_all_variants() {
     let msg = format!("{}", err);
     assert!(msg.contains("Cancelled"));
 
-    // HerdrError (from)
-    let err = OrchestratorError::HerdrError(agent_link_engine::herdr::HerdrError::HerdrNotFound);
+    // Pane (from)
+    let err = OrchestratorError::Pane(agent_link_engine::pane::PaneError::ApiError {
+        message: "gone".to_string(),
+    });
     let msg = format!("{}", err);
-    assert!(msg.contains("herdr"));
+    assert!(msg.contains("pane"));
+    assert!(msg.contains("gone"));
 
     // CommandError
     let err = OrchestratorError::CommandError("invalid model".to_string());

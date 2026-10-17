@@ -1,10 +1,13 @@
-//! # プレースホルダー展開ユーティリティ
+//! # block の本文の組み立て
 //!
-//! ブロックプロンプト本文中の `{{input.<id>}}` プレースホルダーを
-//! ユーザー入力値で置換する機能を提供します。
+//! 中心は [`split_fixed_and_variable`]（固定部分＝system prompt と、最初の文に分ける。
+//! `{{input.<id>}}` は案内の文に置き換える）。
+//! ほかに次の処理を持つ。
 //!
-//! `lib/herdrs/types.ts` のプレースホルダー処理に相当する機能を
-//! Rust で実装します。
+//! - `{{subject}}` / `{{description}}` の展開（[`expand_task_placeholders`]）
+//! - waggle の文中展開（[`resolve_placeholder_values`]）
+//! - 見出しの段下げ（[`shift_headings`]）
+//! - frontmatter の除去（[`strip_frontmatter`]）
 //!
 //! ## プレースホルダー形式
 //!

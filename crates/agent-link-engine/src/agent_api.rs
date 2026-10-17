@@ -1643,8 +1643,8 @@ fn run_pane(run_id: i64) -> Result<(ExecutionHistory, String), String> {
 /// 終了している・質問待ちのときは `Err`（CLI は終了コード 4）。
 pub fn run_send(run_id: i64, text: &str) -> Result<Value, String> {
     let (_exec, pane_id) = run_pane(run_id)?;
-    let herdr = crate::herdr::HerdrClient::new();
-    let info = herdr
+    let pane_client = crate::pane::PaneClient::new();
+    let info = pane_client
         .get_pane_status(&pane_id)
         .map_err(|_| format!("Run {} has already ended.", run_id))?;
     if info.agent_status == "blocked" {
@@ -1654,7 +1654,7 @@ pub fn run_send(run_id: i64, text: &str) -> Result<Value, String> {
         ));
     }
     let submit_key = crate::cc_command::CC_SUBMIT_KEY;
-    match crate::orchestrator::submit_prompt_verified(&herdr, &pane_id, text, submit_key, None) {
+    match crate::orchestrator::submit_prompt_verified(&pane_client, &pane_id, text, submit_key, None) {
         Ok(()) => Ok(json!({ "run_id": run_id, "pane_id": pane_id, "status": "sent" })),
         Err(e @ crate::orchestrator::OrchestratorError::PromptUnconfirmed { .. }) => Ok(json!({
             "run_id": run_id,
@@ -1673,12 +1673,12 @@ pub fn run_send(run_id: i64, text: &str) -> Result<Value, String> {
 /// 終了しているときは `Err`（CLI は終了コード 4）。
 pub fn run_interrupt(run_id: i64) -> Result<Value, String> {
     let (_exec, pane_id) = run_pane(run_id)?;
-    let herdr = crate::herdr::HerdrClient::new();
-    let info = herdr
+    let pane_client = crate::pane::PaneClient::new();
+    let info = pane_client
         .get_pane_status(&pane_id)
         .map_err(|_| format!("Run {} has already ended.", run_id))?;
     let mut agent_status = info.agent_status;
-    herdr
+    pane_client
         .send_keys(&pane_id, "esc")
         .map_err(|e| format!("Failed to send esc: {}", e))?;
 
@@ -1687,7 +1687,7 @@ pub fn run_interrupt(run_id: i64) -> Result<Value, String> {
     let deadline = std::time::Instant::now() + std::time::Duration::from_millis(WAIT_MS);
     while agent_status == "working" && std::time::Instant::now() < deadline {
         std::thread::sleep(std::time::Duration::from_millis(POLL_MS));
-        agent_status = herdr
+        agent_status = pane_client
             .get_pane_status(&pane_id)
             .map(|i| i.agent_status)
             .unwrap_or_else(|_| "unknown".to_string());
@@ -1857,7 +1857,7 @@ enum SendRoute {
 /// `task_status` と pane の `agent_status` から `send` の行き先を決める。
 ///
 /// `agent_status` は `in_progress` のときだけ使う（取得できなければ `None`）。
-/// herdr には触れない純粋関数なので、表の全部を単体テストできる。
+/// 擬似 pane には触れない純粋関数なので、表の全部を単体テストできる。
 fn send_route(
     task_id: i64,
     task_status: &str,
@@ -1939,8 +1939,8 @@ pub fn task_manage(
                 ));
             }
             let (_task, _exec, pane_id) = task_pane(task_id)?;
-            let herdr = crate::herdr::HerdrClient::new();
-            herdr
+            let pane_client = crate::pane::PaneClient::new();
+            pane_client
                 .send_keys(&pane_id, "esc")
                 .map_err(|e| format!("Failed to send esc: {}", e))?;
 
@@ -1948,13 +1948,13 @@ pub fn task_manage(
             const POLL_MS: u64 = 250;
             const WAIT_MS: u64 = 5_000;
             let deadline = std::time::Instant::now() + std::time::Duration::from_millis(WAIT_MS);
-            let mut agent_status = herdr
+            let mut agent_status = pane_client
                 .get_pane_status(&pane_id)
                 .map(|i| i.agent_status)
                 .unwrap_or_else(|_| "unknown".to_string());
             while agent_status == "working" && std::time::Instant::now() < deadline {
                 std::thread::sleep(std::time::Duration::from_millis(POLL_MS));
-                agent_status = herdr
+                agent_status = pane_client
                     .get_pane_status(&pane_id)
                     .map(|i| i.agent_status)
                     .unwrap_or_else(|_| "unknown".to_string());
@@ -1988,7 +1988,7 @@ pub fn task_manage(
             // agent_status は in_progress のときだけ使う（取得失敗は None 扱い）。
             let pane_agent_status = if task.status == "in_progress" {
                 match task_pane(task_id) {
-                    Ok((_t, _e, pane_id)) => crate::herdr::HerdrClient::new()
+                    Ok((_t, _e, pane_id)) => crate::pane::PaneClient::new()
                         .get_pane_status(&pane_id)
                         .map(|i| i.agent_status)
                         .ok(),
@@ -2011,12 +2011,12 @@ pub fn task_manage(
                         .update_task_description(task_id, &new_desc)
                         .map_err(|e| format!("Failed to update the description: {}", e))?;
 
-                    let herdr = crate::herdr::HerdrClient::new();
+                    let pane_client = crate::pane::PaneClient::new();
                     let submit_key = crate::cc_command::CC_SUBMIT_KEY;
                     // 1 回目の実行は task_report まで待機が続くので、ターン実行は別に起こさない。
                     // ここで送った指示は同じ実行の続きとして処理される。
                     if let Err(e) = crate::orchestrator::submit_prompt_verified(
-                        &herdr,
+                        &pane_client,
                         &pane_id,
                         message,
                         submit_key,
@@ -2159,7 +2159,7 @@ pub fn task_capture(task_id: i64, lines: Option<u32>) -> Result<Value, String> {
     let (_task, _exec, pane_id) = task_pane(task_id)?;
 
     let lines = lines.unwrap_or(50);
-    let client = crate::herdr::HerdrClient::new();
+    let client = crate::pane::PaneClient::new();
     let output = client
         .read_pane_output(&pane_id, lines)
         .map_err(|e| format!("Failed to read the pane: {}", e))?;
@@ -3544,7 +3544,7 @@ mod tests {
         assert!(err.contains("message"));
     }
 
-    /// U1 AC3: send_route の振り分け表を全行確かめる（herdr には触れない）。
+    /// U1 AC3: send_route の振り分け表を全行確かめる（擬似 pane には触れない）。
     #[test]
     fn send_route_table() {
         // in_progress + idle / done → pane に直接送る
@@ -3599,7 +3599,7 @@ mod tests {
         }
     }
 
-    /// U1 AC4: interrupt は in_progress 以外のタスクで Err を返す（herdr を呼ばない）。
+    /// U1 AC4: interrupt は in_progress 以外のタスクで Err を返す（擬似 pane を呼ばない）。
     #[test]
     fn task_manage_interrupt_requires_in_progress() {
         let guard = EnvGuard::new();
