@@ -2,13 +2,14 @@
 //!
 //! ブロック接続グラフのノード配置を計算します（`docs/block-position-rule.md` 準拠）。
 //!
-//! - **行** = 同じ日付（`yymmdd`）の親ブロックのグループ。日付昇順で上から並ぶ
-//! - **列** = 同一行内の DATE（作成日時）順。左から右へ並ぶ
+//! - **帯** = 同じ日付（`yymmdd`）の親ブロックのグループ。日付昇順で上から並ぶ
+//! - 同じ日付の親は **縦 1 列**（全部 x = 0）。DATE（作成日時）順で上から下へ並ぶ
 //! - **サブブロック（sb）** = 親の右側に配置。`task create` 1 回分（バッチ）を 1 段として
-//!   横一列に並べ、次のバッチは 1 段下へ置く（孫も同じ親 run の段に入る）
-//! - 日付ごとの行グループの上に **区切り線（日付）** を描画するための座標を保持
+//!   横一列に並べ、次のバッチは 1 段下へ置く（孫も同じ親 run の段に入る）。
+//!   次の親は、前の親と子の段の下端より下から始まる
+//! - 日付ごとの帯の上に **区切り線（日付）** を描画するための座標を保持
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use petgraph::graph::NodeIndex;
 
@@ -122,9 +123,9 @@ pub struct LayoutNode {
     pub id: NodeId,
     pub width: u16,
     pub height: u16,
-    /// 日付（`yymmdd`）。行グループの決定に使用
+    /// 日付（`yymmdd`）。帯（日付のグループ）の決定に使用
     pub date: String,
-    /// 作成日時（ISO 8601）。同一行内の左→右の順序に使用
+    /// 作成日時（ISO 8601）。同じ日付の中の上→下の順序に使用
     pub created_at: String,
     /// 親実行 ID（サブブロックの場合）。main ブロックの右側に配置する
     pub parent_id: Option<NodeId>,
@@ -138,10 +139,7 @@ pub struct LayoutNode {
 pub struct LayoutGraph {
     /// 全ノード
     pub nodes: Vec<LayoutNode>,
-    /// エッジ（from, to, side）。
-    ///
-    /// `side == false`（上下辺接地）のエッジは、出力元ノードの中心 X を
-    /// 垂直に下るため、レイアウトでその経路を避けてノードを配置する。
+    /// エッジ（from, to, side）。配置には使わない（描画側が参照する）。
     pub edges: Vec<(NodeId, NodeId, bool)>,
 }
 
@@ -191,7 +189,7 @@ impl LayoutGraph {
 
 /// レイアウトを計算する（TUI が使う既定の間隔）。
 ///
-/// 行 = 日付グループ（日付昇順）、列 = DATE 順。
+/// 帯 = 日付グループ（日付昇順で上から下）。同じ日付の親は縦 1 列で、DATE 順に上から下へ並ぶ。
 /// サブブロックは main ブロックの右側に、バッチごとに 1 段ずつ積んで配置する。
 pub fn calculate_layout(graph: &LayoutGraph, _top_down: bool) -> DagLayout {
     calculate_layout_with(graph, &LayoutOptions::default())
@@ -248,47 +246,33 @@ pub fn calculate_layout_with(graph: &LayoutGraph, opts: &LayoutOptions) -> DagLa
         }
     }
 
-    // ── 行の Y 座標と列の X 座標を計算 ──
+    // ── 日付の帯ごとに、親を縦 1 列（x = 0）に並べる ──
     let mut y_cursor: i32 = 0;
-    // 上の行から下の行へ伸びる縦エッジの経路（入力ノードID, 経路 X）。
-    // 出力元の行の配置完了時に追加し、入力先の行の配置時に除去する。
-    let mut pending_paths: Vec<(NodeId, i32)> = Vec::new();
 
     for (date, group) in groups.iter() {
-        // 日付ごとの行グループの上に区切り線
+        // 日付ごとの帯の上に区切り線
         separators.push(SeparatorLine {
             y: y_cursor,
             label: date.to_string(),
         });
         y_cursor += opts.separator_lines;
 
-        let row_y = y_cursor;
-        // この行グループに属するノード ID（経路の終端判定に使用）
-        let group_ids: HashSet<NodeId> = group.iter().map(|n| n.id).collect();
-        // この行で終了するエッジ（入力先ノードがこの行にある）の経路を除去
-        pending_paths.retain(|(to_id, _)| !group_ids.contains(to_id));
-        // この行を通過する経路 X のみを抽出（ノード配置の回避に使用）
-        let path_xs: Vec<i32> = pending_paths.iter().map(|(_, x)| *x).collect();
-
-        let mut x: i32 = 0;
-        let mut row_height: i32 = 0;
+        // 次に置く親の上端
+        let mut cur_y = y_cursor;
 
         // グループ内は DATE 順（mains_sorted のソート順を引き継いでいる）
         for main in group {
-            // 上の行から伸びる縦エッジの経路と重ならない位置に配置する
-            // （接続線がブロックに遮断されないように）
-            x = avoid_paths(x, main.width, &path_xs);
+            let x: i32 = 0;
 
             // main ブロック本体
             positions.push(NodePosition {
                 index: main.index,
                 node_id: main.id,
                 x,
-                y: row_y,
+                y: cur_y,
                 width: main.width,
                 height: main.height,
             });
-            row_height = row_height.max(i32::from(main.height));
 
             // この main の子孫（段 → ID 順）
             let mut my_subs: Vec<&LayoutNode> =
@@ -297,8 +281,7 @@ pub fn calculate_layout_with(graph: &LayoutGraph, opts: &LayoutOptions) -> DagLa
 
             // 子は main の右側から横一列。段が変わるたびに 1 段下へ置く
             let sub_x0 = x + i32::from(main.width) + opts.horizontal_gap;
-            let mut right_max = x + i32::from(main.width);
-            let mut stack_y = row_y; // 今の段の上端
+            let mut stack_y = cur_y; // 今の段の上端
             let mut stack_h = i32::from(main.height); // 今の段の高さ（段 1 は main を含む）
             let mut cur_row: Option<u32> = None;
             let mut sub_x = sub_x0;
@@ -319,29 +302,14 @@ pub fn calculate_layout_with(graph: &LayoutGraph, opts: &LayoutOptions) -> DagLa
                     height: sub.height,
                 });
                 stack_h = stack_h.max(i32::from(sub.height));
-                right_max = right_max.max(sub_x + i32::from(sub.width));
                 sub_x += i32::from(sub.width) + opts.horizontal_gap;
             }
-            // 親 1 つ分の高さを行の高さに反映（次の行との重なり防止）
-            row_height = row_height.max(stack_y + stack_h - row_y);
-            // 次の main はこの列の右側から始める
-            x = right_max + opts.horizontal_gap;
+            // 親と子の段の下端。次の親はその下から始める
+            let block_bottom = stack_y + stack_h;
+            cur_y = block_bottom + opts.vertical_gap;
         }
 
-        // この行から出る縦エッジ（上下辺接地）の経路を追加する
-        for &(from_id, to_id, side) in &graph.edges {
-            if side {
-                continue; // 左右辺接地（サブ関係）は下の行を通過しない
-            }
-            if group_ids.contains(&from_id) {
-                if let Some(pos) = positions.iter().find(|p| p.node_id == from_id) {
-                    let center_x = pos.x + i32::from(pos.width) / 2;
-                    pending_paths.push((to_id, center_x));
-                }
-            }
-        }
-
-        y_cursor = row_y + row_height + opts.vertical_gap;
+        y_cursor = cur_y;
     }
 
     let content_width = positions
@@ -361,33 +329,6 @@ pub fn calculate_layout_with(graph: &LayoutGraph, opts: &LayoutOptions) -> DagLa
         content_height,
         separators,
     }
-}
-
-/// ノードを配置する X 位置を、上の行から伸びる縦エッジの経路を避けるように調整する。
-///
-/// 縦エッジは出力元ノードの中心 X を垂直に下るため、その経路 X がノードの
-/// 範囲 [x, x+width) に含まれると接続線がブロックに遮断される。
-/// 経路を含まない最小の X まで右へシフトする。
-fn avoid_paths(mut x: i32, width: u16, paths: &[i32]) -> i32 {
-    if paths.is_empty() {
-        return x;
-    }
-    let w = i32::from(width);
-    let mut sorted: Vec<i32> = paths.to_vec();
-    sorted.sort_unstable();
-    sorted.dedup();
-    // 経路がノード範囲に含まれなくなるまで右へシフトする（有限回で収束）
-    let mut changed = true;
-    while changed {
-        changed = false;
-        for &p in &sorted {
-            if p >= x && p < x + w {
-                x = p + 1;
-                changed = true;
-            }
-        }
-    }
-    x
 }
 
 // ============================================================================
@@ -459,27 +400,27 @@ mod tests {
             &LayoutOptions { vertical_gap: 4, horizontal_gap: 8, separator_lines: 4 },
         );
 
-        // 同じ行の 2 つ目の札は右へ離れる
+        // 同じ日付の 2 つ目の札は下へ離れる（x は両方 0）
         let n1 = find_pos(&narrow, 1);
         let w1 = find_pos(&wide, 1);
         let n2 = find_pos(&narrow, 2);
         let w2 = find_pos(&wide, 2);
-        assert_eq!(n2.y - n1.y, w2.y - w1.y, "同じ行の中の 2 つの高さは変わらない");
-        assert_eq!(n2.x - n1.x, 20, "既定では 16（幅）+ 4（間隔）");
-        assert_eq!(w2.x - w1.x, 24, "広い方は 16（幅）+ 8（間隔）");
+        assert_eq!(n2.x, 0);
+        assert_eq!(w2.x, 0);
+        assert_eq!(n2.y - n1.y, 6 + 2, "既定では 6（高さ）+ 2（間隔）");
+        assert_eq!(w2.y - w1.y, 6 + 4, "広い方は 6（高さ）+ 4（間隔）");
 
         // 区切りの空きが増えて次の行が下がる
         let n3 = find_pos(&narrow, 3);
         let w3 = find_pos(&wide, 3);
-        assert_eq!(n3.x, w3.x, "行の始まりは左のままである");
+        assert_eq!(n3.x, w3.x, "親の x は左端のままである");
         assert!(w3.y - n3.y > 0, "縦の間隔が広がる: {} -> {}", n3.y, w3.y);
         // 全世界の大きさも広がる
-        assert!(wide.content_width > narrow.content_width);
         assert!(wide.content_height > narrow.content_height);
     }
 
     #[test]
-    fn test_rows_grouped_by_date_and_columns_by_created_at() {
+    fn test_same_date_mains_stack_vertically() {
         let mut g = LayoutGraph::new();
         add(&mut g, 1, "261001", "2026-08-01T10:00:00", None);
         add(&mut g, 2, "261002", "2026-08-01T10:01:00", None); // 同じ日付 (a)
@@ -495,14 +436,17 @@ mod tests {
         let p5 = find_pos(&layout, 5);
         let p4 = find_pos(&layout, 4);
 
-        // 同じ日付の 2 つは同じ行
-        assert_eq!(p2.y, p3.y, "同じ日付は同じ行になるべき");
-        // 行の並び: 日付昇順
+        // 同じ日付の 2 つは同じ x で、created_at 順に上から下へ
+        assert_eq!(p2.x, p3.x, "同じ日付は同じ x（縦 1 列）");
+        assert!(p3.y > p2.y, "created_at 順に上から下へ並ぶべき");
+        assert!(
+            p3.y >= p2.y + i32::from(p2.height) + VERTICAL_GAP,
+            "重ならず vertical_gap 以上離れる"
+        );
+        // 帯の並び: 日付昇順
         assert!(p1.y < p2.y, "日付昇順で上から並ぶべき");
-        assert!(p2.y < p5.y, "日付昇順で上から並ぶべき");
+        assert!(p3.y < p5.y, "日付昇順で上から並ぶべき");
         assert!(p5.y < p4.y, "日付昇順で上から並ぶべき");
-        // 同じ行内は created_at 順（左 → 右）
-        assert!(p2.x < p3.x, "created_at 順に左から並ぶべき");
     }
 
     /// サブブロックは main ブロックの右側に**横並びチェーン**で配置されること。
@@ -584,59 +528,22 @@ mod tests {
         assert!(p2.y < p1.y, "date が早い方が上の行");
     }
 
-    /// 上の行から伸びる縦エッジの経路（出力元ノードの中心 X）を
-    /// 途中の行のノードが避けて配置されること。
+    /// エッジがあっても、全ての親は x = 0 に並ぶこと（経路回避で x をずらさない）。
     #[test]
-    fn test_nodes_avoid_vertical_edge_paths() {
+    fn test_mains_all_at_x_zero_even_with_edges() {
         let mut g = LayoutGraph::new();
-        // 行 0: ID1 (x=0), ID2 (x=18)。行 1: ID3, ID4。行 2: ID5。
-        // ID2→ID5 の縦エッジ経路（ID2 の中心 X）を、途中の行 1 のノードが避ける。
         add(&mut g, 1, "261001", "2026-08-01T10:00:00", None);
         add(&mut g, 2, "261001", "2026-08-01T10:01:00", None);
         add(&mut g, 3, "261002", "2026-08-01T10:02:00", None);
         add(&mut g, 4, "261002", "2026-08-01T10:03:00", None);
         add(&mut g, 5, "261003", "2026-08-01T10:04:00", None);
         g.add_edge(2, 5, false);
+        g.add_edge(1, 4, false);
 
         let layout = calculate_layout(&g, true);
-
-        let p2 = find_pos(&layout, 2);
-        let path_x = p2.x + i32::from(p2.width) / 2;
-        // 途中の行（行 1）のノードが経路を避けること
-        for id in [3u64, 4] {
-            let p = find_pos(&layout, id);
-            assert!(
-                path_x < p.x || path_x >= p.x + i32::from(p.width),
-                "途中の行のノード ID{} は縦エッジの経路 x={} を避けるべき（x={}）",
-                id,
-                path_x,
-                p.x
-            );
+        for id in 1..=5u64 {
+            assert_eq!(find_pos(&layout, id).x, 0, "ID{id} は x = 0");
         }
-    }
-
-    /// 経路が無い場合はノードは詰めて配置されること（経路回避が過剰に
-    /// ノードを右へシフトしない）。
-    #[test]
-    fn test_nodes_packed_when_no_paths() {
-        let mut g = LayoutGraph::new();
-        add(&mut g, 1, "261001", "2026-08-01T10:00:00", None);
-        add(&mut g, 2, "261001", "2026-08-01T10:01:00", None);
-        add(&mut g, 3, "261002", "2026-08-01T10:02:00", None);
-        add(&mut g, 4, "261002", "2026-08-01T10:03:00", None);
-        // エッジなし（経路回避しない）
-
-        let layout = calculate_layout(&g, true);
-
-        let p1 = find_pos(&layout, 1);
-        let p2 = find_pos(&layout, 2);
-        let p3 = find_pos(&layout, 3);
-        let p4 = find_pos(&layout, 4);
-        // 同一行内は隙間 HORIZONTAL_GAP 文字で詰めて配置
-        assert_eq!(p1.x, 0);
-        assert_eq!(p2.x, p1.x + i32::from(p1.width) + HORIZONTAL_GAP);
-        assert_eq!(p3.x, 0, "経路がなければ次の行も左詰め");
-        assert_eq!(p4.x, p3.x + i32::from(p3.width) + HORIZONTAL_GAP);
     }
 
     /// 子は task create 1 回ごとに 1 段。段 1 は親と同じ y で親の右、段 2 は 1 段下で同じ x から。
@@ -675,9 +582,9 @@ mod tests {
         assert!(s14.x > s13.x);
     }
 
-    /// 次の親は、子の列の右端より右から始まる。
+    /// 次の親は x = 0 で、子の段の下端より下から始まる（子が 2 段でも重ならない）。
     #[test]
-    fn test_next_main_starts_right_of_children() {
+    fn test_next_main_below_children() {
         let mut g = LayoutGraph::new();
         add(&mut g, 10, "261001", "2026-08-01T10:00:00", None);
         add(&mut g, 11, "261001", "2026-08-01T10:01:00", Some(10));
@@ -687,8 +594,39 @@ mod tests {
         g.set_batch_row(12, 1);
 
         let layout = calculate_layout(&g, true);
-        let s12 = find_pos(&layout, 12);
         let m2 = find_pos(&layout, 20);
-        assert_eq!(m2.x, s12.x + i32::from(s12.width) + HORIZONTAL_GAP);
+        let bottom = [10u64, 11, 12]
+            .iter()
+            .map(|&id| {
+                let p = find_pos(&layout, id);
+                p.y + i32::from(p.height)
+            })
+            .max()
+            .unwrap();
+        assert_eq!(m2.x, 0);
+        assert!(m2.y >= bottom + VERTICAL_GAP, "子の下端 + gap より下");
+    }
+
+    /// 子が 2 段のときも、次の親は段 2 の下に来て重ならない。
+    #[test]
+    fn test_next_main_below_two_batch_rows() {
+        let mut g = LayoutGraph::new();
+        add(&mut g, 10, "261001", "2026-08-01T10:00:00", None);
+        add(&mut g, 11, "261001", "2026-08-01T10:01:00", Some(10));
+        add(&mut g, 13, "261001", "2026-08-01T10:03:00", Some(10));
+        add(&mut g, 20, "261001", "2026-08-01T11:00:00", None);
+        g.set_batch_row(11, 1);
+        g.set_batch_row(13, 2);
+
+        let layout = calculate_layout(&g, true);
+        let s13 = find_pos(&layout, 13);
+        let m2 = find_pos(&layout, 20);
+        assert_eq!(m2.x, 0);
+        assert!(
+            m2.y >= s13.y + i32::from(s13.height) + VERTICAL_GAP,
+            "段 2 の下端 + gap より下: m2.y={} s13.y={}",
+            m2.y,
+            s13.y
+        );
     }
 }
