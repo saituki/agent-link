@@ -175,7 +175,8 @@ fn stdin_kind(path: &[String]) -> &'static str {
 /// Web の「コマンド」画面に出すか（clap に無い情報）。
 ///
 /// `false` にするのは、エージェントの run の中でしか意味の無い命令と、
-/// 下回りの命令（`init`・`daemon recover`・`usage backfill`・`run export`・`schema`）。
+/// 下回りの命令（`init`・`daemon recover`・`usage backfill`・`run export`・`schema`）、
+/// 利用者の `~/.ssh` を書き換える `remote setup`・`remote check`（手順は `docs/remote.md`）。
 fn web_default(path: &[String]) -> bool {
     const AGENT_ONLY: [&str; 6] = [
         "doc write",
@@ -185,12 +186,14 @@ fn web_default(path: &[String]) -> bool {
         "task report",
         "task question",
     ];
-    const LOWER_LEVEL: [&str; 5] = [
+    const LOWER_LEVEL: [&str; 7] = [
         "init",
         "daemon recover",
         "usage backfill",
         "run export",
         "schema",
+        "remote setup",
+        "remote check",
     ];
     let joined = path.join(" ");
     !AGENT_ONLY.contains(&joined.as_str()) && !LOWER_LEVEL.contains(&joined.as_str())
