@@ -2,7 +2,8 @@
 
 対象: **`crates/`（`agent-link`）を直す人**。
 目的: 直した結果として **agent-link-web（Web の窓口・8400 番）を壊さないこと**。
-全体の話は [`integration.md`](./integration.md)（API と画面の住所）と [`../ARCHITECTURE.md`](../ARCHITECTURE.md)、言葉の意味は [`../CONCEPT.md`](../CONCEPT.md)。
+**この文書は、CLI と Web の間の契約の正である。** ほかの文書は要約とリンクだけを書く。HTTP の住所と画面の住所の正は [`integration.md`](./integration.md)。
+全体の話は [`../ARCHITECTURE.md`](../ARCHITECTURE.md)、言葉の意味は [`../CONCEPT.md`](../CONCEPT.md)、環境変数の表は [`../README.md`](../README.md)。
 この文書の JSON の項目は、Web のコード（`apps/web/src/agent_link_web/` と `static/`）が実際に読む物と、2026-10 に `target/release/` の `agent-link` を一時フォルダのプロジェクトで実行して確かめた物。**正はコード**。
 
 ---
@@ -28,7 +29,7 @@
 | 1 | **終了コード**: 0 成功、2 入力の誤り（clap の使い方の誤りも 2）、3 見つからない、4 状態の衝突、1 その他の失敗 |
 | 2 | **失敗したとき**: 標準出力には何も書かない。標準エラーの最後の行に、英語で理由を 1 行書く。clap の誤りは最後の行に `Invalid arguments: <clap の文の 1 行目>`。`--json` の返り値の人向けの文（`message` など）も英語 |
 | 3 | **成功したとき**: `--json` があれば標準出力に JSON を 1 つだけ書く（前後に余計な文字を出さない） |
-| 4 | **時間のかかる命令**は、標準エラーに `sai-progress step=<数>`・`sai-progress msg=<文>` を出してよい（1 行 = 1 つ。段落内の改行は空白にする） |
+| 4 | **標準エラーの扱い**: 失敗のとき、Web は標準エラーの最後の空でない行をそのまま `detail` にする。それより前の行は自由で、Web のログに残るだけ |
 | 5 | **プロジェクトの決め方**: `AGENT_LINK_PROJECT_ROOT`（空でない値）→ cwd から上へたどり `.agent-link/` を持つ最初のフォルダ（ホームとそれより上は数えない）。見つからなければ 2。`AGENT_LINK_PROJECT_ROOT` が `.agent-link/` の無いフォルダを指すときも 2（「… has no .agent-link/: <path>. Run "agent-link init".」。何も作らない）。`init` は「`AGENT_LINK_PROJECT_ROOT` → cwd」だけ（`.agent-link/` が無くてよい）。`schema` はプロジェクトを要らない |
 | 6 | **`schema --json`** で命令の一覧を出す（下） |
 
@@ -80,10 +81,36 @@ $ agent-link init --name 'bad/name'      → 終了コード 2・「Invalid proj
 ### Web が CLI を呼ぶ約束
 
 - env は `{**os.environ, "AGENT_LINK_PROJECT_ROOT": <root>}`、cwd は root。シェルは使わない（`shell=True` 禁止・引数は配列）。
-- 終了コードから HTTP の状態へ: 2 → 400、3 → 404、4 → 409、1 とそのほか → 502。0 で JSON でない → 502。起動できない → 503、時間切れ → 504。`detail` は標準エラーの空でない最後の行（`sai-progress` の行を除く。英語）。
+- 終了コードから HTTP の状態への読み替えは `cli.py` の 1 か所で行う（[`integration.md`](./integration.md) と [`../ARCHITECTURE.md`](../ARCHITECTURE.md) はここへのリンクだけを持つ）。
+
+  | CLI の結果 | HTTP |
+  |---|---|
+  | 終了コード 0 で標準出力が JSON | 200 |
+  | 終了コード 0 で標準出力が JSON でない | 502「Could not read the response from agent-link.」 |
+  | 終了コード 2 | 400 |
+  | 終了コード 3 | 404 |
+  | 終了コード 4 | 409 |
+  | 終了コード 1 とそのほか | 502 |
+  | CLI が起動できない | 503「agent-link not found. Check the configured path.」 |
+  | 時間切れ | 504「agent-link did not respond in time.」 |
+
+  `detail` は標準エラーの空でない最後の行（英語）。FastAPI の型の検査の失敗（422）も `detail` は文字列（`Invalid request: <場所>: <理由>`）。
 - 時間切れは既定 20 秒。個別に、daemon・workflow 30 秒、検索 60 秒（`control.py` の定数）。
 - 実行ファイルの場所は `AGENT_LINK_BIN`。**バイナリ名（`agent-link`）と、Web が呼ぶ命令の名前を変えてはいけない**（変えると 503 / 400 になる）。
 - `agent-link` は `AGENT_LINK_PROJECT_ROOT` を最優先で DB 解決に使う。Web は呼び出しのたびに必ず root を渡す。
+
+### `AGENT_LINK_HOME`（利用者全体の置き場）の規則
+
+規則は 2 か所にあり、そろえて直す。
+
+| 実装 | 場所 |
+|---|---|
+| Rust | `crates/agent-link-engine/src/project.rs` の `resolve_sai_home`（`sai_home()` が呼ぶ） |
+| Python | `apps/web/src/agent_link_web/registry.py` の `sai_home()` |
+
+- `AGENT_LINK_HOME` が空でなければそれ。空・無しなら `$HOME/.agent-link`。
+- `HOME` も無いときだけ違う: Rust は置き場なし（`None`。呼び出し側が失敗として扱う）、Python は `Path.home()`（OS が決めた家）を使う。
+- 置き場の中身: `registry.json`（§3.8）・`settings.json`（§3.1）・`blocks/`・`template/`・`web/`（`runs/`・`agent_link_web.db`・`vapid.json`・`agent-link-web.log`）・`cc-cost/`・`cc-rate-limits.json`。プロジェクトの中の `<root>/.agent-link/` とは別。
 
 ---
 
@@ -211,7 +238,7 @@ Web が `recent[]` に**追加で足す**項目: `description`（文字列）・
   - 命令名は `command` の語の位置（先頭・`&&`・`|`・改行・`(`・`$(`・`` ` `` の後。`timeout`・`env`・`exec`・`xargs`・`perl -e` の後も含む）の `agent-link`・`agent-link-web` から読む。heredoc の本文と `#` の注釈は読まない。
   - `failures.class` は `input`（終了コード 2）・`not_found`（3）・`conflict`（4）・`other`（読めない・それ以外）。`failures.command` は命令名。
   - `cli` が無いのは古い CLI の JSON。
-- cc の History は、その run の transcript（`phone_export::resolve_transcript`）を読む。全体で一番新しい cc セッションは使わない。
+- cc の History は、その run の transcript（`crates/agent-link-engine/src/transcript.rs` の `resolve_transcript`）を読む。全体で一番新しい cc セッションは使わない。
 
 `--call <CALL_ID> --json` は、その呼び出しの全文 `{"call_id","name","command","input","result","is_error","truncated"}` を返す。`result` は 20000 字までで、超えたら切って `truncated: true`。`--json` を付けないと本文だけの文字を出すので、Web は必ず付ける。見つからなければ終了コード 3。Web の住所は `GET /api/projects/{name}/runs/{run_id:int}/history/calls/{call_id}`（`call_id` は `^[A-Za-z0-9_-]{1,80}$`。通らなければ 400）。
 
@@ -334,6 +361,13 @@ Web が `recent[]` に**追加で足す**項目: `description`（文字列）・
 
 `--id <run_id または N-M>`・`--block`・`--date`（`YYYY/MM/DD` か `YYYY/MM/DD-YYYY/MM/DD`）・`--status`・`--type`・`-w <語>`（`-R`・`-r` は無い）。返り値は配列、または `{"items": [...]}`（Web は両方を受け、先頭 200 件に切って `truncated` を付ける）。
 
+#### `usage backfill [--dry-run]`
+
+既存の実行の会話の記録（jsonl）から、実際のトークン数と費用を数え直し、DB の `execution_usage` に保存する（`crates/agent-link-cli/src/usage.rs` の `run_usage_backfill`）。実行ごとに全置換するので、何度実行しても結果は同じ。`--dry-run` は保存せず集計だけを出す。
+
+- `--json` は無い。標準出力に日本語の進み具合の行と、最後に `--- 完了: 対象 N 件 / 保存済み M 件 / スキップ K 件` を出す（文字出力。`--dry-run` のときは「保存対象」）。DB が開けなければ終了コード 1。プロジェクトを要る。
+- `schema --json` には `web: false` で出る。**Web は呼ばない**（項目を変えても Web は壊れない）。
+
 #### `init [--name <名前>]`
 
 - `--name` を明示したときだけ名前を検査する: `^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$`（Web の新しいチャットの `NC_NAME_RE` と同じ）。通らなければ**終了コード 2**・「Invalid project name: <名前>. Use 1-64 letters, digits, "_", "." or "-", starting with a letter or digit.」で、何も作らない。`--name` を省いたとき（フォルダ名が既定名）は検査しない。
@@ -364,7 +398,7 @@ Web が `recent[]` に**追加で足す**項目: `description`（文字列）・
 - `remote check --json` は `{"host", "ok": true, "checks": [...]}`（`mac`・`authorized_keys` は無い）。
 - `authorized_keys` は `added` / `updated`（パスが変わった行を入れ替えた）/ `unchanged`。
 - 落ちた項目があれば、標準出力は空・**終了コード 1**。標準エラーに各項目を `ok   <name>: <detail>` / `FAIL <name>: <detail>` で 1 行ずつ、最後の行に `Remote check failed: <name>: <detail>` を出す。`setup` で落ちても、`authorized_keys` に足した行は残る。
-- `remote setup`・`remote check` は `schema --json` に出るが、`web` は `false`（Web の「コマンド」画面には出さない。`remote setup` は利用者の `~/.ssh` を書き換える）。Web の画面は呼ばない。
+- `remote setup`・`remote check` は `schema --json` に出るが、`web` は `false`（`web` の印は出力に残るが、読む画面は無い。`remote setup` は利用者の `~/.ssh` を書き換える）。Web は呼ばない。
 
 #### `remote-gate`（隠した命令。遠隔の機械から Mac への入口）
 
@@ -465,6 +499,21 @@ settings は 2 か所で書ける。**後者（`$AGENT_LINK_HOME`）が前者（
 
 読み込みは `crates/agent-link-engine/src/settings.rs` の `load_settings()`。
 
+#### `config`（利用者の設定。環境変数の代わりに書ける）
+
+`$AGENT_LINK_HOME/settings.json` の `config` に、環境変数と同じ名前をキーにして書ける。環境変数を shell の設定に書かずに済ませるための物。
+
+```json
+{ "config": { "AGENT_LINK_WEB_PORT": 8401, "AGENT_LINK_CLAUDE_BIN": "/opt/homebrew/bin/claude" } }
+```
+
+- **置き場**: `$AGENT_LINK_HOME/settings.json` だけ。**プロジェクトの `.agent-link/settings.json` の `config` は読まない**（プロジェクトの設定は利用者全体の設定を変えない）。
+- **優先**: 環境変数（空白だけの値は無いのと同じ）→ `config` → 既定値。
+- **値**: 文字列か整数。空白だけの文字列・真偽値・小数・配列などは無いのと同じ。ファイルが壊れていても黙って無視する（警告は出さない）。
+- **書ける名前**: `AGENT_LINK_WEB_PORT`・`AGENT_LINK_WEB_URL`・`AGENT_LINK_BIN`・`AGENT_LINK_WEB_RUNS_DIR`・`AGENT_LINK_WEB_HOOKS_DIR`・`AGENT_LINK_WEB_NO_WATCH`・`AGENT_LINK_CLAUDE_BIN`・`AGENT_LINK_IDLE_TIMEOUT_MS`・`AGENT_LINK_LONG_RUN_ALERT_MS`・`AGENT_LINK_SSH_BIN`・`CLAUDE_SESSIONS_DIR`。`AGENT_LINK_HOME` は書けない（`config` を探す場所を決める値だから）。ほかの名前は `config` に書いても読まれない。
+- **実装は 2 か所**（そろえて直す）: Rust は `crates/agent-link-engine/src/settings.rs` の `config_var`、Python は `apps/web/src/agent_link_web/registry.py` の `config_var`。`scripts/agent-link-setup` の `doctor` も後者を通して読む。
+- 名前ごとの意味と既定値の表は [`../README.md`](../README.md)。
+
 #### `env` の決まり
 
 - キーは `^[A-Za-z_][A-Za-z0-9_]*$`。値は 1 行（`\n` / `\r` を含む値は破棄）・長さ 1〜2000。
@@ -505,7 +554,7 @@ settings は 2 か所で書ける。**後者（`$AGENT_LINK_HOME`）が前者（
 - 節の順は `# context` → `# task_text` → 本文に `{{input.<id>}}` として現れた順。節の間は空行 1 行。固定部分の**先頭**に案内文（`依頼は、最初のメッセージの「# task_text」の節にあります。` など）を足す。
 - 古い記法（`{{input.<id>}}`・`{{context}}`）は互換でまだ読めるが、書く必要は無い。
 - `system-prompt.md` は `agent-link run md <run_id> --kind system` で読める（`--write` は `task` だけ）。
-- cc の `--system-prompt-snapshot` は既定 on。`system-prompt.md` を直して再開しても cc は古い固定部分を使うことがある（固定部分を直して動かしたいときは `off` を付けるか、セッションを作り直す）。
+- cc は固定部分を `--append-system-prompt-file <絶対パス>` で受ける（`crates/agent-link-engine/src/cc_command.rs`）。固定部分は run の起動時に `system-prompt.md` に書く。
 
 ### 3.4 報告の置き場
 
@@ -555,6 +604,29 @@ cc の質問フック（`apps/web/hooks/cc_question.py`・`cc_register.py`）は
 - 承認は `agent-link cc-permission-hook`（`PermissionRequest`）が常に `allow` を返す。状態は `agent-link cc-state-hook <working|idle|blocked|tool>` と `agent-link cc-prompt-hook`（`UserPromptSubmit`）が `state.json` に書く。`PreToolUse`（全ツール）は `cc-state-hook tool`（入力の `tool_name` が `AskUserQuestion` なら `blocked`、ほかは `working`）、`PostToolUse` は `working`、`Stop`・`SessionStart` は `idle`。質問が答え無しで終わったとき（取り下げ・打ち切り）は `cc_question.py` が `working` に戻す。`blocked` は質問の答え待ちで、engine は取り消さない。
 - cc の費用は cc の statusLine（`agent-link cc-statusline`）が `<AGENT_LINK_HOME>/cc-cost/<session_id>.json` に書く。
 - cc の 5 時間枠・7 日枠は同じ `agent-link cc-statusline` が `<AGENT_LINK_HOME>/cc-rate-limits.json` に書く（`{"five_hour":{"used_percentage","resets_at"},"seven_day":{…},"session_id","updated_at"}`。欠けた窓は省く）。`GET /api/usage` は `{"cc": {"limits": <枠または null>, "cost": {"today","month","sessions"}}, "saved_at": <epoch 秒>}`（Home の Claude のカードが読む）。
+
+### 3.8 `registry.json` の形
+
+プロジェクトの登録簿 `$AGENT_LINK_HOME/registry.json`。**JSON の配列**で、`agent-link init` が 1 件ずつ足す。
+
+```json
+[
+  {"name": "sai-tree", "root": "/Users/me/workdir/Sai/sai-tree", "kind": "link", "color": null,
+   "created_at": "2026-10-16T02:11:05.123456+00:00", "last_opened": "2026-10-16T02:11:05.123456+00:00"}
+]
+```
+
+| 項目 | 型 | 意味 |
+|---|---|---|
+| `name` | 文字列 | プロジェクト名。登録簿の中で一意。Web の URL（`#/project/<name>`）と書き出しのフォルダ名に使う |
+| `root` | 文字列 | プロジェクトのフォルダの絶対パス（`<root>/.agent-link/` を持つ） |
+| `kind` | 文字列（`link` 固定） | 登録の種類。Web は `link` の項目だけを読む |
+| `color` | 文字列 \| null | 色（`init` は `null` を書く） |
+| `created_at` / `last_opened` | 文字列（RFC 3339・UTC） | 登録した日時（`init` は同じ値を入れる） |
+
+- **書く側**: `crates/agent-link-engine/src/registry.rs` の `register_project`。同じ `root`（パスを正規化して比べる）は足さず、同じ `name` で別の `root` は断る（`init` が終了コード 1）。配列でないファイルは書き換えずに断る。
+- **読む側**: `apps/web/src/agent_link_web/registry.py` の `load_registry`。`kind == "link"` だけを `last_opened` の新しい順に返し、`root_exists`・`db_exists`・`daemon_alive` を足す（これらはファイルには無い）。壊れたファイルは空として扱う（`scripts/agent-link-setup doctor` は `registry` を NG にする）。
+- 項目を足すのは安全（読まないだけ）。`name`・`root`・`kind` を消す・改名すると、プロジェクトの一覧が空になる。
 
 ---
 

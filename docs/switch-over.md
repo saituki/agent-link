@@ -21,7 +21,7 @@
 
 ## 1. agent-link を入れる
 
-`README.md` の「入れ方」を実行する（`cargo build --release`・`(cd apps/web && uv sync)`・PATH に `target/release` と `apps/web/bin` を足す）。sai-moon の PATH の行は消さない。
+`README.md` の「入れ方」を実行する（`scripts/agent-link-setup install`・表示された PATH の行を `~/.zshrc` に足す・`scripts/agent-link-setup doctor`）。sai-moon の PATH の行は消さない。
 
 ```bash
 cd ~/workdir/Sai/agent-link
@@ -160,6 +160,8 @@ curl -m 5 -s -o /dev/null -w '%{http_code}\n' https://<Linux の名前>.<tailnet
 ## 7. 戻し方
 
 agent-link をやめて sai-moon だけにするとき。sai-moon は止めていないので、戻す物は少ない。古い `.sai/` と `~/.sai` は手を付けていない。
+
+agent-link の実行ファイルのリンクを消す手順は、`README.md` の「消し方」（`scripts/agent-link-setup uninstall`）にある。
 
 1. agent-link の daemon を、使っているプロジェクトごとに止める。
 

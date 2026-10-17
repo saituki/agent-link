@@ -1,9 +1,9 @@
 # agent-link-web の API と画面の住所
 
-**正はコード**（`apps/web/src/agent_link_web/` と `crates/` の実装）。この文書とコードが食い違ったら、コードに合わせて直す。
-`crates/` 側を直すときの注意は [`for-developers.md`](./for-developers.md)、全体の考え方は [`../ARCHITECTURE.md`](../ARCHITECTURE.md)、言葉の意味は [`../CONCEPT.md`](../CONCEPT.md)。
+**この文書は、Web の HTTP の住所と画面の住所の契約の正である。** 一覧は `apps/web/tests/test_surface.py` の一覧と一致させる。この文書とコードが食い違ったら、コードに合わせて直す。
+CLI と Web の間の契約（終了コード・JSON の項目・終了コードから HTTP への読み替え・`AGENT_LINK_HOME` の規則）は [`for-developers.md`](./for-developers.md)、環境変数の表は [`../README.md`](../README.md)、全体の考え方は [`../ARCHITECTURE.md`](../ARCHITECTURE.md)、言葉の意味は [`../CONCEPT.md`](../CONCEPT.md)。
 
-この文書の API の数は、`main.py` の `@app.get`・`post`・`put`・`delete`・`api_route` を数えた **46 本**（2026-10-16 時点）。
+この文書の API の数は、`main.py` の `@app.get`・`post`・`put`・`delete`・`api_route` を数えた **46 本**（`/manifest.json` を含む。2026-10-17 時点）。これに FastAPI の既定の `GET /openapi.json`・`GET /docs`・`GET /docs/oauth2-redirect`・`GET /redoc` と、静的ファイルの `app.mount("/")` が加わる（`apps/web/tests/test_surface.py` の一覧と同じ）。
 
 ---
 
@@ -11,7 +11,7 @@
 
 ```
 iPhone / PC のブラウザ
-   │  HTTPS  tailscale serve :4444（iPhone だけ。自分 1 人の tailnet のときだけ）
+   │  HTTPS  tailscale serve :4446（iPhone だけ。自分 1 人の tailnet のときだけ）
    ▼
 127.0.0.1:8400  agent-link-web（FastAPI・窓口だけ）
    ├─ Chats   : $AGENT_LINK_HOME/web/runs/<project>/<run_id>.json を読む   ← `agent-link run export` が書き出す
@@ -52,16 +52,17 @@ iPhone / PC のブラウザ
 | 書き出し（Chats が読む） | `$AGENT_LINK_HOME/web/runs/` |
 | 共通の block・template・settings | `$AGENT_LINK_HOME/blocks/`・`template/`・`settings.json` |
 | 質問の保管・通知の鍵・ログ | `$AGENT_LINK_HOME/web/agent_link_web.db`・`vapid.json`・`agent-link-web.log`（README の `agent-link-web-restart` で起こしたときのログの出し先） |
+| Claude（cc）の費用と枠 | `$AGENT_LINK_HOME/cc-cost/<session_id>.json`・`cc-rate-limits.json`（どちらも `agent-link cc-statusline` が書き、`GET /api/usage` が読む） |
 | **プロジェクト内の `.agent-link/`** | `<root>/.agent-link/`（`engine/agent-link.db`・`blocks/`・`template/`・`settings.json`・`outputs/`）。`AGENT_LINK_HOME` とは別 |
 
-- `AGENT_LINK_HOME` は空でない値があればそれ、無ければ `~/.agent-link`。2 か所（`project.rs` の `resolve_sai_home`・`registry.sai_home()`）で同じ規則を使う。
+- `AGENT_LINK_HOME` の規則（Rust と Python の 2 か所）は [`for-developers.md`](./for-developers.md) の「`AGENT_LINK_HOME`（利用者全体の置き場）の規則」。`registry.json` の形は同 §3.8。
 
 ---
 
 ## 4. API 一覧
 
 合言葉は無い。内部用の 4 本（`POST /api/register`・`POST /api/questions`・`POST /api/questions/{qid}/resolved`・`GET /api/questions/{qid}`）は `require_internal` で Mac 自身（127.0.0.1 / ::1）だけ受け、ほかから来ると 403「Internal use only.」。エラーは `{"detail": "<英語>"}`。
-「呼ぶ CLI」の列は、cwd = プロジェクトの root、`AGENT_LINK_PROJECT_ROOT` = 同じ root で呼ぶ命令。終了コードから HTTP の状態への読み替えは [§7](#7-cli-の失敗の読み替え) の 1 か所。
+「呼ぶ CLI」の列は、cwd = プロジェクトの root、`AGENT_LINK_PROJECT_ROOT` = 同じ root で呼ぶ命令。終了コードから HTTP の状態への読み替えは [§7](#7-cli-の失敗の読み替え) のリンク先の 1 か所。
 
 ### 4.1 プロジェクト（一覧・Dashboard・常駐）
 
@@ -138,7 +139,7 @@ iPhone / PC のブラウザ
 | `DELETE /api/projects/{name}/runs/{run_id:int}` | List の項目を消す（子の実行と run フォルダも消える。実行中は 409） | `agent-link run rm <run_id> --yes` |
 | `GET /api/projects/{name}/card/docs` | 最近の文書（task_text に貼る `ref` 付き） | `agent-link card docs` |
 | `GET /api/projects/{name}/card/options` | 作成フォームの選択肢 | `agent-link card options` |
-| `POST /api/projects/{name}/card` | カード（task.md）の作成。body は `block`・`model`・`thinking`・`description`・`task_text`（と `done_ids`）。Web は `executer` を渡さない（CLI の `card create` は `human` / `agent` を受ける） | `agent-link card create`（標準入力に JSON） |
+| `POST /api/projects/{name}/card` | カード（task.md）の作成。body は `block`・`model`・`thinking`・`description`・`task_text`（と `done_ids`。`done_ids` は受け取るが CLI は無視する。done はやめた）。Web は `executer` を渡さない（CLI の `card create` は `human` / `agent` を受ける） | `agent-link card create`（標準入力に JSON） |
 
 - 外から来る値は Web 自身が CLI を呼ぶ**前**に検査する（`run_id` は正の整数、`view` / `kind` は一覧の値だけ、`token` は英数字と `-_.:`・長さ 128 まで）→ 400。
 - 作成フォームも同じ（`block` は英数字と `-_.:`、`task_text` は 100KB まで、`thinking` は一覧の値（`none`・`low`・`medium`・`high`・`xhigh`・`max`）、`model` は英数字と `._:/@+-`、`description` は 200 文字までの 1 行、`done_ids` は 1 以上の整数の配列）→ 400。廃止した `runner`・`provider`・`tag`・`round`・`global_round` は、送られても検査せず、CLI にも渡さない（断らない）。
@@ -150,7 +151,7 @@ iPhone / PC のブラウザ
 
 | メソッド・パス | 中身 |
 |---|---|
-| `GET /api/health` | 生存確認 |
+| `GET /api/health` | 生存確認。`{"ok": true, "server": <起動時の git の短い commit。読めなければ "?">, "started_at": "MM/DD HH:MM"}`（`main.py` の `api_health`。`scripts/agent-link-setup doctor` が `ok` を見る） |
 | `GET /api/days` / `GET /api/days/{date}` | 会話の日付一覧・その日の実行 |
 | `GET /api/runs/{project}/{run_id}` / `…/items` | 実行 1 件・会話の中身。`…/items` は `{items, next_cursor, live, partial, error}` を返す（`live` は `working` / `idle` / `blocked` / `null`、`partial` は生成中の文・`error` は直前のターンの失敗の理由。headless の実行は `state.json` から読む） |
 | `POST /api/runs/{project}/{run_id}/send` | 実行中の run に文を送る（`agent-link run send <run_id> --json`・本文は標準入力）。質問が開いているときは tmux に送らず、その質問を取り下げて文を答えの代わりに渡す（応答 `{"run_id", "status": "withdrawn", "question_ids": […]}`）。終了・質問待ちは 409、無ければ 404。CLI が `"status": "unconfirmed"`（文は送ったが working にならなかった）を返したときは、そのまま返す（画面は入力欄を消して注意を出す） |
@@ -214,37 +215,13 @@ Web のすべての HTTP API を、コマンド 1 本から使える（接続先
 
 ## 7. CLI の失敗の読み替え
 
-`agent-link` の失敗は、`cli.py` の 1 か所で HTTP の状態に直す（ARCHITECTURE.md の §4.2 と同じ）。
-
-| CLI の結果 | HTTP |
-|---|---|
-| 終了コード 0 で標準出力が JSON | 200 |
-| 終了コード 0 で標準出力が JSON でない | 502「Could not read the response from agent-link.」 |
-| 終了コード 2 | 400 |
-| 終了コード 3 | 404 |
-| 終了コード 4 | 409 |
-| 終了コード 1 とそのほか | 502 |
-| CLI が起動できない | 503「agent-link not found. Check the configured path.」 |
-| 時間切れ | 504「agent-link did not respond in time.」 |
-
-`detail` は標準エラーの空でない最後の行（`sai-progress` の行を除く）。英語。FastAPI の型の検査の失敗（422）も `detail` は文字列（`Invalid request: <場所>: <理由>`）。時間の上限は既定 20 秒（daemon・workflow 30 秒、検索 60 秒など個別）。
+終了コードから HTTP の状態への読み替え（0 → 200・2 → 400・3 → 404・4 → 409・1 とそのほか → 502・起動できない → 503・時間切れ → 504）と `detail` の規則は、[`for-developers.md`](./for-developers.md) の「Web が CLI を呼ぶ約束」に全文がある。
 
 ---
 
 ## 8. 設定（環境変数）
 
-| 変数 | 既定値 | 用途 |
-|---|---|---|
-| `AGENT_LINK_WEB_PORT` | `8400` | 待ち受けポート |
-| `AGENT_LINK_WEB_URL` | `http://127.0.0.1:8400` | `agent-link-web` の命令とエージェントの道具がつなぐ先 |
-| `AGENT_LINK_WEB_RUNS_DIR` | `$AGENT_LINK_HOME/web/runs` | Chats が読む、書き出しフォルダ |
-| `AGENT_LINK_WEB_NO_WATCH` | （空） | `1` で状態の見張りを止める |
-| `AGENT_LINK_WEB_HOOKS_DIR` | `apps/web/hooks` | `agent-link init` が cc のフックを書くときに探す置き場 |
-| `AGENT_LINK_BIN` | `agent-link` | Web が呼ぶ CLI。PATH に無ければ絶対パス |
-| `CLAUDE_SESSIONS_DIR` | `~/.claude/projects` | cc の会話の記録置き場 |
-| `AGENT_LINK_HOME` | `~/.agent-link` | 利用者全体の置き場（Rust 側も同じ） |
-
-Rust 側にも同じ `AGENT_LINK_HOME`・`AGENT_LINK_PROJECT_ROOT` が効く。**PATH が無いと CLI が見つからず 503 になる。**
+環境変数の表（`config` に書ける名前を含む）は [`../README.md`](../README.md) の「設定（環境変数と `config`）」にある（PATH の注意は §9）。
 
 ---
 
