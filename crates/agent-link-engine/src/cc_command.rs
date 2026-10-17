@@ -125,6 +125,8 @@ pub struct CcCommandBuilder {
     mcp_config: Option<std::path::PathBuf>,
     /// 固定部分（system prompt）のファイル（`--append-system-prompt-file`・U6・C10）
     system_prompt_file: Option<String>,
+    /// 起動する実行ファイルの名前（遠隔では常に `claude`）。無ければ [`claude_bin`]。
+    bin: Option<String>,
 }
 
 impl CcCommandBuilder {
@@ -138,7 +140,14 @@ impl CcCommandBuilder {
             settings_file: None,
             mcp_config: None,
             system_prompt_file: None,
+            bin: None,
         }
+    }
+
+    /// 起動する実行ファイルを指定する（遠隔の機械では `AGENT_LINK_CLAUDE_BIN` が Mac のパスなので使わない）。
+    pub fn with_bin(mut self, bin: impl Into<String>) -> Self {
+        self.bin = Some(bin.into());
+        self
     }
 
     /// agent-link の cc の設定ファイルを `--settings` で渡す。
@@ -233,7 +242,7 @@ impl CcCommandBuilder {
             }
         }
 
-        let bin = claude_bin();
+        let bin = self.bin.clone().unwrap_or_else(claude_bin);
         let command = format!("{} {}", bin, args.join(" "));
         Ok(CcCommand { command, args })
     }
@@ -408,6 +417,26 @@ pub fn ensure_cc_settings(root: &Path) -> std::io::Result<PathBuf> {
 /// - `hooks`: 状態・承認・質問・セッション登録のフック（[`cc_hooks_json`]）
 pub fn cc_settings_json() -> serde_json::Value {
     let exe = sai_link_exe();
+    settings_with(
+        &shell_escape_single_quotes(&exe),
+        cc_hooks_json(&exe, web_hooks_dir().as_deref()),
+    )
+}
+
+/// 遠隔の機械で動く cc の設定（`remote setup` が置いた中継 `agent-link` を使う）。
+///
+/// [`cc_settings_json`] と同じ形で、フックと statusLine の命令だけが違う。
+/// すべて `agent-link …`（遠隔の PATH の中継）で、`cc_register.py`・`cc_question.py` は
+/// `agent-link web-hook <名>`（Mac の門番が実行する。`cc_question` は `timeout` 86400）。
+pub fn remote_cc_settings_json() -> serde_json::Value {
+    settings_with(
+        "agent-link",
+        hooks_json_with("agent-link", Some(&|name| format!("agent-link web-hook {}", name))),
+    )
+}
+
+/// 設定の共通部分。`exe_cmd` は statusLine の命令の先頭（シェル用に引用済み）。
+fn settings_with(exe_cmd: &str, hooks: serde_json::Value) -> serde_json::Value {
     serde_json::json!({
         "permissions": {
             "allow": [
@@ -421,9 +450,9 @@ pub fn cc_settings_json() -> serde_json::Value {
         "disableBundledSkills": true,
         "statusLine": {
             "type": "command",
-            "command": format!("{} cc-statusline", shell_escape_single_quotes(&exe)),
+            "command": format!("{} cc-statusline", exe_cmd),
         },
-        "hooks": cc_hooks_json(&exe, web_hooks_dir().as_deref()),
+        "hooks": hooks,
     })
 }
 
@@ -444,7 +473,19 @@ pub fn cc_settings_json() -> serde_json::Value {
 ///   cc の既定の待ち時間で切られないように `timeout` を付ける。
 ///   利用者全体の `~/.claude/settings.json` ではなく、init したプロジェクトにだけ入れる。
 fn cc_hooks_json(exe: &str, web_dir: Option<&Path>) -> serde_json::Value {
-    let exe = shell_escape_single_quotes(exe);
+    let web_cmd = web_dir.map(|dir| {
+        move |name: &str| shell_escape_single_quotes(&dir.join(format!("{}.py", name)).to_string_lossy())
+    });
+    hooks_json_with(
+        &shell_escape_single_quotes(exe),
+        web_cmd.as_ref().map(|f| f as &dyn Fn(&str) -> String),
+    )
+}
+
+/// [`cc_hooks_json`] の本体。`exe_cmd` は実行ファイルの命令（引用済み）。
+/// `web_cmd` は Web のフック名（`cc_register`・`cc_question`）から命令を作る（`None` なら Web のフックを書かない）。
+fn hooks_json_with(exe_cmd: &str, web_cmd: Option<&dyn Fn(&str) -> String>) -> serde_json::Value {
+    let exe = exe_cmd;
     let hook = |text: String| serde_json::json!({ "type": "command", "command": text });
     let state_idle = hook(format!("{} cc-state-hook idle", exe));
     let mut hooks = serde_json::json!({
@@ -455,14 +496,13 @@ fn cc_hooks_json(exe: &str, web_dir: Option<&Path>) -> serde_json::Value {
         "PermissionRequest": [{ "hooks": [hook(format!("{} cc-permission-hook", exe))] }],
     });
     let mut session_start = Vec::new();
-    if let Some(dir) = web_dir {
-        let script = |name: &str| shell_escape_single_quotes(&dir.join(name).to_string_lossy());
-        session_start.push(hook(script("cc_register.py")));
+    if let Some(script) = web_cmd {
+        session_start.push(hook(script("cc_register")));
         hooks["PreToolUse"].as_array_mut().unwrap().push(serde_json::json!({
             "matcher": "AskUserQuestion",
             "hooks": [{
                 "type": "command",
-                "command": script("cc_question.py"),
+                "command": script("cc_question"),
                 // 24 時間。フックが Web の答えを待つ（共有契約 C3）。
                 "timeout": 86400,
             }],
@@ -1104,5 +1144,52 @@ mod tests {
             .expect("cc コマンドの構築に失敗");
         assert!(cmd.command.contains("--resume '11111111-2222-4333-8444-555555555555'"));
         assert!(cmd.command.contains(&format!("--append-system-prompt-file '{}'", path)));
+    }
+
+    /// 遠隔版の設定: 命令はすべて `agent-link ` で始まり、Mac の絶対パスを含まない。許可と禁止は Mac 版と同じ。
+    #[test]
+    fn remote_cc_settings_use_relay_commands() {
+        let v = remote_cc_settings_json();
+        assert_eq!(v["statusLine"]["command"], "agent-link cc-statusline");
+        let mut commands = Vec::new();
+        for groups in v["hooks"].as_object().unwrap().values() {
+            for group in groups.as_array().unwrap() {
+                for hook in group["hooks"].as_array().unwrap() {
+                    commands.push(hook["command"].as_str().unwrap().to_string());
+                }
+            }
+        }
+        assert!(commands.len() >= 8, "{:?}", commands);
+        for c in &commands {
+            assert!(c.starts_with("agent-link "), "{}", c);
+            assert!(!c.contains('/'), "{}", c);
+        }
+        assert!(commands.contains(&"agent-link web-hook cc_register".to_string()));
+        let ask = &v["hooks"]["PreToolUse"][1];
+        assert_eq!(ask["matcher"], "AskUserQuestion");
+        assert_eq!(ask["hooks"][0]["command"], "agent-link web-hook cc_question");
+        assert_eq!(ask["hooks"][0]["timeout"], 86400);
+        let mac = cc_settings_json();
+        assert_eq!(v["permissions"], mac["permissions"]);
+        assert_eq!(v["enableAllProjectMcpServers"], mac["enableAllProjectMcpServers"]);
+    }
+
+    /// Mac 版の設定は、実行ファイルの絶対パスと `apps/web` のフックのままである。
+    #[test]
+    fn mac_cc_settings_unchanged_by_remote_split() {
+        let v = cc_settings_json();
+        let exe = sai_link_exe();
+        assert_eq!(
+            v["statusLine"]["command"],
+            format!("{} cc-statusline", shell_escape_single_quotes(&exe))
+        );
+        assert_eq!(v["hooks"], cc_hooks_json(&exe, web_hooks_dir().as_deref()));
+    }
+
+    /// `with_bin` は `AGENT_LINK_CLAUDE_BIN` より優先する。
+    #[test]
+    fn with_bin_overrides_claude_bin() {
+        let cmd = CcCommandBuilder::new("sid").with_bin("claude").build().unwrap();
+        assert!(cmd.command.starts_with("claude --session-id 'sid'"), "{}", cmd.command);
     }
 }
