@@ -1902,7 +1902,7 @@ pub fn handle_phone_export(
     run: Option<i64>,
     dry_run: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    use agent_link_engine::phone_export;
+    use agent_link_engine::run_export;
 
     let store = open_db()?;
     let project_root = agent_link_engine::project::project_root();
@@ -1912,20 +1912,20 @@ pub fn handle_phone_export(
         match run {
             Some(run_id) => {
                 let exec = store.get_execution_by_id(run_id)?;
-                if !phone_export::should_export(&exec.status) {
+                if !run_export::should_export(&exec.status) {
                     eprintln!(
                         "Run {} is not exported (status={}).",
                         run_id, exec.status
                     );
                     return Ok(());
                 }
-                let name = phone_export::project_name_for(&project_root);
-                let doc = phone_export::build_run_doc(&store, &exec, &project_root, &name);
+                let name = agent_link_engine::registry::project_name_for(&project_root);
+                let doc = run_export::build_run_doc(&store, &exec, &project_root, &name);
                 println!("{}", serde_json::to_string_pretty(&doc)?);
             }
             None => {
                 let execs = store.list_all_executions()?;
-                let docs = phone_export::build_docs(&store, &execs, &project_root);
+                let docs = run_export::build_docs(&store, &execs, &project_root);
                 println!("{}", serde_json::to_string_pretty(&docs)?);
             }
         }
@@ -1933,13 +1933,13 @@ pub fn handle_phone_export(
     }
 
     match run {
-        Some(run_id) => match phone_export::export_one(&store, run_id)? {
+        Some(run_id) => match run_export::export_one(&store, run_id)? {
             Some(true) => println!("run {} を書き出しました", run_id),
             Some(false) => println!("run {} は内容が同一のため省略しました", run_id),
             None => println!("run {} は書き出し対象外です（todo / pending / user）", run_id),
         },
         None => {
-            let summary = phone_export::export_all(&store);
+            let summary = run_export::export_all(&store);
             println!("phone 書き出し: {}", summary.brief());
         }
     }
@@ -1996,7 +1996,7 @@ pub fn handle_cc_statusline() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut input = String::new();
     let _ = std::io::stdin().read_to_string(&mut input);
-    println!("{}", agent_link_engine::phone_export::handle_cc_statusline(&input));
+    println!("{}", agent_link_engine::cc_cost::handle_cc_statusline(&input));
     Ok(())
 }
 
@@ -2104,11 +2104,11 @@ pub fn handle_init(name: Option<String>, update: bool) -> Result<(), Box<dyn std
         std::process::exit(1);
     };
     match agent_link_engine::project::sai_home().map(|h| h.join("registry.json")) {
-        Some(registry) => match agent_link_engine::phone_export::register_project(&registry, &project_name, &project_root) {
-            Ok(agent_link_engine::phone_export::RegistryAdd::Added) => {
+        Some(registry) => match agent_link_engine::registry::register_project(&registry, &project_name, &project_root) {
+            Ok(agent_link_engine::registry::RegistryAdd::Added) => {
                 println!("✅ 登録簿に登録しました: {} ({})", project_name, registry.display());
             }
-            Ok(agent_link_engine::phone_export::RegistryAdd::AlreadyRegistered(existing)) => {
+            Ok(agent_link_engine::registry::RegistryAdd::AlreadyRegistered(existing)) => {
                 println!("✅ 登録簿には既に登録されています: {existing}");
             }
             Err(e) => register_failed(e),

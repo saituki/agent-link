@@ -221,7 +221,7 @@ pub fn build(store: &agent_link_engine::db::SaiStore, exec_id: i64) -> Option<Hi
     // DB の旧パスが残っていても outputs 側へフォールバックする。
     // この run の transcript から取る（全体で一番新しいセッションは使わない）。
     let (type_tokens, events) =
-        agent_link_engine::phone_export::resolve_transcript(&exec, &root)
+        agent_link_engine::transcript::resolve_transcript(&exec, &root)
             .and_then(|path| agent_link_engine::session::extract_cc_history_stats(&path).ok())
             .map(|s| (s.type_tokens, s.events))
             .unwrap_or_default();

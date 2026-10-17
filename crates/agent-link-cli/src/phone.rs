@@ -794,7 +794,7 @@ pub(crate) fn history_call(run_id: i64, call_id: &str) -> PhoneResult<Value> {
         .get_execution_by_id(run_id)
         .map_err(|_| PhoneError::not_found(format!("Run {} not found.", run_id)))?;
     let root = agent_link_engine::project::project_root();
-    let found = agent_link_engine::phone_export::resolve_transcript(&exec, &root)
+    let found = agent_link_engine::transcript::resolve_transcript(&exec, &root)
         .and_then(|path| agent_link_engine::session::history_call(&path, call_id));
     let call = found
         .ok_or_else(|| PhoneError::not_found(format!("Call {} not found.", call_id)))?;

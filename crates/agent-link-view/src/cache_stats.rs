@@ -78,7 +78,7 @@ impl CacheViewState {
 
 /// 実行 1 件分の Stats ビュー状態を DB から構築する（ビルダ純関数）。
 ///
-/// 実行レコードの `agent_session_id` から `phone_export::resolve_transcript` で
+/// 実行レコードの `agent_session_id` から `transcript::resolve_transcript` で
 /// セッション jsonl を解決し、sai-cache-tui-rs と同じ解析（usage 集計）を行う。
 ///
 /// - `store`: 対象プロジェクトの `SaiStore`（read-only でも可）
@@ -97,7 +97,7 @@ pub fn load(store: &agent_link_engine::db::SaiStore, exec_id: i64) -> CacheViewS
         }
     };
     let root = agent_link_engine::project::project_root();
-    let session_file = agent_link_engine::phone_export::resolve_transcript(&exec, &root);
+    let session_file = agent_link_engine::transcript::resolve_transcript(&exec, &root);
 
     let Some(session_file) = session_file else {
         return CacheViewState {

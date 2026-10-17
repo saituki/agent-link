@@ -44,7 +44,7 @@ pub fn run(id: &str, command: &str) -> Result<(), HerdrError> {
             turn: 0,
             partial: String::new(),
             error: String::new(),
-            updated_at: crate::phone_export::now_iso(),
+            updated_at: crate::common::now_iso(),
         },
     )?;
 
@@ -392,7 +392,7 @@ fn set_state(dir: &Path, value: &str) -> std::io::Result<()> {
     if value != "working" {
         state.partial.clear();
     }
-    state.updated_at = crate::phone_export::now_iso();
+    state.updated_at = crate::common::now_iso();
     headless::write_state(dir, &state)
 }
 
