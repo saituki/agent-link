@@ -782,6 +782,12 @@ pub fn task_create(
             .map(str::trim)
             .filter(|h| !h.is_empty())
             .map(str::to_string);
+        if let Some(h) = host.as_deref().filter(|h| !crate::remote::is_valid_host(h)) {
+            return Err(format!(
+                "client_id '{}': host must be an ssh host name (letters, digits, '.', '_', '-'; 1-63 chars): {}",
+                client_id, h
+            ));
+        }
         let cwd_raw = if host.is_some() {
             if !matches!(worktree.trim(), "" | "none") {
                 return Err(format!(
@@ -3422,6 +3428,12 @@ mod tests {
             create(json!({})),
             "client_id 'W1': cwd is required when host is set (a folder on the remote machine)."
         );
+        for bad in ["-oProxyCommand=x", "a b", "user@h"] {
+            assert_eq!(
+                create(json!({ "host": bad, "cwd": "~/x" })),
+                format!("client_id 'W1': host must be an ssh host name (letters, digits, '.', '_', '-'; 1-63 chars): {}", bad)
+            );
+        }
         for bad in ["relative/path", "/a/../b", "~", "/a'b"] {
             assert_eq!(
                 create(json!({ "cwd": bad })),

@@ -172,9 +172,40 @@ pub fn close(id: &str) -> Result<(), HerdrError> {
     if !dir.is_dir() {
         return Ok(());
     }
+    fetch_remote_transcript(id);
     let _ = tmux(&["kill-session", "-t", id]);
     set_state(&dir, "stopped")?;
     Ok(())
+}
+
+/// 遠隔の子の情報（pane の置き場の `remote.json`）。
+const REMOTE_INFO: &str = "remote.json";
+
+/// 遠隔の子の `host`・会話の ID・Mac 側の写し先を `remote.json` に書く。
+pub fn write_remote_info(id: &str, host: &str, session_id: &str, dest: &Path) -> std::io::Result<()> {
+    let body = json!({ "host": host, "session_id": session_id, "dest": dest.to_string_lossy() });
+    std::fs::write(headless::pane_dir(id).join(REMOTE_INFO), body.to_string())
+}
+
+/// `remote.json` があれば、遠隔の会話記録を `dest` へ写す。
+///
+/// 失敗は標準エラーに 1 行出すだけで止めない。`remote.json` が無ければ何もしない。
+pub fn fetch_remote_transcript(id: &str) {
+    let Ok(text) = std::fs::read_to_string(headless::pane_dir(id).join(REMOTE_INFO)) else {
+        return;
+    };
+    let v: Value = serde_json::from_str(&text).unwrap_or(Value::Null);
+    let field = |k: &str| v.get(k).and_then(Value::as_str).unwrap_or("").to_string();
+    let (host, sid, dest) = (field("host"), field("session_id"), field("dest"));
+    if host.is_empty() || sid.is_empty() || dest.is_empty() {
+        eprintln!("[agent-link] remote.json is broken: {}", id);
+        return;
+    }
+    match crate::remote::fetch_transcript(&host, &sid, Path::new(&dest)) {
+        Ok(true) => {}
+        Ok(false) => eprintln!("[agent-link] No transcript found on {} for {}", host, sid),
+        Err(e) => eprintln!("[agent-link] Could not copy the transcript from {}: {}", host, e),
+    }
 }
 
 /// cc のフック（`agent-link cc-state-hook` / `cc-prompt-hook`）から状態を書く。

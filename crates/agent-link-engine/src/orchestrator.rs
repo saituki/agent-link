@@ -464,6 +464,8 @@ pub struct PreparedPipeline {
     pub submit_key: &'static str,
     /// エージェント側セッション ID（cc のみ。`--session-id` に渡し DB 保存する）。
     pub agent_session_id: Option<String>,
+    /// 遠隔で動かす子の ssh Host 名（`None` は Mac で動かす）。会話記録を Mac に写すのに使う
+    pub remote_host: Option<String>,
 }
 
 // ============================================================================
@@ -626,8 +628,10 @@ pub fn prepare_pipeline(config: &PipelineConfig) -> Result<PreparedPipeline, Orc
     // ── Step 1: 固定部分（system prompt）と最初の文に分ける ──
     // 固定部分（template と block.md の本文）は run フォルダの `system-prompt.md` に書き、
     // 起動コマンドのフラグで渡す。最初の文には入力値だけが入る。
-    let (system_prompt, first_message) =
+    let (mut system_prompt, first_message) =
         split_fixed_and_variable(&config.block_body, &resolved_values);
+    // 遠隔の run は固定部分を遠隔に置くので、最初の文は入力値だけにする
+    let variable_part = first_message.clone();
 
     // ── pi起動前の Git コミットハッシュを取得（再現性用） ──
     let git_commit_before = get_git_commit_hash();
@@ -679,7 +683,7 @@ pub fn prepare_pipeline(config: &PipelineConfig) -> Result<PreparedPipeline, Orc
     // フラグで渡すので、最初の文には入力値しか出ない。
     // 書けなかったとき（run フォルダが無い・書き込み失敗）は従来どおり 1 通で送る。
     let system_prompt_path = write_system_prompt_file(config.run_id, &system_prompt);
-    let expanded_prompt = match (&system_prompt_path, system_prompt.trim().is_empty()) {
+    let mut expanded_prompt = match (&system_prompt_path, system_prompt.trim().is_empty()) {
         (Some(_), _) => first_message,
         // 固定部分が空なら付け足すものがない
         (None, true) => first_message,
@@ -695,8 +699,21 @@ pub fn prepare_pipeline(config: &PipelineConfig) -> Result<PreparedPipeline, Orc
         }
     };
 
+    // ── 遠隔の run: 遠隔へ設定と固定部分を置き、ssh の起動命令を組む（Step 4+5 の代わり） ──
+    let remote_launch = match &config.remote {
+        Some(rt) => Some(prepare_remote_command(config, rt, &system_prompt)?),
+        None => None,
+    };
+    let is_remote = remote_launch.is_some();
+    if let Some(r) = &remote_launch {
+        system_prompt = r.system_prompt.clone();
+        expanded_prompt = variable_part;
+    }
+
     // ── Step 4+5: 起動コマンド構築 ──
-    let (mut agent_command, agent_args, agent_session_id) = {
+    let (mut agent_command, agent_args, agent_session_id) = if let Some(r) = &remote_launch {
+        (r.command.clone(), r.args.clone(), Some(r.session_id.clone()))
+    } else {
         let cwd = config
             .cwd
             .clone()
@@ -738,7 +755,7 @@ pub fn prepare_pipeline(config: &PipelineConfig) -> Result<PreparedPipeline, Orc
     // 予約キー（AGENT_LINK_* の 4 つ）は設定の読み込み側で破棄される。
     // ここは AGENT_LINK_* を付ける「前」に入れる。あとから付く AGENT_LINK_* が
     // この行の上に重なるので、最終的な並びは「AGENT_LINK_* → env → 実行ファイル」になる。
-    if let Some(env_pairs) = crate::settings::agent_env_pairs() {
+    if let Some(env_pairs) = crate::settings::agent_env_pairs().filter(|_| !is_remote) {
         let rendered: String = env_pairs
             .iter()
             .map(|(k, v)| format!("{}={} ", k, crate::herdr::shell_escape_single_quotes(v)))
@@ -767,7 +784,9 @@ pub fn prepare_pipeline(config: &PipelineConfig) -> Result<PreparedPipeline, Orc
     };
     // デーモン稼働時（AGENT_LINK_PROJECT_ROOT 設定済み）のみ付与。
     // デーモン外（テスト等）では従来どおり run_id 指定時のみ付与する。
-    if let Some(project_root) = std::env::var_os("AGENT_LINK_PROJECT_ROOT") {
+    if is_remote {
+        // 遠隔の環境変数は `remote_script` が組んだ
+    } else if let Some(project_root) = std::env::var_os("AGENT_LINK_PROJECT_ROOT") {
         let root_str = project_root.to_string_lossy().to_string();
         let escaped_root = crate::herdr::shell_escape_single_quotes(&root_str);
         if let Some(run_id) = config.run_id {
@@ -797,7 +816,7 @@ pub fn prepare_pipeline(config: &PipelineConfig) -> Result<PreparedPipeline, Orc
     // テンプレートとフックは `agent-link …`・`agent-link-web …` を名前だけで呼ぶ。
     // 実行ファイルは同じフォルダにできるので、`sai_link_exe()` のあるフォルダを
     // PATH の先頭に足す。利用者の PATH の設定に頼らない。
-    {
+    if !is_remote {
         let exe = crate::cc_command::sai_link_exe();
         if let Some(dir) = std::path::Path::new(&exe).parent() {
             if !dir.as_os_str().is_empty() {
@@ -829,6 +848,149 @@ pub fn prepare_pipeline(config: &PipelineConfig) -> Result<PreparedPipeline, Orc
         parent_run_id: None, // U3: 後段で設定
         submit_key: crate::cc_command::CC_SUBMIT_KEY,
         agent_session_id,
+        remote_host: config.remote.as_ref().map(|r| r.host.clone()),
+    })
+}
+
+/// 遠隔の案内（固定部分の末尾に足す。`{host}`・`{cwd}`・`{run_id}` を置き換える）。
+const REMOTE_GUIDE: &str = include_str!("../assets/remote-guide.md");
+
+/// 遠隔の起動命令（`remote_script`）の部品。
+struct RemoteScriptParts<'a> {
+    /// 遠隔の cwd（絶対パス）
+    cwd_abs: &'a str,
+    /// Mac の擬似 pane の ID（`hl-…`）
+    pane: &'a str,
+    /// Mac のプロジェクトルート
+    root: &'a str,
+    run_id: i64,
+    block: &'a str,
+    web_url: &'a str,
+    /// Mac の daemon の `AGENT_LINK_HOME`（空でない値があるときだけ）
+    agent_link_home: Option<&'a str>,
+    host: &'a str,
+    /// 遠隔の `$HOME`
+    home: &'a str,
+    /// `claude --session-id …`（`CcCommandBuilder` の出力）
+    cc_command: &'a str,
+}
+
+/// 遠隔の shell で走らせる 1 行（共有契約 C5）。
+///
+/// tmux の `-e` は ssh を越えないので、中継とフックが Mac へ送る環境変数を、ここで直に書く。
+fn remote_script(p: &RemoteScriptParts) -> String {
+    let q = crate::herdr::shell_escape_single_quotes;
+    let home = p.home.trim_end_matches('/');
+    let mut s = format!(
+        "cd {} && HERDR_PANE_ID={} AGENT_LINK_PROJECT_ROOT={} AGENT_LINK_PARENT_RUN_ID={} \
+         AGENT_LINK_BLOCK_NAME={} AGENT_LINK_IS_SUBTASK=1 AGENT_LINK_WEB_URL={} ",
+        q(p.cwd_abs),
+        q(p.pane),
+        q(p.root),
+        p.run_id,
+        q(p.block),
+        q(p.web_url),
+    );
+    if let Some(h) = p.agent_link_home {
+        s.push_str(&format!("AGENT_LINK_HOME={} ", q(h)));
+    }
+    s.push_str(&format!(
+        "AGENT_LINK_HOST={} PATH={}:{}:\"$PATH\" {}",
+        q(p.host),
+        q(&format!("{}/{}/bin", home, crate::remote::REMOTE_DIR)),
+        q(&format!("{}/.local/bin", home)),
+        p.cc_command,
+    ));
+    s
+}
+
+/// 遠隔の run の起動の用意（`prepare_pipeline` の遠隔の分岐）の結果。
+struct RemoteLaunch {
+    /// pane で走らせる命令（`ssh -t …`）
+    command: String,
+    /// `claude` の引数（デバッグ用）
+    args: Vec<String>,
+    session_id: String,
+    /// 固定部分に遠隔の案内を足した物
+    system_prompt: String,
+}
+
+/// 遠隔へ設定と固定部分を置き、`~/.claude.json` を整えて、pane の起動命令を組む。
+///
+/// 失敗は `CommandError`（文は英語 1 行。ssh の失敗は `RemoteError` の文のまま）。
+fn prepare_remote_command(
+    config: &PipelineConfig,
+    rt: &RemoteTarget,
+    system_prompt: &str,
+) -> Result<RemoteLaunch, OrchestratorError> {
+    let err = |m: String| OrchestratorError::CommandError(m);
+    let pane = config
+        .pane_id
+        .as_deref()
+        .ok_or_else(|| err("A remote run needs a precreated pane.".into()))?;
+    let run_id = config
+        .run_id
+        .ok_or_else(|| err("A remote run needs a run id.".into()))?;
+
+    let home = crate::remote::remote_home(&rt.host).map_err(|e| err(e.to_string()))?;
+    let cwd_abs = crate::remote::expand_remote_path(&home, &rt.cwd);
+    if !crate::remote::remote_is_dir(&rt.host, &cwd_abs).map_err(|e| err(e.to_string()))? {
+        return Err(err(format!("The folder does not exist on {}: {}", rt.host, cwd_abs)));
+    }
+
+    // 固定部分の末尾に遠隔の案内を足す。Mac の run フォルダの `system-prompt.md` も同じ物にする（記録のため）
+    let guide = REMOTE_GUIDE
+        .replace("{host}", &rt.host)
+        .replace("{cwd}", &cwd_abs)
+        .replace("{run_id}", &run_id.to_string());
+    let system_prompt = if system_prompt.trim().is_empty() {
+        guide
+    } else {
+        format!("{}\n\n{}", system_prompt.trim_end(), guide)
+    };
+    write_system_prompt_file(config.run_id, &system_prompt);
+
+    let settings = serde_json::to_vec_pretty(&crate::cc_command::remote_cc_settings_json())
+        .map_err(|e| err(format!("Failed to serialize the cc settings: {}", e)))?;
+    let rdir = crate::remote::stage_run_files(
+        &rt.host,
+        &home,
+        run_id,
+        &[("cc-settings.json", &settings), ("system-prompt.md", system_prompt.as_bytes())],
+    )
+    .map_err(|e| err(e.to_string()))?;
+    crate::remote::seed_remote_claude_json(&rt.host, &home, &[cwd_abs.as_str()])
+        .map_err(|e| err(e.to_string()))?;
+
+    let session_id = crate::cc_command::generate_uuid_v4();
+    // `--mcp-config` と `.agent-link/settings.json` の `env` は渡さない（Mac のパスが入りうる）
+    let cc = CcCommandBuilder::new(&session_id)
+        .with_config(config.block_config.clone())
+        .with_settings_file(PathBuf::from(format!("{}/cc-settings.json", rdir)))
+        .with_bin("claude")
+        .with_system_prompt_file(format!("{}/system-prompt.md", rdir))
+        .build()
+        .map_err(|e| err(format!("Failed to build the cc command: {}", e)))?;
+
+    let root = crate::project::project_root().to_string_lossy().to_string();
+    let agent_link_home = std::env::var("AGENT_LINK_HOME").ok().filter(|v| !v.trim().is_empty());
+    let script = remote_script(&RemoteScriptParts {
+        cwd_abs: &cwd_abs,
+        pane,
+        root: &root,
+        run_id,
+        block: &config.block_config.block_id(),
+        web_url: &crate::cc_command::web_url(),
+        agent_link_home: agent_link_home.as_deref(),
+        host: &rt.host,
+        home: &home,
+        cc_command: &cc.command,
+    });
+    Ok(RemoteLaunch {
+        command: crate::remote::launch_command(&rt.host, &script),
+        args: cc.args,
+        session_id,
+        system_prompt,
     })
 }
 
@@ -2771,6 +2933,22 @@ fn execute_pipeline_background(
         *progress.lock().unwrap() = PipelineProgress::Failed { error: msg };
         return;
     }
+    // 遠隔の子は、終わったときと pane を閉じるときに会話記録を Mac へ写す（`remote.json` を読む）
+    if let (Some(host), Some(sid)) = (prepared.remote_host.as_deref(), prepared.agent_session_id.as_deref()) {
+        let dest = prepared
+            .cwd
+            .as_deref()
+            .and_then(|cwd| crate::session::claude_projects_dir().map(|d| d.join(crate::session::claude_project_slug(cwd))))
+            .map(|d| d.join(format!("{}.jsonl", sid)));
+        match dest {
+            Some(dest) => {
+                if let Err(e) = crate::tmux::write_remote_info(&pane_info.pane_id, host, sid, &dest) {
+                    eprintln!("[agent-link] remote.json を書けません: {}", e);
+                }
+            }
+            None => eprintln!("[agent-link] remote.json を書けません: HOME が分かりません"),
+        }
+    }
 
     // ---- Step 10: アイドル状態確認 (30秒タイムアウト、中断可能) ----
     match wait_for_status_cancelable(
@@ -3461,6 +3639,10 @@ fn execute_completion_with_doc_write(
         return;
     }
     *progress.lock().unwrap() = PipelineProgress::ExtractingOutput;
+    // 遠隔の子は、抽出の前に会話記録を Mac へ写す
+    if prepared.remote_host.is_some() {
+        crate::tmux::fetch_remote_transcript(pane_id);
+    }
     // 出力・トランスクリプト・統計を抽出する
     let (_output, full_transcript, session_stats_json) = extract_outputs_for_pipeline(&prepared);
 
@@ -5617,6 +5799,198 @@ mod tests {
         assert_eq!(child.parent_run_id, Some(parent_run_id));
 
         std::fs::remove_dir_all(&temp_root).ok();
+    }
+
+    // ---- 遠隔の子（ssh で遠隔の claude を起こす） ----
+
+    /// 偽の ssh を PATH の先頭に置く。命令は `FAKE_REMOTE_HOME` を HOME にして、その場の `sh -c` で走る。
+    /// （`AGENT_LINK_SSH_BIN` は別のテストが外すので、PATH で差し替える）
+    /// 返り値の 3 本目は偽の遠隔の HOME。
+    fn fake_ssh_env(name: &str) -> (EnvVarGuard, EnvVarGuard, std::path::PathBuf) {
+        use std::os::unix::fs::PermissionsExt;
+        let base = finalize_test_temp_dir(&format!("fake-ssh-{}", name));
+        let bin = base.join("bin");
+        let rhome = base.join("remote-home");
+        std::fs::create_dir_all(&bin).unwrap();
+        std::fs::create_dir_all(&rhome).unwrap();
+        let script = bin.join("ssh");
+        std::fs::write(
+            &script,
+            "#!/bin/sh\nwhile [ $# -gt 0 ]; do case \"$1\" in -t|-T|-q) shift;; -o|-F|-i|-p) shift 2;; -*) shift;; *) break;; esac; done\nhost=$1; shift\nHOME=\"$FAKE_REMOTE_HOME\" exec sh -c \"$*\"\n",
+        )
+        .unwrap();
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let path = format!("{}:{}", bin.display(), std::env::var("PATH").unwrap_or_default());
+        let g_path = EnvVarGuard::set("PATH", std::ffi::OsStr::new(&path));
+        let g_home = EnvVarGuard::set("FAKE_REMOTE_HOME", rhome.as_os_str());
+        (g_path, g_home, rhome)
+    }
+
+    fn remote_parts() -> RemoteScriptParts<'static> {
+        RemoteScriptParts {
+            cwd_abs: "/home/u/my proj",
+            pane: "hl-0a1b2c3d4e5f",
+            root: "/Users/m/root",
+            run_id: 21,
+            block: "sub",
+            web_url: "http://127.0.0.1:8400",
+            agent_link_home: Some("/h"),
+            host: "wsl-server",
+            home: "/home/u",
+            cc_command: "claude --session-id 'x' --settings '/home/u/.agent-link-remote/runs/21/cc-settings.json'",
+        }
+    }
+
+    /// 遠隔の命令は、C5 の並びで、値が単引用符で包まれ、`claude` が最後に来ること。
+    #[test]
+    fn remote_script_has_contract_order_and_quoting() {
+        assert_eq!(
+            remote_script(&remote_parts()),
+            "cd '/home/u/my proj' && HERDR_PANE_ID='hl-0a1b2c3d4e5f' AGENT_LINK_PROJECT_ROOT='/Users/m/root' \
+             AGENT_LINK_PARENT_RUN_ID=21 AGENT_LINK_BLOCK_NAME='sub' AGENT_LINK_IS_SUBTASK=1 \
+             AGENT_LINK_WEB_URL='http://127.0.0.1:8400' AGENT_LINK_HOME='/h' AGENT_LINK_HOST='wsl-server' \
+             PATH='/home/u/.agent-link-remote/bin':'/home/u/.local/bin':\"$PATH\" claude --session-id 'x' \
+             --settings '/home/u/.agent-link-remote/runs/21/cc-settings.json'"
+        );
+        // AGENT_LINK_HOME は無ければ付けない。値の引用符は閉じて開き直す
+        let mut p = remote_parts();
+        p.agent_link_home = None;
+        p.cwd_abs = "/a/it's";
+        let s = remote_script(&p);
+        assert!(!s.contains("AGENT_LINK_HOME"), "{s}");
+        assert!(s.starts_with("cd '/a/it'\\''s' && HERDR_PANE_ID="), "{s}");
+    }
+
+    /// `remote` が None の子の命令は、今までどおり（PATH → AGENT_LINK_* → `claude <引数>`）で、ssh を含まないこと。
+    #[test]
+    fn prepare_pipeline_local_command_is_unchanged() {
+        let _env_lock = finalize_env_lock();
+        let _project_root_guard = EnvVarGuard::remove("AGENT_LINK_PROJECT_ROOT");
+        let mut config = minimal_config();
+        config.run_id = Some(77);
+        config.block_config.name = "sai-test-main".to_string();
+        let prepared = prepare_pipeline(&config).expect("prepare_pipeline に失敗");
+
+        let exe = crate::cc_command::sai_link_exe();
+        let dir = std::path::Path::new(&exe).parent().unwrap().to_string_lossy().to_string();
+        let expected = format!(
+            "PATH={}:$PATH AGENT_LINK_PARENT_RUN_ID=77 AGENT_LINK_BLOCK_NAME=sai-test-main claude {}",
+            crate::herdr::shell_escape_single_quotes(&dir),
+            prepared.pi_args.join(" ")
+        );
+        assert_eq!(prepared.pi_command, expected);
+        assert_eq!(prepared.remote_host, None);
+        assert!(!prepared.pi_command.contains("ssh"), "{}", prepared.pi_command);
+        crate::session::cleanup_session_dir(&prepared.session_dir);
+    }
+
+    /// 遠隔の分岐: 偽の遠隔の HOME に設定と固定部分が置かれ、`~/.claude.json` が整い、ssh の命令になること。
+    /// 遠隔に cwd が無いときは断ること。
+    #[test]
+    fn prepare_pipeline_remote_stages_files_and_builds_ssh_command() {
+        let _env_lock = finalize_env_lock();
+        let (_root_guard, _home_guard, root, home) =
+            finalize_settings_env_dirs("remote-prepare", None, None);
+        let (_g_path, _g_home, rhome) = fake_ssh_env("prepare");
+        std::fs::create_dir_all(rhome.join("proj")).unwrap();
+
+        let mut config = minimal_config();
+        config.cwd = Some(root.clone());
+        config.run_id = Some(73);
+        config.pane_id = Some("hl-0a1b2c3d4e5f".to_string());
+        config.block_body = "固定の案内 {{input.task_text}}".to_string();
+        config.user_inputs.insert("task_text".to_string(), "遠隔で直す".to_string());
+        config.remote = Some(RemoteTarget { host: "wsl-server".to_string(), cwd: "~/proj".to_string() });
+
+        let prepared = prepare_pipeline(&config).expect("remote prepare_pipeline に失敗");
+        let rdir = rhome.join(".agent-link-remote/runs/73");
+        let settings: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(rdir.join("cc-settings.json")).unwrap()).unwrap();
+        assert_eq!(settings, crate::cc_command::remote_cc_settings_json());
+        let staged = std::fs::read_to_string(rdir.join("system-prompt.md")).unwrap();
+        assert!(staged.contains("固定の案内"), "{staged}");
+        assert!(staged.contains(&format!("遠隔の機械 `wsl-server` の `{}/proj`", rhome.display())), "{staged}");
+        assert!(staged.contains("git switch -c al/run-73"), "{staged}");
+        assert_eq!(prepared.system_prompt, staged);
+        assert!(!prepared.expanded_prompt.contains("固定の案内"), "{}", prepared.expanded_prompt);
+        assert!(prepared.expanded_prompt.contains("遠隔で直す"));
+
+        let claude_json: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(rhome.join(".claude.json")).unwrap()).unwrap();
+        let cwd_abs = format!("{}/proj", rhome.display());
+        assert_eq!(claude_json["projects"][&cwd_abs]["hasTrustDialogAccepted"], true);
+
+        assert_eq!(prepared.remote_host.as_deref(), Some("wsl-server"));
+        assert_eq!(prepared.cwd.as_deref(), Some(root.as_path()), "cwd は Mac のルートのまま");
+        assert!(
+            prepared.pi_command.starts_with(
+                "'ssh' -t -o ServerAliveInterval=15 -o ServerAliveCountMax=4 'wsl-server' 'cd '\\''"
+            ),
+            "{}",
+            prepared.pi_command
+        );
+        assert!(prepared.pi_command.contains("hl-0a1b2c3d4e5f"));
+        assert!(!prepared.pi_command.contains("--mcp-config"), "{}", prepared.pi_command);
+        assert!(prepared.pi_command.contains(" claude --session-id "), "{}", prepared.pi_command);
+        assert_eq!(prepared.pi_args[0], "--session-id");
+        let at = prepared.pi_args.iter().position(|a| a == "--settings").expect("--settings");
+        assert_eq!(
+            prepared.pi_args[at + 1],
+            format!("'{}/cc-settings.json'", rdir.display())
+        );
+        assert!(!prepared.pi_args.iter().any(|a| a == "--mcp-config"));
+
+        // 遠隔に cwd が無い
+        config.remote = Some(RemoteTarget { host: "wsl-server".to_string(), cwd: "~/nope".to_string() });
+        let err = prepare_pipeline(&config).unwrap_err().to_string();
+        assert!(
+            err.contains(&format!("The folder does not exist on wsl-server: {}/nope", rhome.display())),
+            "{err}"
+        );
+        // pane 無し
+        config.pane_id = None;
+        let err = prepare_pipeline(&config).unwrap_err().to_string();
+        assert!(err.contains("A remote run needs a precreated pane."), "{err}");
+
+        crate::session::cleanup_session_dir(&prepared.session_dir);
+        std::fs::remove_dir_all(&root).ok();
+        std::fs::remove_dir_all(&home).ok();
+        std::fs::remove_dir_all(rhome.parent().unwrap()).ok();
+    }
+
+    /// `remote.json` があれば遠隔の会話記録を `dest` に写し、無ければ何もしないこと。
+    #[test]
+    fn fetch_remote_transcript_copies_only_with_remote_json() {
+        let _env_lock = finalize_env_lock();
+        let (_root_guard, _home_guard, root, home) =
+            finalize_settings_env_dirs("remote-fetch", None, None);
+        let (_g_path, _g_home, rhome) = fake_ssh_env("fetch");
+        let sid = "0123abcd-0123-4abc-8abc-0123456789ab";
+        let proj = rhome.join(".claude/projects/x");
+        std::fs::create_dir_all(&proj).unwrap();
+        std::fs::write(proj.join(format!("{sid}.jsonl")), "{\"a\":1}\n").unwrap();
+
+        let dest = root.join("mac-home/.claude/projects/slug").join(format!("{sid}.jsonl"));
+        let pane = "hl-aaaaaaaaaaaa";
+        std::fs::create_dir_all(crate::headless::pane_dir(pane)).unwrap();
+
+        // remote.json が無い → 何もしない
+        crate::tmux::fetch_remote_transcript(pane);
+        assert!(!dest.exists());
+
+        crate::tmux::write_remote_info(pane, "wsl-server", sid, &dest).unwrap();
+        crate::tmux::fetch_remote_transcript(pane);
+        assert_eq!(std::fs::read_to_string(&dest).unwrap(), "{\"a\":1}\n");
+
+        // 遠隔に会話記録が無くても止めない（dest は変わらない）
+        std::fs::remove_file(proj.join(format!("{sid}.jsonl"))).unwrap();
+        std::fs::remove_file(&dest).unwrap();
+        crate::tmux::fetch_remote_transcript(pane);
+        assert!(!dest.exists());
+
+        std::fs::remove_dir_all(&root).ok();
+        std::fs::remove_dir_all(&home).ok();
+        std::fs::remove_dir_all(rhome.parent().unwrap()).ok();
     }
 
     // ---- U4: Ctrl+D finalize（request_main_block_finalize） ----
