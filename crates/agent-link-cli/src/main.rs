@@ -7,7 +7,7 @@
 //!
 //! 用途ごと: `init`・`card`・`run`・`doc`・`task`・`def`・`project`・
 //! `session`・`workflow`・`schema`・`daemon`・`usage`。
-//! 内部用（隠したまま）: `waggle resolve`・`cc-prompt-hook`・`cc-state-hook`・`cc-permission-hook`・`cc-statusline`・`daemon _run`。
+//! 内部用（隠したまま）: `waggle resolve`・`cc-prompt-hook`・`cc-state-hook`・`cc-permission-hook`・`cc-statusline`・`remote-gate`・`daemon _run`。
 //!
 //! # 使用例
 //!
@@ -28,6 +28,7 @@ mod cmd_common;
 mod cmd_def;
 mod cmd_doc;
 mod cmd_project;
+mod cmd_remote;
 mod cmd_run;
 mod cmd_schema;
 mod cmd_task;
@@ -75,6 +76,8 @@ fn main() {
         Cmd::Run { cmd } => run_new(cmd_run::run(cmd)),
         Cmd::Doc { cmd } => run_new(cmd_doc::run(cmd)),
         Cmd::Def { cmd } => run_new(cmd_def::run(cmd)),
+        Cmd::Remote { cmd } => run_new(cmd_remote::run(cmd)),
+        Cmd::RemoteGate => std::process::exit(agent_link_engine::remote::run_gate()),
         Cmd::Project { cmd } => run_new(cmd_project::run(cmd)),
         Cmd::Session { cmd } => run_new(cmd_project::run_session(cmd)),
         Cmd::Workflow { json: _, subtasks } => run_new(cmd_run::run_workflow(subtasks)),

@@ -93,6 +93,14 @@ pub enum Cmd {
         #[command(subcommand)]
         cmd: CardCmd,
     },
+    /// 遠隔の機械（ssh の host）で claude を動かす準備と確認
+    Remote {
+        #[command(subcommand)]
+        cmd: RemoteCmd,
+    },
+    /// 遠隔の中継から来た命令を Mac で通す門番（内部用。`authorized_keys` の強制コマンド）
+    #[command(hide = true, name = "remote-gate")]
+    RemoteGate,
     /// 実行（run）の参照・操作（新しい木）
     Run {
         #[command(subcommand)]
@@ -164,6 +172,32 @@ pub enum Cmd {
     /// cc の statusLine（内部用）。費用を `cc-cost` へ書き、画面下に 1 行出す。
     #[command(hide = true)]
     CcStatusline,
+}
+
+/// `remote` のサブコマンド。
+#[derive(Subcommand)]
+pub enum RemoteCmd {
+    /// 遠隔の機械に中継と鍵を置き、Mac の `~/.ssh/authorized_keys` に門番の行を足して、疎通を確かめる
+    ///
+    /// 一度だけの準備。`<host>` は Mac の `~/.ssh/config` の Host 名。
+    Setup {
+        /// 遠隔の ssh の host 名
+        host: String,
+        /// 遠隔から見たこの Mac の住所（省略時は ssh の接続から読む）
+        #[arg(long, value_name = "ADDR")]
+        mac: Option<String>,
+        /// JSON で出力する
+        #[arg(long, default_value_t = false)]
+        json: bool,
+    },
+    /// 遠隔の機械の疎通を確かめる（Mac から遠隔・claude・中継・遠隔から Mac の 4 項目）
+    Check {
+        /// 遠隔の ssh の host 名
+        host: String,
+        /// JSON で出力する
+        #[arg(long, default_value_t = false)]
+        json: bool,
+    },
 }
 
 /// サブタスク操作のサブコマンド（新しい木）。
