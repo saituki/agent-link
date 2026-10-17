@@ -20,8 +20,8 @@ pub const REVIEW_OWNER: &str = "review";
 /// run フォルダ内の固定ファイル名。
 pub const TASK_FILE: &str = "task.md";
 pub const MESSAGE_FILE: &str = "message.md";
-/// 固定部分（system prompt）の置き場（run フォルダ直下・U6・C10）。
-/// pi は `--append-system-prompt`、cc は `--append-system-prompt-file` でこのファイルを渡す。
+/// 固定部分（system prompt）の置き場（run フォルダ直下）。
+/// cc は `--append-system-prompt-file` でこのファイルを渡す。
 pub const SYSTEM_PROMPT_FILE: &str = "system-prompt.md";
 /// session jsonl 置き場（run フォルダ直下）。
 pub const SESSION_SUBDIR: &str = "session";
@@ -320,7 +320,7 @@ pub fn remove_run_dir(run_id: i64) -> std::io::Result<usize> {
 
 /// 実行を消す（DB の行と run フォルダ。子の実行も一緒に消す）。
 ///
-/// CLI の `block rm`・TUI の rm・`phone rm` 共通。子の run フォルダも残さない。
+/// CLI の `block rm`・`run rm` 共通。子の run フォルダも残さない。
 pub fn delete_run(
     store: &crate::db::SaiStore,
     id: i64,
@@ -623,7 +623,7 @@ mod tests {
         let mut exec = store.get_execution_by_id(sub_run_id).unwrap();
         assert!(exec.parent_run_id.is_some());
 
-        // 未確定の間は TUI リロード（sync）でも running のまま
+        // 未確定の間は sync でも running のまま
         sync_run_owner(&store, &mut exec);
         assert_eq!(find_run_dir(sub_run_id).unwrap().0, RUNNING_OWNER);
         assert!(dir.join(SESSION_SUBDIR).is_dir(), "session フォルダは残る");

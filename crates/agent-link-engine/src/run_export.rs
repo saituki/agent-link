@@ -59,9 +59,9 @@ pub struct RunDoc {
     pub herdr_pane_label: String,
     /// 分かれば入れる（実行中は null のことが多い）
     pub herdr_pane_id: Option<String>,
-    /// cc の `--session-id` UUID（pi は null）
+    /// cc の `--session-id` UUID（旧実行は null）
     pub agent_session_id: Option<String>,
-    /// 会話記録 jsonl の絶対パス（00 §3.3 の方法で解決）
+    /// 会話記録 jsonl の絶対パス（`transcript` の解決規則で求める）
     pub transcript_path: Option<String>,
     /// task.md の現在の絶対パス
     pub task_md_path: Option<String>,
@@ -88,7 +88,7 @@ pub struct RunDocStats {
     pub tool_calls_by_name: HashMap<String, u64>,
     /// 集計に出てきたモデル名（複数なら最頻）
     pub model: Option<String>,
-    /// `pi` / `cc` / `estimate`
+    /// `cc` / `estimate`
     pub cost_source: String,
     /// `cost_source == "estimate"` のとき true
     pub cost_is_estimate: bool,
@@ -246,7 +246,7 @@ fn build_stats(
     exec: &ExecutionHistory,
     transcript: Option<&Path>,
 ) -> RunDocStats {
-    // ── トークン・コスト内訳: transcript の集計（TUI Stats と同一計算） ──
+    // ── トークン・コスト内訳: transcript の集計 ──
     let mut totals: Option<CacheUsageTotals> = None;
     let mut top_model: Option<String> = None;
     if let Some(tp) = transcript {
@@ -288,7 +288,7 @@ fn build_stats(
                 cost.total = cc_total;
                 ("cc", false)
             }
-            // 連携前（§2.5 導入前）の過去実行など → TUI Stats と同じ概算
+            // 連携前の過去実行など → 概算
             None => ("estimate", true),
         };
 
@@ -603,7 +603,7 @@ pub fn export_execs(
     summary
 }
 
-/// プロジェクトの全実行を書き出す（デーモン起動時・`agent-link phone export`）。
+/// プロジェクトの全実行を書き出す（デーモン起動時）。
 pub fn export_all(store: &SaiStore) -> ExportSummary {
     let project_root = crate::project::project_root();
     let execs = match store.list_all_executions() {
@@ -831,7 +831,7 @@ mod tests {
         }
     }
 
-    /// 書き出しは `<AGENT_LINK_HOME>/web/` に出る（旧 `phone/` ではない）。
+    /// 書き出しは `<AGENT_LINK_HOME>/web/` に出る。
     #[test]
     fn export_paths_use_web_directory_under_sai_home() {
         let _env = crate::common::AGENT_LINK_ENV_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());

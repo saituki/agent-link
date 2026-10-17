@@ -68,7 +68,7 @@ const STATUS_WRITE_EVERY: u32 = 10;
 
 /// `block_run_request` 通知の JSON 構造。
 ///
-/// pi-sai ではなく `agent-link block run` CLI / 対話モードが書き込み、
+/// `agent-link block run` CLI が書き込み、
 /// デーモンが `pending/` をスキャンして処理します（§7.1.1）。
 /// 実行時オーバーライドは `orchestrator::ExecutionOverrides` に一元化（P8）。
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -171,7 +171,7 @@ fn write_finalize_result(run_id: i64, ok: bool, reason: &str) {
 
 /// デーモンがカード実行のために呼ぶ引数（`card run <run_id>`）。
 ///
-/// 旧 `phone card run` の別名ではなく、新しい木の `card run` を使う。
+/// 別名ではなく `card run` を使う。
 fn card_run_args(run_id: i64) -> [String; 3] {
     ["card".to_string(), "run".to_string(), run_id.to_string()]
 }
@@ -377,7 +377,7 @@ impl Daemon {
             tick += 1;
             if tick % STATUS_WRITE_EVERY == 0 {
                 let _ = self.write_status_file();
-                // phone 書き出しも同じ周期で差分を書き出す（実装計画 01 §2.3）
+                // run の書き出し（Web が読む）も同じ周期で差分を書き出す
                 self.export_runs(false);
                 // 実行予定時刻を過ぎた todo のカードを実行する
                 self.run_scheduled_cards();
@@ -529,7 +529,7 @@ impl Daemon {
 impl Daemon {
     /// メインブロック実行を別スレッドで開始する。
     ///
-    /// デーモンは実行レコードの作成・pane 分割・pi 起動・完了監視を
+    /// デーモンは実行レコードの作成・pane 分割・cc 起動・完了監視を
     /// `orchestrator::execute_block_pipeline` に委譲します（§3.1）。
     fn start_main_block(&self, req: &BlockRunRequest) {
         let block_path = PathBuf::from(&req.block_path);
@@ -631,7 +631,7 @@ impl Daemon {
 
     /// `pending/` 内の `finalize_request` 通知を処理する。
     ///
-    /// ユーザーが `/agent-link-finalize` スラッシュコマンドを入力した際に pi-sai が
+    /// ユーザーが `/agent-link-finalize` スラッシュコマンドを入力した際にフックが
     /// この通知を書き込む。デーモンは対応する実行の監視スレッドに
     /// `FinalizeRequested` イベントを送信し、出力抽出・統計保存・DB更新を
     /// 行わせる。
@@ -693,8 +693,7 @@ impl Daemon {
                 // P1-4: 確定要求を受け付けたら状態ファイルを即時更新する（鮮度改善）。
                 let _ = self.write_status_file();
             } else {
-                // P0-1: DBフォールバック。TUIのCtrl+D経路（`request_main_block_finalize`
-                // の③）と同順で直接確定する。デーモン再起動でマップが消えても幽霊を
+                // DBフォールバック: 通知の経路と同順で直接確定する。デーモン再起動でマップが消えても幽霊を
                 // `completed` + `finalized=1` にできる。
                 match self.store.get_execution_by_id(run_id) {
                     Ok(exec) if exec.status == "running" => {
@@ -914,7 +913,7 @@ impl Daemon {
             if changed && run_export::is_finished(&exec.status) {
                 state.rewrite_once.insert(run_id);
             }
-            // 実行中は毎周期書き直す（開始直後は cc の session_id・pi の実セッション
+            // 実行中は毎周期書き直す（開始直後は cc の session_id・セッション
             // ファイル・pane_id がまだ無く，後から揃うため。同じ内容なら書き込みは省略される）
             if !changed && exec.status != "running" && !state.rewrite_once.remove(&run_id) {
                 // 前回から何も変わっていない（かつ再書き出し予定もない）→ 省略
@@ -1063,7 +1062,7 @@ pub fn run_foreground(project_root: &Path) -> Result<(), Box<dyn std::error::Err
     // 起動直後の `daemon status` に幽霊を載せる（P1-4 即時書込）。
     let _ = daemon.write_status_file();
 
-    // 実装計画 01 §2.3: 起動時にそのプロジェクトの過去の全実行を書き出す
+    // 起動時にそのプロジェクトの過去の全実行を書き出す
     // （既に同じ内容のファイルがあれば書き直さないため、2 回目以降の起動は軽い）。
     daemon.export_runs(true);
 
@@ -1180,7 +1179,7 @@ pub fn write_block_run_request_full(
 
 /// メインブロックのユーザー明示完了（finalize）要求を `pending/` に書き込む（U4）。
 ///
-/// TUI の Ctrl+D 2 回目（および pi 上の `/agent-link-finalize`）から呼ばれ、
+/// `agent-link run finalize`・`task report`・`/agent-link-finalize` などから呼ばれ、
 /// デーモンの `process_finalize_request` が対応する実行監視スレッドへ
 /// `FinalizeRequested` イベントを送信します。
 /// これにより `execute_block_pipeline` の正常完了（Ok）パスの DB 更新順序
@@ -1359,7 +1358,7 @@ mod tests {
     use super::*;
     use crate::pane::SplitDirection;
 
-    /// デーモンは `card run <run_id>` を呼ぶ（旧 `phone card run` ではない）。
+    /// デーモンは `card run <run_id>` を呼ぶ。
     #[test]
     fn card_run_args_use_new_command_tree() {
         assert_eq!(

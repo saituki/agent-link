@@ -28,7 +28,7 @@ use dialoguer::Select;
 /// `--kanban` 実行のエントリポイント。
 ///
 /// 対話的にカード選択 → ブロック選択を行い、実行要求をデーモンへ送る。
-/// `--block/--field/--yes` 指定時は非対話で実行する（pi agent 自動化用）。
+/// `--block/--field/--yes` 指定時は非対話で実行する（エージェントの自動化用）。
 #[allow(clippy::too_many_arguments)]
 pub fn kanban_block_run(
     block: Option<&str>,

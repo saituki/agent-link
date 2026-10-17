@@ -1,11 +1,11 @@
 //! # sai-write 通知受信モジュール
 //!
-//! pi-sai 拡張機能の `sai-write` ツールが書き込む通知ファイルを監視し、
+//! `sai-write` ツール（`agent-link doc write`）が書き込む通知ファイルを監視し、
 //! 書き込まれたドキュメントファイルを waggle トークン化します。
 //!
 //! ## 通知プロトコル
 //!
-//! `sai-write` ツール（pi-sai 拡張機能）はファイル書き込み後、
+//! `sai-write` ツールはファイル書き込み後、
 //! 以下の JSON ファイルを `.agent-link/engine/notifications/pending/` に作成します。
 //!
 //! ```json
@@ -20,7 +20,7 @@
 //! }
 //! ```
 //!
-//! `agent-link doc write`（P4 以降）はエージェント側で発行済みのトークンを
+//! `agent-link doc write` はエージェント側で発行済みのトークンを
 //! `"waggle_token": "AXANSMpo"` として含めます。このフィールドがある場合、
 //! agent-link は再トークン化せず、そのトークンをそのまま使います
 //! （mint はランダムなので、再トークン化するとトークンが 2 つになるため）。
@@ -382,7 +382,7 @@ pub fn block_uses_doc_write(config: &BlockConfig) -> bool {
         Some(ToolsConfig::List(tools)) => tools.iter().any(|t| t == "sai-write"),
         Some(ToolsConfig::All) => {
             // tools: true の場合、sai-write が有効かどうかは
-            // extensions の指定に依存する（pi-sai 拡張が必須）
+            // extensions の指定に依存する（sai-write の拡張指定が前提）
             // デフォルトでは false
             false
         }

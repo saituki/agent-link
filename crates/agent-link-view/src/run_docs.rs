@@ -206,7 +206,7 @@ pub struct DocTokenEntry {
 /// 文書候補を参照記法 `waggle:<tok>:path:.agent-link/outputs/*/<run_id>/<file>` にする。
 ///
 /// `<run_id>` は origin 実行ではなく **その文書を保存した実行の番号**（`c.run_id`）。
-/// 正はトークンで、パスは人間向けの目安（共有契約）。
+/// 正はトークンで、パスは人間向けの目安。
 pub fn doc_ref_line(c: &WaggleChoiceData) -> String {
     format!(
         "waggle:{}:path:.agent-link/outputs/*/{}/{}",

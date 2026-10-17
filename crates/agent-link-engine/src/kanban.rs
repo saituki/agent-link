@@ -1,6 +1,6 @@
 //! Kanban カード md（`.agent-link/todo/*.md`）の読み書き・レーン分類。
 //!
-//! TUI 非依存の純関数群。`app/kanban.rs`（TUI 側）はこのモジュールに委譲する。
+//! 画面に依存しない純関数群。
 //!
 //! ## カード書式（v2・汎用コンテナ）
 //!
@@ -65,7 +65,7 @@ const LEGACY_FM_KEYS: [&str; 9] = [
 /// `executer: agent` のカードで、人が起こす道を試したときの文言。
 ///
 /// 人が起こすと root の run になり、報告が起こす側（エージェント）に届かないため止める。
-/// CLI（`kanban_run::run_card_request`）と TUI（`cli_mode::do_run_flow`）で同じ文を出す。
+/// CLI（`kanban_run::run_card_request`）が出す。
 pub const AGENT_EXECUTER_MESSAGE: &str =
     "This card is started by an agent as a subtask run (executer: agent). To start it yourself, change the card's executer to human.";
 
@@ -121,8 +121,8 @@ pub struct CardFrontmatter {
 
 /// カードの `creation_date` 用の現在時刻文字列（`YYYY/MM/DD HH:MM:SS`）。
 ///
-/// 実装計画 12: カード作成（TUI ウィザード / `agent-link phone card create`）が
-/// 共通で使う。widgets 側に chrono 依存を増やさないため engine に置く。
+/// カード作成（`agent-link card create`）が使う。
+/// view 側に chrono 依存を増やさないため engine に置く。
 pub fn card_creation_date() -> String {
     chrono::Local::now().format("%Y/%m/%d %H:%M:%S").to_string()
 }
@@ -494,8 +494,8 @@ pub enum CardOwner {
 ///
 /// * 実行中（`running` / `pending`）→ `Kanban`（running レーン）
 /// * 終端（`completed` / `failed`）→ `Kanban`（review / done レーン。
-///   review ファイルの有無は問わない。d で送られたものは TUI 側で除外する）
-/// * `d` で Kanban から送られた実行 → `Workflow`（TUI 側 `is_kanban_owned` で判定）
+///   review ファイルの有無は問わない。d で送られたものは除外する）
+/// * `d` で Kanban から送られた実行 → `Workflow`（呼び出し側が判定する）
 ///
 /// `review_exists` は `.agent-link/review/<run_id>.md` の有無。
 /// 実行開始直後（review 未生成）の running が Workflow に漏れないよう、
@@ -505,7 +505,7 @@ pub fn owner_of(status: &str, review_exists: bool) -> CardOwner {
         // 実行中は review ファイル未生成でも Kanban（running レーン）
         "running" | "pending" => CardOwner::Kanban,
         // 終端は Kanban（review / done レーン）。d で送られたもの（review 削除済み）は
-        // TUI 側 `is_kanban_owned` で Workflow へ振り分けるため、ここでは Kanban 扱い。
+        // 呼び出し側が Workflow へ振り分けるため、ここでは Kanban 扱い。
         "completed" | "failed" => CardOwner::Kanban,
         // 未知のステータスは review ファイルの有無で振り分ける（フォールバック）
         _ => {
@@ -597,7 +597,7 @@ mod tests {
         assert_eq!(owner_of("running", false), CardOwner::Kanban);
         assert_eq!(owner_of("pending", false), CardOwner::Kanban);
         // 終端（completed/failed）は review ファイルの有無にかかわらず Kanban。
-        // d で送られたものは TUI 側 `is_kanban_owned` で Workflow へ振り分ける。
+        // d で送られたものは呼び出し側が Workflow へ振り分ける。
         assert_eq!(owner_of("completed", true), CardOwner::Kanban);
         assert_eq!(owner_of("completed", false), CardOwner::Kanban);
         assert_eq!(owner_of("failed", true), CardOwner::Kanban);

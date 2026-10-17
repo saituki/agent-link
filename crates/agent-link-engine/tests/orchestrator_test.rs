@@ -65,9 +65,9 @@ fn test_config() -> PipelineConfig {
 /// 正常系: パイプラインの設定が組み立てられることを確認。
 #[test]
 fn test_pipeline_success() {
-    // このテストは実際の pi エージェントが必要なため、
+    // このテストは実際のエージェントが必要なため、
     // ユニットテストとしては現実的ではありません。
-    // run_pipeline() はブロッキング呼び出しであり、pi が起動されるため
+    // run_pipeline() はブロッキング呼び出しであり、cc が起動されるため
     // ここでは設定の構築のみをテストします。
     let config = test_config();
 

@@ -101,7 +101,7 @@ pub(crate) static ENV_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(()
 ///
 /// 値（[`Value`]）で持つ項目は `json!` のリテラル順、テキストで持つ項目は
 /// そのまま出力する。`serde_json::Value` は `Map` = アルファベット順で
-/// 持つため、`project dashboard` のように**項目の並び順まで共有契約**の
+/// 持つため、`project dashboard` のように**項目の並び順まで Web との約束**の
 /// 出力は、構造体でシリアライズしたテキストで持つ（`dashboard` 参照）。
 #[derive(Debug)]
 pub(crate) enum ViewOut {
@@ -1255,7 +1255,7 @@ fn rm(run_id: i64) -> ViewResult<Value> {
 /// `project summary`: プロジェクト一覧に出す 1 プロジェクトの最小集計
 /// （Web の Project 一覧が使う）。
 ///
-/// 返す形（共有契約）:
+/// 返す形（Web との約束）:
 /// ```json
 /// { "running": 3, "last_executed_at": "2026-09-26T02:15:13Z" }
 /// ```
@@ -1263,7 +1263,6 @@ fn rm(run_id: i64) -> ViewResult<Value> {
 /// - `running`: `status = 'running'` の実行数（件数のみ）
 /// - `last_executed_at`: 最終実行の開始時刻（`started_at` が空なら `created_at`）。
 ///   実行が 1 件も無ければ `null`
-/// - 集計の決め方は sai-control の `reader::status`（`reader.rs:346-363`）に揃える
 fn summary() -> ViewResult<Value> {
     let store = open_store()?;
     // `list_all_executions` は created_at の昇順（store.rs:2768）なので末尾が最新
@@ -1290,7 +1289,7 @@ fn summary() -> ViewResult<Value> {
 // dashboard — 期間集計
 // ============================================================================
 
-/// 集計期間（`sai-control dashboard --period` と同じ 3 種）。
+/// 集計期間（`project dashboard --period` の 3 種）。
 ///
 /// JSON 出力の `period` 欄はそのままこの短い名前を返す。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1328,9 +1327,9 @@ impl std::str::FromStr for Period {
     }
 }
 
-/// `project dashboard` の返り値（sai-control `cross::Dashboard` と同形）。
+/// `project dashboard` の返り値。
 ///
-/// 構造体にしてあるのは、JSON の項目順を sai-control と一致させるため
+/// 構造体にしてあるのは、JSON の項目順を固定するため
 /// （`json!` のmacro は `serde_json::Map` = アルファベット順になる）。
 #[derive(Debug, Clone, serde::Serialize)]
 struct Dashboard {
@@ -1356,7 +1355,7 @@ struct Dashboard {
     recent: Vec<RecentRun>,
 }
 
-/// `project dashboard` の `summary` 欄（sai-control `cross::DashboardSummary` と同形）。
+/// `project dashboard` の `summary` 欄。
 #[derive(Debug, Clone, Default, serde::Serialize)]
 struct DashboardSummary {
     /// 期間内の実行数
@@ -1442,9 +1441,7 @@ struct RecentRun {
 /// `project dashboard --period <p>`: 期間ダッシュボードを JSON で返す
 /// （Web の Dashboard 用）。
 ///
-/// 出力の形は `sai-control dashboard <name> --period <p> --json` と **同じ**。
-/// 期間の決め方（日本時間）・集計は sai-control の `cross::dashboard`
-/// （`sai-control/crates/sai-control-engine/src/cross.rs:506`）から写したもの。
+/// 期間の決め方（日本時間）と集計は [`build_dashboard`] にある。
 ///
 /// - `name`: `.agent-link/project.json` の `name`（無ければルートフォルダ名）
 /// - `since` / `until`: 日本時間の日付（YYYY-MM-DD）
@@ -1456,7 +1453,7 @@ fn dashboard(period_str: &str) -> ViewResult<ViewOut> {
         .map_err(|e| ViewError::usage(format!("{}", e)))?;
     let store = open_store()?;
     let root = agent_link_engine::project::project_root();
-    // 「今日」の日本時間の日付（sai-control の `cmd_dashboard` と同じ +9 時間）
+    // 「今日」の日本時間の日付（日本時間の +9 時間）
     let today_jst = (chrono::Utc::now() + chrono::Duration::hours(9)).date_naive();
     let value = build_dashboard(&store, &root, period, today_jst)?;
     let text =
@@ -1464,8 +1461,7 @@ fn dashboard(period_str: &str) -> ViewResult<ViewOut> {
     Ok(ViewOut::Text(text))
 }
 
-/// 期間ダッシュボードを組み立てる（`today_jst` を渡せる純関数・sai-control の
-/// `cross::dashboard` と同じ形。テストでは日付を固定する）。
+/// 期間ダッシュボードを組み立てる（`today_jst` を渡せる純関数。テストでは日付を固定する）。
 fn build_dashboard(
     store: &SaiStore,
     root: &std::path::Path,
@@ -1698,9 +1694,8 @@ fn period_since(period: Period, today: NaiveDate, first: NaiveDate) -> NaiveDate
 
 /// プロジェクト表示名（`.agent-link/project.json` の `name`・無ければルートフォルダ名）。
 ///
-/// sai-control は CLI 引数のプロジェクト名をそのまま `name` に入れていたが、
-/// `project dashboard` はプロジェクト名を引数に取らない（cwd で決まる）ため
-/// 同じ結果を `.agent-link/project.json` から復元する。
+/// `project dashboard` はプロジェクト名を引数に取らない（cwd で決まる）ため、
+/// `.agent-link/project.json` から求める。
 fn project_display_name(root: &std::path::Path) -> String {
     let from_json = std::fs::read_to_string(root.join(".agent-link").join("project.json"))
         .ok()
@@ -1814,7 +1809,7 @@ mod tests {
         path
     }
 
-    /// `workflow` の出力が共有契約（C-L1）の形を満たすこと。
+    /// `workflow` の出力が Web の読む形を満たすこと。
     ///
     /// DB は空（実行 0 件）なので `nodes` / `edges` / `separators` は空配列の
     /// ままで、成否ではなく「形」とキー集合を確かめる。
@@ -2300,7 +2295,7 @@ mod tests {
     /// pretty JSON の深さ `depth` の項目名を順に並べる（`depth` は 1 始まり。
     /// pretty JSON は 1 段につき 2 スペースのインデント）。
     ///
-    /// 並び順まで共有契約なので、`serde_json::Value`（アルファベット順）ではなく
+    /// 並び順まで Web との約束なので、`serde_json::Value`（アルファベット順）ではなく
     /// シリアライズしたテキストのインデント深さで判定する。
     fn top_level_keys(text: &str, depth: usize) -> Vec<String> {
         let prefix = "  ".repeat(depth);
@@ -2313,7 +2308,7 @@ mod tests {
     }
 
     /// `project summary` が「実行中の件数」と「最終実行の開始日時」を返すこと
-    /// （共有契約 `{"running", "last_executed_at"}`）。
+    /// （`{"running", "last_executed_at"}`）。
     #[test]
     fn summary_reports_running_count_and_last_executed_at() {
         let _env = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
@@ -2340,7 +2335,7 @@ mod tests {
             .map(|e| e.created_at.clone())
             .unwrap();
         assert_eq!(v["last_executed_at"], expected);
-        // 共有契約はこの 2 項目だけ
+        // 項目はこの 2 つだけ
         let obj = v.as_object().unwrap();
         assert_eq!(obj.len(), 2);
         assert!(obj.contains_key("running"));
@@ -2358,11 +2353,10 @@ mod tests {
         assert!(v["last_executed_at"].is_null());
     }
 
-    /// `project dashboard` の JSON が sai-control と同じ**項目名・入れ子・並び順**であること
-    /// （共有契約）。
+    /// `project dashboard` の JSON の**項目名・入れ子・並び順**が固定であること。
     ///
     /// 並び順まで契約なので、構造体でシリアライズしている
-    /// （`serde_json::Value` に落とすとアルファベット順になり sai-control と食い違う）。
+    /// （`serde_json::Value` に落とすとアルファベット順になる）。
     #[test]
     fn dashboard_key_order_matches_sai_control() {
         let _env = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
@@ -2372,7 +2366,7 @@ mod tests {
         let d = build_dashboard(&store, tmp.path(), Period::All, today).unwrap();
         let text = serde_json::to_string_pretty(&d).unwrap();
 
-        // トップレベルの並び順（sai-control `cross::Dashboard` の宣言順）
+        // トップレベルの並び順（`Dashboard` の宣言順）
         assert_eq!(
             top_level_keys(&text, 1),
             vec![
@@ -2413,7 +2407,7 @@ mod tests {
         );
     }
 
-    /// `week` / `month` / `all` の期間切り分けと集計が sai-control と合うこと
+    /// `week` / `month` / `all` の期間切り分けと集計が合うこと
     ///
     /// 一時 DB に「今日」の実行を 3 件（completed / failed / running）入れ、
     /// `today_jst` を未来に動かすことで 3 つの期間が切り分けられることを確かめる。
@@ -2462,7 +2456,7 @@ mod tests {
             // recent は新しい順（run_id の降順）
             assert!(d.recent[0].run_id > d.recent[1].run_id);
             assert!(d.recent[1].run_id > d.recent[2].run_id);
-            // recent の行の並び順（sai-control `cross::RecentRun` の宣言順）
+            // recent の行の並び順（`RecentRun` の宣言順）
             let recent_text = serde_json::to_string_pretty(&d.recent[0]).unwrap();
             assert_eq!(
                 top_level_keys(&recent_text, 1),
@@ -2480,7 +2474,7 @@ mod tests {
             );
         }
 
-        // (2) 期間開始日の決め方（sai-control `cross::period_since` と同じ）
+        // (2) 期間開始日の決め方
         let monday = today - chrono::Duration::days(today.weekday().num_days_from_monday() as i64);
         assert_eq!(
             build_dashboard(&store, root, Period::Month, today)
@@ -2531,7 +2525,6 @@ mod tests {
     }
 
     /// 実行が 0 件のとき `daily` が `since`〜`until` の全日を 0 埋めで返すこと
-    /// （sai-control と同じ挙動）。
     #[test]
     fn dashboard_on_empty_db_zero_fills_daily() {
         let _env = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
@@ -2582,7 +2575,7 @@ mod tests {
         assert_eq!(d("not-a-date"), None);
     }
 
-    /// `period_since` の期間開始日の決め方（sai-control `cross::period_since` と同じ）。
+    /// `period_since` の期間開始日の決め方。
     #[test]
     fn period_since_rules() {
         // 2026-09-26 は土曜日
@@ -2680,7 +2673,7 @@ mod tests {
         assert_eq!(err.code, EXIT_NOT_FOUND, "err={}", err.msg);
     }
 
-    /// sai-ts の chat が使う `md --kind message`。無い run は終了コード 3（見つからない）になる。
+    /// chat が使う `md --kind message`。無い run は終了コード 3（見つからない）になる。
     #[test]
     fn md_message_missing_run_is_not_found() {
         let _env = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());

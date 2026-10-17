@@ -1,11 +1,11 @@
-//! プロジェクト初期化（`agent-link init`・outputs 統一・R802）
+//! プロジェクト初期化（`agent-link init`）
 //!
 //! プロジェクトの初期化処理を提供します。何度実行しても、足りないものだけを作ります。
 //!
 //! - `PROJECTROOT/.agent-link/` ディレクトリと必要なサブフォルダを作成する（既存は触らない）
 //! - `settings.json` をシード作成する（`{}`。既にあれば触らない）
 //! - `models.json` は作成しない（`~/.agent-link/models.json` のグローバル設定にフォールバック）
-//! - Claude Code の設定 `.mcp.json` と `.claude/settings.json` を作る。
+//! - Claude Code の設定 `.mcp.json` と `.agent-link/cc-settings.json` を作る（プロジェクトの `.claude/settings.json` は書かない）。
 //!   既にある場合は `<名前>.bak`（既にあれば `<名前>.bak.<日時>`）へ退避してから作り直す
 //! - serena の設定 `.serena/project.yml` を作る（使う言語はプロジェクトのファイルの拡張子から選ぶ）。
 //!   既にある場合は他の設定と同じく退避する。`.serena/` の中の他のファイルには触らない
@@ -15,8 +15,7 @@
 //!
 //! ```text
 //! <root>/
-//! ├── .mcp.json                                # cc/pi の外部 MCP（serena / headroom / donsetch / playwright）
-//! ├── .claude/settings.json                    # cc の道具制限・同梱 skill の抑止・statusLine・hook
+//! ├── .mcp.json                                # cc の外部 MCP（serena / headroom / donsetch / playwright）
 //! ├── .claude/commands/agent-link-finalize.md         # /agent-link-finalize（hook が LLM を通さず処理）
 //! ├── .claude/skills/                         # design skill（cc が読む）
 //! │   ├── frontend-design/{SKILL.md,LICENSE.txt}
@@ -25,6 +24,7 @@
 //! └── .agent-link/
 //!     ├── blocks/                              # ブロック定義 (*.md)
 //!     ├── template/                            # templates: で参照される md
+//!     ├── cc-settings.json                     # cc の道具制限・同梱 skill の抑止・statusLine・hook（`--settings` で渡す）
 //!     ├── outputs/                             # run フォルダ集約（todo/running/review と日付 yymmdd）
 //!     ├── engine/
 //!     │   └── notifications/{pending,processed,results}/   # 通知ディレクトリ
@@ -105,7 +105,7 @@ const SERENA_LANGUAGE_ORDER: &[&str] =
 
 /// 言語を探すときに入らないフォルダの名前。
 ///
-/// `.` で始まるフォルダ（`.git`・`.claude`・`.pi` など）はまとめて飛ばす。
+/// `.` で始まるフォルダ（`.git`・`.claude` など）はまとめて飛ばす。
 const SERENA_SKIP_DIRS: &[&str] = &[
     "target",
     "node_modules",
@@ -181,7 +181,7 @@ pub fn init_project(root: &Path, update: bool) -> Result<InitReport, InitError> 
     // 基盤の block・template（無ければ書き、--update なら中身が違う物を置き換える）
     crate::assets::install_assets(&base, update, &mut report)?;
 
-    // Claude Code と pi の設定ファイル
+    // Claude Code の設定ファイル
     std::fs::create_dir_all(root.join(".claude/commands"))?;
     let json = |v: serde_json::Value| -> std::io::Result<String> {
         Ok(serde_json::to_string_pretty(&v).map_err(std::io::Error::other)? + "\n")

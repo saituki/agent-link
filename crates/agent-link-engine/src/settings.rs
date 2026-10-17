@@ -1,8 +1,7 @@
 //! # 設定（`.agent-link/settings.json`）と共通の上限・環境変数
 //!
 //! `.agent-link/settings.json`（プロジェクトと `~/.agent-link/`）を読む関数と、WIP・同時実行の上限、
-//! 起動コマンドに付ける環境変数（`env`）を提供します。pi の起動コマンドは U04 で消した。
-//! 旧 `pi_command` から移した（名前と引数は変えていない。共有契約 C-SETTINGS）。
+//! 起動コマンドに付ける環境変数（`env`）を提供します。
 
 // ============================================================================
 // SettingsJson — .agent-link/settings.json
@@ -63,16 +62,15 @@ const RESERVED_ENV_KEYS: [&str; 4] = [
 
 /// `.agent-link/settings.json` を読み込む。
 ///
-/// 設定順序（`docs/user-demand2.md`・設定順序）:
+/// 設定順序:
 ///
 /// 1. `PROJECTROOT/.agent-link/settings.json`
 /// 2. `~/.agent-link/settings.json`（**2. が優先**。キー単位で 1. を上書きする）
 ///
 /// 両方とも存在しない場合はデフォルト値（空）を返す。
 /// ファイルの読み込み・パースに失敗したキーはスキップされる（エラーにはしない）。
-/// 警告は stderr に出力する。**TUI など alternate screen から呼ばれる場合は
-/// [`load_settings_quiet()`] を使うこと**（stderr 出力は画面を壊し、枠外に
-/// 残ってしまうため）。
+/// 警告は stderr に出力する。画面を持つ呼び出し元は
+/// [`load_settings_quiet()`] を使うこと（stderr 出力が画面を壊すため）。
 pub fn load_settings() -> SettingsJson {
     let (settings, warnings) = load_settings_quiet();
     for w in &warnings {
@@ -83,8 +81,8 @@ pub fn load_settings() -> SettingsJson {
 
 /// `.agent-link/settings.json` を**stderr に出力せずに**読み込む。
 ///
-/// 戻り値は `(設定, 警告メッセージ)`。TUI は警告をダイアログ枠の下部に
-/// 表示し、モーダルを閉じたときに一緒に消すためにこちらを使う。
+/// 戻り値は `(設定, 警告メッセージ)`。呼び出し元が警告を
+/// 自分の画面に出すためにこちらを使う。
 pub fn load_settings_quiet() -> (SettingsJson, Vec<String>) {
     // 1. プロジェクトローカル設定
     let local_path = crate::project::sai_path(".agent-link/settings.json");
@@ -252,8 +250,7 @@ mod tests {
 
     /// パース失敗した settings.json は stderr に出さず警告として返すこと。
     ///
-    /// TUI はこの警告をダイアログ枠の下部に表示し、モーダルを閉じて消す
-    /// （stderr に出すと alternate screen 上で枠外に残り続ける）。
+    /// 呼び出し元がこの警告を自分の画面に出せるようにするため。
     #[test]
     fn merge_settings_collects_parse_warning() {
         let dir = std::env::temp_dir().join(format!("sai-settings-warn-{}", std::process::id()));

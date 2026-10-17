@@ -78,7 +78,7 @@ pub enum Cmd {
     /// プロジェクトの初期化（開始時に 1 度のみ使用）
     ///
     /// `PROJECTROOT/.agent-link/` と必要なフォルダ・`settings.json` を作成し、
-    /// `sai-control registry add` でプロジェクトを登録する。
+    /// 登録簿（`$AGENT_LINK_HOME/registry.json`）にプロジェクトを登録する。
     Init {
         /// プロジェクト名（省略時はカレントディレクトリ名）
         #[arg(long, value_name = "NAME")]
@@ -655,7 +655,7 @@ pub enum DefCmd {
         json: bool,
     },
 
-    /// 実行時の pi 起動コマンドをプレビュー表示する（実行はしない・文字）
+    /// 実行時の cc 起動コマンドをプレビュー表示する（実行はしない・文字）
     Preview {
         /// ブロック定義ファイル（.md）のパス
         #[arg(value_name = "DEF_FILE")]
@@ -847,9 +847,9 @@ pub enum ViewCmd {
 
     /// 期間ダッシュボードを JSON で返す（Web の Dashboard 用）
     ///
-    /// 出力の形は `sai-control dashboard <name> --period <p> --json` と同じ
-    /// （name / period / since / until / daemon_alive / summary / daily /
-    ///  by_model / by_block / recent）。
+    /// 出力の項目:
+    /// name / period / since / until / daemon_alive / summary / daily /
+    /// by_model / by_block / recent。
     Dashboard {
         /// 集計期間
         #[arg(long, value_parser = ["week", "month", "all"])]
@@ -1050,9 +1050,9 @@ pub enum DefFileCmd {
 // 定義ファイル直指定の旧経路は `main.rs` で kanban 誘導メッセージ付きで終了する。
 // 非対話実行は `kanban_run::kanban_block_run` に一本化されている。
 
-/// 実行時の pi 起動コマンドをプレビュー表示する（実行はしない）。
+/// 実行時の cc 起動コマンドをプレビュー表示する（実行はしない）。
 ///
-/// 実行時設定（オーバーライド）が反映された pi 起動コマンドを表示します（D19・§7.1.2）。
+/// 実行時設定（オーバーライド）が反映された cc 起動コマンドを表示します。
 /// ユーザーが作成したドキュメントを user-block ブロックの実行として記録する（ユーザーブロック）。
 ///
 /// 処理:
@@ -1263,7 +1263,7 @@ pub fn handle_block_preview(
     };
     let resolved = orchestrator::resolve_execution_settings(&parsed.config, &overrides);
 
-    // pi 起動コマンドを構築（プレビュー用。run_id なし → 環境変数プレフィックスなし）
+    // cc 起動コマンドを構築（プレビュー用。run_id なし → 環境変数プレフィックスなし）
     let pipeline_config = PipelineConfig {
         block_config: resolved.config,
         block_body: String::new(),
@@ -1286,9 +1286,9 @@ pub fn handle_block_preview(
 
     println!("{}", prepared.pi_command);
 
-    // 実際に送る 2 通（固定部分＝system prompt と最初の文）を見せる（U6・C10）。
+    // 実際に送る 2 通（固定部分＝system prompt と最初の文）を見せる。
     // 実行時は固定部分を run フォルダの `system-prompt.md` に書いて
-    // `--append-system-prompt`（pi）/ `--append-system-prompt-file`（cc）で渡すため、
+    // `--append-system-prompt-file`（cc）で渡すため、
     // プレビューのコマンドにはそのフラグが付きません。
     let (system_prompt, first_message) = agent_link_engine::placeholder::split_fixed_and_variable(
         &parsed.body,
@@ -1477,7 +1477,7 @@ pub fn handle_block_list(limit: i64, json: bool) -> Result<(), Box<dyn std::erro
         .collect();
 
     if json {
-        // P1: pi-sai / デバッグ用の JSON 出力
+        // デバッグ用の JSON 出力
         println!("{}", serde_json::to_string_pretty(&display_records)?);
     } else {
         print_list_table(&display_records);
@@ -1721,7 +1721,7 @@ pub fn handle_block_show(run_id: i64, json: bool) -> Result<(), Box<dyn std::err
 
 /// ステータス文字列を表示用の絵文字付き文字列に変換する。
 ///
-/// 状態の正規化（5.9）: herdr の agent_status（idle/working/done/blocked）と
+/// 状態の正規化: pane の agent_status（idle/working/done/blocked）と
 /// DB の実行ステータス（pending/running/completed/failed/cancelled）を
 /// この関数で一元マッピングする。
 pub(crate) fn format_status(status: &str) -> &str {
@@ -1732,7 +1732,7 @@ pub(crate) fn format_status(status: &str) -> &str {
         "running" => "🔄 実行中",
         "pending" => "⏳ 待機中",
         "todo" => "📝 未実行（予約）",
-        // herdr の agent_status: ユーザーがペインを操作・割り込み中
+        // pane の agent_status: ユーザーがペインを操作・割り込み中
         "blocked" => "🚧 待機中（blocked）",
         "idle" => "⏸ アイドル",
         "working" => "🔄 作業中",
@@ -1846,7 +1846,7 @@ pub fn handle_task_manage(
 }
 
 /// waggle トークンを解決してファイル内容を標準出力に書き出す。
-/// 隠しコマンド。pi-sai から呼ばれる。
+/// 隠しコマンド。
 // ============================================================================
 // run 書き出しハンドラ
 // ============================================================================
@@ -1965,7 +1965,7 @@ pub fn handle_cc_statusline() -> Result<(), Box<dyn std::error::Error>> {
 pub fn handle_waggle_resolve(token: &str) -> Result<(), Box<dyn std::error::Error>> {
     use agent_link_engine::waggle_integration::WaggleIntegrator;
 
-    // プロジェクトルート基準（worktree 実行時は pi の cwd が worktree に変わるため）
+    // プロジェクトルート基準（worktree 実行時は cc の cwd が worktree に変わるため）
     let db_path = agent_link_engine::project::db_path();
     if let Some(parent) = db_path.parent() {
         std::fs::create_dir_all(parent)?;
@@ -2092,7 +2092,7 @@ fn is_valid_project_name(name: &str) -> bool {
 /// デーモンをバックグラウンドで起動する。
 ///
 /// 自身を子プロセスとして spawn（nohup 相当）し、PID を `.agent-link/engine/daemon.pid`
-/// に書き込んで即終了します（D2）。ログは `.agent-link/engine/daemon.log` に出力されます。
+/// に書き込んで即終了します。ログは `.agent-link/engine/daemon.log` に出力されます。
 pub fn handle_daemon_start() -> Result<(), Box<dyn std::error::Error>> {
     use std::process::Stdio;
 
@@ -2119,7 +2119,7 @@ pub fn handle_daemon_start() -> Result<(), Box<dyn std::error::Error>> {
         .open(&log_path)?;
 
     // 子プロセスとしてデーモン本体（daemon _run）を起動
-    // P1-5: pi pane内から起動した場合に親の実行系変数を引き継がないよう除去する。
+    // cc の pane 内から起動した場合に親の実行系変数を引き継がないよう除去する。
     // 除去対象: AGENT_LINK_PARENT_RUN_ID / AGENT_LINK_BLOCK_NAME / AGENT_LINK_IS_SUBTASK。
     // AGENT_LINK_PROJECT_ROOT のみ当該プロジェクトで上書きする。
     let child = std::process::Command::new(&exe)

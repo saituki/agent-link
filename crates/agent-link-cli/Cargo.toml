@@ -14,7 +14,7 @@ path = "src/main.rs"
 [dependencies]
 # agent-link（ライブラリとして使用）
 agent-link-engine = { path = "../agent-link-engine" }
-# phone サブコマンド（実装計画 12）: Web（`phone` 命令）と組み立て処理を共有するため
+# run 一覧・カード・定義などの組み立て処理（views）を CLI と共有するため
 agent-link-view = { path = "../agent-link-view" }
 
 clap = { version = "4", features = ["derive"] }

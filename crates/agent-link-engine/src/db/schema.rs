@@ -98,8 +98,8 @@ pub fn init_sai_tables(conn: &Connection) -> Result<(), DbError> {
             output_waggle_token TEXT,
             output_waggle_tokens TEXT,  -- JSON配列: 複数waggleトークン（sai-write用）
             output_type         TEXT    NOT NULL DEFAULT 'document',  -- 'document'|'code'|'both'
-            git_commit_before   TEXT,   -- pi起動時のHEADコミットハッシュ（再現性用）
-            git_commit_after    TEXT,   -- pi終了時のHEADコミットハッシュ（再現性用）
+            git_commit_before   TEXT,   -- 起動時のHEADコミットハッシュ（再現性用）
+            git_commit_after    TEXT,   -- 終了時のHEADコミットハッシュ（再現性用）
             herdr_pane_id       TEXT,
             pid                 INTEGER,
             started_at          TEXT,
@@ -107,7 +107,7 @@ pub fn init_sai_tables(conn: &Connection) -> Result<(), DbError> {
             duration_ms         INTEGER,
             exit_code           INTEGER,
             error_message       TEXT,
-            output_content      TEXT,  -- FN-012: エージェント出力の全文（TUI確認用）
+            output_content      TEXT,  -- FN-012: エージェント出力の全文（確認用）
             parent_run_id       INTEGER REFERENCES execution_history(id),  -- 親実行ID（サブタスク用）
             batch_id            TEXT,   -- P3-A: タスクバッチID（DAG のフェーズ合成に使用）
             finalized           INTEGER NOT NULL DEFAULT 0,  -- ユーザー明示完了（Ctrl+D）で finalize 済みか（U4）
@@ -250,7 +250,7 @@ pub fn init_sai_tables(conn: &Connection) -> Result<(), DbError> {
     migrate_add_column(conn, "execution_history", "git_commit_before", "TEXT")?;
     migrate_add_column(conn, "execution_history", "git_commit_after", "TEXT")?;
     migrate_add_column(conn, "execution_history", "session_stats_json", "TEXT")?;
-    // id/name 分離（表示名）: sai-tui 等の表示用に display_name を追加
+    // id/name 分離（表示名）: 表示用に display_name を追加
     migrate_add_column(
         conn,
         "block_metadata",
@@ -293,7 +293,7 @@ pub fn init_sai_tables(conn: &Connection) -> Result<(), DbError> {
         "INTEGER NOT NULL DEFAULT 0",
     )?;
     // エージェント側セッション ID（Claude Code の `--session-id` の UUID）。
-    // pi 実行では NULL（pi は JSONL パスで再開するため）。
+    // 旧実行（cc 以前の記録）では NULL。
     migrate_add_column(conn, "execution_history", "agent_session_id", "TEXT")?;
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_execution_history_batch_id ON execution_history(batch_id)",
@@ -333,7 +333,7 @@ pub fn init_sai_tables(conn: &Connection) -> Result<(), DbError> {
     .map_err(map_rusqlite)?;
 
     // 旧メイン複製レコードのクリーンアップ（P ノード仮想化の後方互換対応）。
-    // フェーズノード（P1, P2...）は TUI 側で run_batches から合成する方式に変更したため、
+    // フェーズノード（P1, P2...）は run_batches から合成する方式に変更したため、
     // task_execute 時に実行レコードとして作成されていた旧「メイン複製」（mb_execution_id）
     // は不要。関連する接続線ごと削除し、mb_execution_id を NULL に戻す。
     // （毎回実行されるが、2 回目以降は該当行が存在しないため冪等）

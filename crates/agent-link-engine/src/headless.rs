@@ -3,14 +3,13 @@
 //! cc を擬似 pane として扱う。窓口は [`crate::pane`]（型 `PaneInfo` と `PaneError` もそこにある）。
 //! cc は tmux の対話モードで動かし、置き場に印 `tmux` がある pane の操作は
 //! [`crate::tmux`] へ回す（`run` / `send_text` / `send_keys` / `status` / `read_output` / `close`）。
-//! pi の子プロセス（監督スレッド）は U04 で消した。
 //!
 //! ## 置き場
 //!
 //! `<project_root>/.agent-link/engine/headless/<id>/`
 //!
 //! - `cwd.txt` — 作業ディレクトリ
-//! - `state.json` — 共有契約 C1 の状態（書くのは tmux の経路）
+//! - `state.json` — pane の状態（書くのは tmux の経路）
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
@@ -24,7 +23,7 @@ pub const PANE_ID_FILE: &str = "herdr_pane_id";
 /// run セッション dir に控えた pane_id（DB に未記録の実行中用・無ければ None）。
 ///
 /// `agent-link run send` / `run interrupt` が実行中の run の送り先を探すのにも使う
-/// （共有契約 C2）。
+/// （このファイル名は昔の名前のまま残している）。
 pub(crate) fn pane_id_from_session_dir(exec: &crate::db::models::ExecutionHistory) -> Option<String> {
     let dir = crate::session::resolve_session_dir(exec.session_dir.as_deref(), exec.id?)?;
     let id = std::fs::read_to_string(dir.join(PANE_ID_FILE)).ok()?;
@@ -45,7 +44,7 @@ pub fn pane_dir(id: &str) -> PathBuf {
     crate::project::sai_path(".agent-link/engine/headless").join(id)
 }
 
-/// `state.json` の形（共有契約 C1）。
+/// `state.json` の形。
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct HeadlessState {
     /// 擬似 pane の id（`hl-` + 12 桁の 16 進）
