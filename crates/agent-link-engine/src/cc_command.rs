@@ -253,11 +253,11 @@ fn push_pair(args: &mut Vec<String>, flag: &str, value: &str) {
 }
 
 /// Claude Code の実行ファイル（`AGENT_LINK_CLAUDE_BIN` があればそれ、無ければ `claude`）。
+/// （`settings.json` の `config` にも書ける）
 ///
 /// Linux の `cc` は C コンパイラなので、shim を置かずに環境変数で差し替える。
 pub fn claude_bin() -> String {
-    std::env::var("AGENT_LINK_CLAUDE_BIN")
-        .ok()
+    crate::settings::config_var("AGENT_LINK_CLAUDE_BIN")
         .map(|v| v.trim().to_string())
         .filter(|v| !v.is_empty())
         .unwrap_or_else(|| "claude".to_string())
@@ -372,8 +372,9 @@ pub fn sai_link_exe() -> String {
 pub const DEFAULT_WEB_PORT: &str = "8400";
 
 /// cc のフックが使う Web の住所（`AGENT_LINK_WEB_URL` → `http://127.0.0.1:${AGENT_LINK_WEB_PORT:-8400}`）。
+/// （`settings.json` の `config` にも書ける）
 pub fn web_url() -> String {
-    let get = |k: &str| std::env::var(k).ok().filter(|v| !v.trim().is_empty());
+    let get = |k: &str| crate::settings::config_var(k).filter(|v| !v.trim().is_empty());
     match get("AGENT_LINK_WEB_URL") {
         Some(url) => url.trim_end_matches('/').to_string(),
         None => format!(
@@ -537,8 +538,9 @@ pub fn permission_hook_output(input: &str) -> Option<String> {
 ///
 /// 環境変数 `AGENT_LINK_WEB_HOOKS_DIR` があればそれ、無ければこのクレートをビルドした
 /// リポジトリの `apps/web/hooks`。2 本が揃っていなければ `None`（壊れたフックを書かない）。
+/// （`settings.json` の `config` にも書ける）
 pub fn web_hooks_dir() -> Option<PathBuf> {
-    let dir = std::env::var_os("AGENT_LINK_WEB_HOOKS_DIR")
+    let dir = crate::settings::config_var("AGENT_LINK_WEB_HOOKS_DIR")
         .map(PathBuf::from)
         .unwrap_or_else(|| {
             Path::new(env!("CARGO_MANIFEST_DIR")).join("../../apps/web/hooks")

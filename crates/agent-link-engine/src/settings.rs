@@ -239,9 +239,83 @@ pub fn max_concurrent_limit() -> usize {
         .unwrap_or(16)
 }
 
+/// 利用者の設定 1 つ。環境変数が空でなければそれ、無ければ `$AGENT_LINK_HOME/settings.json` の
+/// `config.<name>`（文字列か整数）。どちらも無ければ `None`。プロジェクトの settings.json の `config` は読まない。
+pub fn config_var(name: &str) -> Option<String> {
+    config_var_in(
+        name,
+        std::env::var(name).ok(),
+        crate::project::sai_home_path("settings.json").as_deref(),
+    )
+}
+
+/// [`config_var`] の本体（テスト用に環境変数の値とファイルの場所を受ける）。
+///
+/// 壊れた settings.json は黙って無視する（警告は [`load_settings_quiet`] の側が出す）。
+// ponytail: 呼ぶたびに読む。呼ぶ回数が増えて重くなったら、プロセスで 1 回だけ読む
+pub(crate) fn config_var_in(
+    name: &str,
+    env: Option<String>,
+    settings: Option<&std::path::Path>,
+) -> Option<String> {
+    if let Some(v) = env.filter(|v| !v.trim().is_empty()) {
+        return Some(v);
+    }
+    let text = std::fs::read_to_string(settings?).ok()?;
+    let json: serde_json::Value = serde_json::from_str(&text).ok()?;
+    match json.get("config")?.get(name)? {
+        serde_json::Value::String(s) if !s.trim().is_empty() => Some(s.clone()),
+        serde_json::Value::Number(n) if n.is_i64() || n.is_u64() => Some(n.to_string()),
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ------------------------------------------------------------------
+    // config_var: 環境変数 → settings.json の config
+    // ------------------------------------------------------------------
+
+    fn config_file(body: &str) -> (tempfile::TempDir, std::path::PathBuf) {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        std::fs::write(&path, body).unwrap();
+        (dir, path)
+    }
+
+    #[test]
+    fn config_var_env_wins_over_file() {
+        let (_d, path) = config_file(r#"{"config":{"X":"file"}}"#);
+        assert_eq!(config_var_in("X", Some("env".into()), Some(&path)).as_deref(), Some("env"));
+    }
+
+    #[test]
+    fn config_var_blank_env_falls_back_to_file() {
+        let (_d, path) = config_file(r#"{"config":{"X":"file"}}"#);
+        assert_eq!(config_var_in("X", Some("  ".into()), Some(&path)).as_deref(), Some("file"));
+    }
+
+    #[test]
+    fn config_var_reads_integer_from_file() {
+        let (_d, path) = config_file(r#"{"config":{"AGENT_LINK_WEB_PORT":8401}}"#);
+        assert_eq!(
+            config_var_in("AGENT_LINK_WEB_PORT", None, Some(&path)).as_deref(),
+            Some("8401")
+        );
+    }
+
+    #[test]
+    fn config_var_is_none_for_broken_or_missing_config() {
+        let (_d, broken) = config_file("{ broken json");
+        assert_eq!(config_var_in("X", None, Some(&broken)), None);
+        let (_d2, no_config) = config_file(r#"{"wip":3}"#);
+        assert_eq!(config_var_in("X", None, Some(&no_config)), None);
+        let (_d3, wrong_type) = config_file(r#"{"config":{"X":true}}"#);
+        assert_eq!(config_var_in("X", None, Some(&wrong_type)), None);
+        assert_eq!(config_var_in("X", None, None), None);
+    }
 
 
     // ------------------------------------------------------------------

@@ -7,7 +7,6 @@
 
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -27,19 +26,17 @@ DB_PATH = DATA_DIR / "agent_link_web.db"
 
 @dataclass(frozen=True)
 class Settings:
-    # 待ち受けポート
-    port: int = int(os.getenv("AGENT_LINK_WEB_PORT", "8400"))
     # cc の記録置き場
     claude_sessions_dir: Path = Path(
-        os.getenv("CLAUDE_SESSIONS_DIR", str(Path.home() / ".claude" / "projects"))
+        registry.config_var("CLAUDE_SESSIONS_DIR", str(Path.home() / ".claude" / "projects"))
     )
     # agent-link が実行ごとに書き出す JSON の置き場。
     # 手元確認では AGENT_LINK_WEB_RUNS_DIR で一時フォルダに差し替えられる。
     runs_dir: Path = Path(
-        os.getenv("AGENT_LINK_WEB_RUNS_DIR", str(registry.sai_home() / "web" / "runs"))
+        registry.config_var("AGENT_LINK_WEB_RUNS_DIR", str(registry.sai_home() / "web" / "runs"))
     )
     # agent-link CLI（Project タブが呼ぶ）
-    sai_link_bin: str = os.getenv("AGENT_LINK_BIN", "agent-link")
+    sai_link_bin: str = registry.config_var("AGENT_LINK_BIN", "agent-link")
 
 
 settings = Settings()

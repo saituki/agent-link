@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import re
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
@@ -120,7 +119,7 @@ def runs_dirs() -> list[Path]:
     - `AGENT_LINK_WEB_RUNS_DIR` があればそれ 1 つ（テストの差し替え用）。
     - 無ければ `$AGENT_LINK_HOME/web/runs` 1 つ。
     """
-    env = (os.getenv("AGENT_LINK_WEB_RUNS_DIR") or "").strip()
+    env = (registry.config_var("AGENT_LINK_WEB_RUNS_DIR") or "").strip()
     if env:
         return [Path(env)]
     return [registry.sai_home() / "web" / "runs"]

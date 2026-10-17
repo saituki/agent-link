@@ -47,9 +47,9 @@ pub fn is_valid_host(host: &str) -> bool {
 }
 
 /// Mac 側の ssh の実行ファイル。環境変数 `AGENT_LINK_SSH_BIN`（空でなければ）→ `ssh`。
+/// （`settings.json` の `config` にも書ける）
 pub fn ssh_bin() -> String {
-    std::env::var("AGENT_LINK_SSH_BIN")
-        .ok()
+    crate::settings::config_var("AGENT_LINK_SSH_BIN")
         .map(|v| v.trim().to_string())
         .filter(|v| !v.is_empty())
         .unwrap_or_else(|| "ssh".to_string())

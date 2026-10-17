@@ -42,6 +42,25 @@ def sai_home() -> Path:
     return Path(os.getenv("AGENT_LINK_HOME") or (Path.home() / ".agent-link"))
 
 
+def config_var(name: str, default: str | None = None) -> str | None:
+    """利用者の設定 1 つ。環境変数が空でなければそれ、無ければ `$AGENT_LINK_HOME/settings.json` の `config.<name>`、無ければ default。
+
+    `config.<name>` は文字列か整数。壊れたファイルは黙って無視する（Rust の `settings::config_var` と同じ規則）。
+    """
+    env = os.getenv(name)
+    if env and env.strip():
+        return env
+    try:
+        value = json.loads((sai_home() / "settings.json").read_text(encoding="utf-8"))["config"][name]
+    except (OSError, ValueError, KeyError, TypeError):
+        return default
+    if isinstance(value, str) and value.strip():
+        return value
+    if isinstance(value, int) and not isinstance(value, bool):
+        return str(value)
+    return default
+
+
 def registry_path() -> Path:
     """登録簿 `~/.agent-link/registry.json` のパス。"""
     return sai_home() / _REGISTRY_NAME
