@@ -1,5 +1,7 @@
 # 要件定義書: agent-link の設計の見直し（機能は保ったまま）
 
+> この下書きは要件定義書（`sai-link doc read t3Lc36eG`）に置き換えた。正はそちら。
+
 ## 何を
 
 複数のアプリ（sai-tree → sai-link＋Web → agent-link）を経て今の形になった agent-link を、**機能は 1 つも変えずに**、設計全体（層・境界・契約・命名・配布・設定）見直す。
@@ -18,7 +20,7 @@
 
 - agent-link は**複数のアプリを経てきた**ため、もう無い物の名前と理由がコードと文書に残っている。
   - TUI と共有するために切り出したクレート（TUI は無い）、herdr（消えた多重化）、sai-phone（消えた製品）。
-- そのため、**文書と実装が食い違う所がある**（現在 6 件。`docs/contract.md` §7）。とくに、現役のコードのコメントが、
+- そのため、**文書と実装が食い違う所がある**（現在 6 件。`docs/for-developers.md`）。とくに、現役のコードのコメントが、
   もう無い命令を指している（コメントを信じると必ず失敗する）。
 - **「過去の決定」と「現在の仕様」が同じ文書に混ざっている**ため、決定が古くなっても気づけない。
   例: `docs/plan/requirements.md` の完了条件に残る合言葉（`AGENT_LINK_WEB_TOKEN`）は、その後の簡素化でやめた物である。
@@ -69,6 +71,6 @@
 ## 参照文書
 
 - 現在の設計: `docs/design.md`
-- 契約（守る約束と、いま食い違っている所）: `docs/contract.md`
+- 契約（守る約束）: `docs/for-developers.md`（CLI と Web の間）・`docs/integration.md`（HTTP の住所）
 - 由来（取り出す作業の要件定義書と計画書）: `docs/plan/requirements.md`・`guide-1.md`・`guide-2.md`・`unit-U01`〜`unit-U07`
 - 考え方・層・置き場・機能を足す手順: `ARCHITECTURE.md`

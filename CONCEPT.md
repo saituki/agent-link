@@ -5,7 +5,7 @@
 - **読み方**: 各節は短い説明と、「用語・意味・どこにあるか」の表でできている。「どこにあるか」は、画面の住所・CLI の命令・コードの場所（ファイル名と関数名・型名。行番号は書かない）のどれか。
 - **言葉の方針**: 専門用語は英単語のまま使う（Next Action・History・PATH・Dashboard など）。この文書の案内文と説明は日本語で書く。画面の文言と `agent-link` の標準エラー・`--json` の人向けの文は英語（音声の言語は日本語）。`data-tab`・住所・API の名前などの識別子も英語のまま。
 - **正はコード**: この文書とコードが食い違ったら、コードに合わせて直す。確かめきれていない文には（要確認）を付ける。
-- **ほかの文書**: 使い方と入れ方は [`README.md`](./README.md)、層の分け方と守る約束は [`ARCHITECTURE.md`](./ARCHITECTURE.md)、このリポジトリで作業する人への指示は [`AGENTS.md`](./AGENTS.md)、API と画面の住所は [`docs/integration.md`](./docs/integration.md)、CLI の約束と Web が読む JSON は [`docs/for-developers.md`](./docs/for-developers.md)、sai-moon と並べて使う手順は [`docs/switch-over.md`](./docs/switch-over.md)。
+- **ほかの文書**: 使い方と入れ方は [`README.md`](./README.md)、変わらない物（不変条件）と層は [`docs/design.md`](./docs/design.md)、層・置き場・ファイル構成は [`ARCHITECTURE.md`](./ARCHITECTURE.md)、過去の決定は [`docs/decisions.md`](./docs/decisions.md)、このリポジトリで作業する人への指示は [`AGENTS.md`](./AGENTS.md)、Web の HTTP と画面の住所は [`docs/integration.md`](./docs/integration.md)、CLI の約束と Web が読む JSON は [`docs/for-developers.md`](./docs/for-developers.md)、遠隔の機械で子の claude を動かす手順は [`docs/remote.md`](./docs/remote.md)、sai-moon と並べて使う手順は [`docs/switch-over.md`](./docs/switch-over.md)。
 
 ---
 
@@ -33,7 +33,7 @@ agent-link は、2 つの部品（実行エンジン・Web の窓口）ででき
 | **waggle** | 文書に短いトークンを付けて受け渡す仕組み。vendor したクレート群。 | `waggle/`（`waggle-core`・`waggle-store`・`waggle-store-sqlite`）。使う側は `crates/agent-link-engine/src/waggle_integration.rs` |
 | **`agent-link.db`** | 実行エンジンの DB。run・card・子タスクなどの記録が入る。Web は開かない。 | `<root>/.agent-link/engine/agent-link.db` |
 | **プロジェクト（`<root>/.agent-link/`）** | 作業の単位となるフォルダ。中の `.agent-link/` に DB・block・template・settings・成果物（`outputs/`）を置く。 | `agent-link init` が作る。`AGENT_LINK_PROJECT_ROOT` か、今のフォルダから上へたどって `.agent-link/` を持つ最初のフォルダ |
-| **`AGENT_LINK_HOME`** | 利用者全体の置き場。環境変数 `AGENT_LINK_HOME`（空でない値）が優先、無ければ `~/.agent-link`。登録簿・共通の block / template / settings・`web/` が入る。プロジェクトの `.agent-link/` とは別。 | `agent_link_engine::project::sai_home()`・`registry.sai_home()`（Python）。**2 つの規則をそろえる** |
+| **`AGENT_LINK_HOME`** | 利用者全体の置き場。環境変数 `AGENT_LINK_HOME`（空でない値）が優先、無ければ `~/.agent-link`。登録簿・共通の block / template / settings・`web/` が入る。プロジェクトの `.agent-link/` とは別。 | `agent_link_engine::project::sai_home()`・`registry.sai_home()`（Python）。**2 つの規則をそろえる**（違いは `HOME` が無いときだけ。Rust は `None`、Python は `Path.home()`） |
 | **登録簿（registry）** | 全プロジェクトの一覧。`agent-link init` が書き、Web のプロジェクト一覧が読む。 | `$AGENT_LINK_HOME/registry.json`、読む側は `apps/web/src/agent_link_web/registry.py` |
 
 ---
@@ -79,6 +79,11 @@ review          …… .agent-link/outputs/review/<run_id>/    利用者の確�
 | **子タスク** | 親の run が作る子の run。親は `task create` で依頼し、子は最後に `task report` で報告し、親が `task finalize` で確定する。 | `agent-link task create\|execute\|wait\|list\|show\|capture\|send\|interrupt\|delete\|finalize\|requeue\|report\|question` |
 | **worktree（作業用コピー）** | block の `worktree:` が決める、run の作業フォルダの分け方。`none`（分けない）・`isolation`（git の worktree とブランチ `<block 名>-<run_id>` を作る）・ブランチ名そのまま。 | `orchestrator.rs` の `resolve_worktree_branch` |
 | **finalize** | 完了を確定すること。root の run は `agent-link run finalize [RUN_ID] --report <文>`、子タスクは親が `agent-link task finalize <タスク ID>`。子タスクの run フォルダは、確定するまで `running` のまま。 | `cli.rs` の `RunCmd::Finalize`・`TaskCmd::Finalize`、`run_dir.rs` の `subtask_owner` |
+| **`host`（遠隔の子）** | `task create` の入力の `host`。子の claude を、Mac の `~/.ssh/config` の Host 名の機械（例 `wsl-server`）で動かす。状態・DB・文書は Mac のまま。子の画面は Mac の pane の中の `ssh -t <host> 'claude …'`。 | `agent-link task create`（JSON の `host`・`cwd`）、`crates/agent-link-engine/src/remote.rs`、手順は `docs/remote.md` |
+| **`remote setup`** | 遠隔の機械に中継と鍵を置き、Mac の `~/.ssh/authorized_keys` に門番の行を足して、疎通を確かめる一度だけの準備。 | `agent-link remote setup <host>`、`crates/agent-link-cli/src/cmd_remote.rs`。実行は利用者が行う |
+| **`remote check`** | 遠隔の機械の疎通を 4 項目（Mac から遠隔・claude・中継・遠隔から Mac）で確かめる。 | `agent-link remote check <host>` |
+| **門番（`remote-gate`）** | 遠隔の機械から来た命令を Mac で受ける入口。`authorized_keys` の強制コマンド（`command="… agent-link remote-gate",restrict`）で起こり、通す命令だけを Mac の `agent-link` で実行する。内部用（`--help` に出ない）。 | `agent-link remote-gate`、`remote.rs` の `gate_plan` |
+| **中継（relay）** | 遠隔の機械に置く `agent-link` の代わりのスクリプト。遠隔の claude のフックと `agent-link` の命令を、ssh で Mac の門番に送る。 | 遠隔の `~/.agent-link-remote/bin/agent-link`、本文は `remote.rs` の `shim_script` |
 | **`/agent-link-finalize`** | cc の命令。root の run を、エージェントに送らずに完了にする。`init` が `.claude/commands/agent-link-finalize.md` に書く。 | `agent-link cc-prompt-hook`、`crates/agent-link-engine/src/cc_command.rs` |
 
 ---
@@ -107,14 +112,13 @@ review          …… .agent-link/outputs/review/<run_id>/    利用者の確�
 
 ## 4. CLI の約束
 
-`agent-link` は次の約束を守る。全文は [`docs/for-developers.md`](./docs/for-developers.md)（§1）と [`ARCHITECTURE.md`](./ARCHITECTURE.md)（§2.3）。ここには 1 行の意味だけを書く。
+`agent-link` は次の約束を守る。**全文は [`docs/for-developers.md`](./docs/for-developers.md)。** ここには 1 行の意味だけを書く。
 
 | 用語 | 意味 | どこにあるか |
 |---|---|---|
 | **終了コード** | 0 成功・2 入力の誤り・3 見つからない・4 状態の衝突・1 その他の失敗。失敗のとき標準出力は空で、理由は標準エラーの最後の行。 | `docs/for-developers.md` §1 |
 | **`--json`** | 成功したとき、標準出力に JSON を 1 つだけ書く指定。 | 各命令 |
 | **`schema --json`** | 命令の一覧（`bin`・`version`・`commands[]`）を出す命令。プロジェクトを要らない。 | `agent-link schema --json` |
-| **`sai-progress`** | 時間のかかる命令が標準エラーに出す進み具合の行。`sai-progress step=<数>`・`sai-progress msg=<文>`。 | 標準エラー |
 | **`AGENT_LINK_PROJECT_ROOT`** | 対象のプロジェクトの root。空なら、今のフォルダから上へたどって `.agent-link/` を持つ最初のフォルダ。 | 環境変数 |
 | **`AGENT_LINK_PARENT_RUN_ID`** | エージェントが動いている run の番号。`agent-link` が起動時に渡し、`run_id` を省いた命令が「自分の run」として読む。 | 環境変数（`pre_run.rs` が渡す） |
 
@@ -144,17 +148,19 @@ review          …… .agent-link/outputs/review/<run_id>/    利用者の確�
 - **`executer`** — card を起こす人（`human` / `agent`） — §2
 - **finalize** — 完了を確定すること — §2
 - **Home** — 最初に出る画面 — §3
+- **`host`（遠隔の子）** — 子の claude を ssh 先の機械で動かす入力 — §2
 - **`--json`** — 成功したとき、標準出力に JSON を 1 つだけ書く指定 — §4
 - **Kanban** — card と run を 3 レーンに分けた見方 — §2
 - **List** — Projects の画面のひとつ — §3
 - **Projects** — プロジェクトの一覧と、その中の画面 — §3
+- **`remote check`** — 遠隔の機械の疎通を確かめる命令 — §2
+- **`remote setup`** — 遠隔の機械の一度だけの準備 — §2
 - **review** — 完了して利用者の確認を待っている状態 — §2
 - **run（実行）** — エージェントが 1 回動いた記録 — §2
 - **`SaiRoutes`** — 画面を登録する場所 — §3
 - **`saiTerm`（用語の札）** — 押すと説明が出る札 — §3
 - **`schema --json`** — 命令の一覧を出す命令 — §4
 - **Settings（設定）** — block・template・settings を読み書きする画面 — §3
-- **`sai-progress`** — 進み具合の行 — §4
 - **`task.md`** — card と run の依頼書 — §2
 - **`# task_text`** — `task.md` の依頼文の節 — §2
 - **template** — block の本文に差し込む共通の決まり — §2
@@ -171,6 +177,8 @@ review          …… .agent-link/outputs/review/<run_id>/    利用者の確�
 - **終了コード** — 0・2・3・4・1 の意味 — §4
 - **擬似 pane（headless）** — headless の run の区画 — §2
 - **先着の答え** — 先に答えた方を採用する決まり — §3
+- **中継（relay）** — 遠隔の機械から Mac の門番へ命令を送るスクリプト — §2
 - **登録簿（registry）** — 全プロジェクトの一覧 — §1
+- **門番（`remote-gate`）** — 遠隔の機械から来た命令を Mac で受ける入口 — §2
 - **プロジェクト** — 作業の単位となるフォルダ — §1
 - **住所（`#/…`）** — 画面の URL の `#` 以降 — §3
