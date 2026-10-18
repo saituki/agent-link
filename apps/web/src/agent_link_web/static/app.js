@@ -138,25 +138,30 @@ async function route() {
     // タブのファイルが登録した画面
     showView(r.def.view);
     if (typeof r.def.open === "function") await r.def.open(r.params);
+    if (seq !== routeSeq) return;
     if (r.def.interval > 0) rearm();
   } else if (r.name === "days") {
     showView("view-days");
     await loadDays();
+    if (seq !== routeSeq) return;
     rearm();
   } else if (r.name === "day") {
     showView("view-day");
     // 狭い画面では右（その日の実行）だけを出す。広い画面は左の日付一覧も出す
     saiSplitShow(document.getElementById("day-split"), "main");
     await loadDay();
+    if (seq !== routeSeq) return;
     rearm();
   } else if (r.name === "run" && r.stats) {
     // 統計画面（04）．中身は stats.js にまとめてある
     showView("view-stats");
     await SaiStats.open(r);
+    if (seq !== routeSeq) return;
     rearm();
   } else if (r.name === "run") {
     showView("view-run");
     await openRun(r);
+    if (seq !== routeSeq) return;
     rearm();
   }
   // 読み込みのあいだに別の route が始まっていたら何もしない（古い route が
@@ -566,12 +571,17 @@ let firstLoadDone = false;
 let chatPartialText = ""; // 今出している「生成中」の文（空 = 出していない）
 let chatErrorText = "";   // 今出している error の文（空 = 出していない）
 let runStarting = false;  // 新しいチャットの実行がまだ書き出されていない（起動待ち）
+let runSeq = 0;           // 実行の切り替えの連番（前の実行の遅い応答を捨てる）
+let runPolling = false;   // 定期の更新が実行中か（重ねて呼ばない）
 
 function runApiBase() {
   return `/api/runs/${encodeURIComponent(currentRun.project_name)}/${encodeURIComponent(currentRun.run_id)}`;
 }
 
 async function openRun(r) {
+  // 別の実行に移った。前の実行の読み込みで止まっている応答は、この連番で捨てる
+  const seq = ++runSeq;
+  runPolling = false; // 前の実行の更新が止まったままでも、今の実行の更新は動かす
   currentRun = {
     project_name: r.project,
     run_id: r.id,
@@ -602,7 +612,9 @@ async function openRun(r) {
   document.getElementById("finalize-button").hidden = true;
   document.getElementById("interrupt-button").hidden = true;
   await loadRunMeta();
+  if (seq !== runSeq) return;
   if (!runStarting) await loadChatMore();
+  if (seq !== runSeq) return;
   firstLoadDone = true;
 }
 
@@ -653,8 +665,10 @@ function updateComposer() {
 
 async function loadRunMeta() {
   if (current.name !== "run") return;
+  const seq = runSeq;
   try {
     const res = await apiFetch(`/api/runs/${encodeURIComponent(current.project)}/${encodeURIComponent(current.id)}`);
+    if (seq !== runSeq) return null;
     if (res.status === 404 && newChatWaiting(current.id)) {
       // 新しいチャットから来た実行がまだ書き出されていない（約 5 秒の遅れ）
       runStarting = true;
@@ -670,6 +684,7 @@ async function loadRunMeta() {
     }
     if (!res.ok) throw new Error("bad");
     const data = await res.json();
+    if (seq !== runSeq) return null;
     const prevLive = currentRun ? currentRun.live : undefined;
     runStarting = false;
     currentRun = data;
@@ -695,6 +710,7 @@ async function loadRunMeta() {
     clearNewChatWaiting(data.run_id);
     return data;
   } catch {
+    if (seq !== runSeq) return null;
     if (document.getElementById("run-title").textContent === "Waiting to start…") {
       document.getElementById("run-title").textContent = "Could not load";
     }
@@ -705,6 +721,7 @@ async function loadRunMeta() {
 
 async function loadChatMore() {
   if (current.name !== "run" || !currentRun) return;
+  const seq = runSeq;
   const url = chatCursor
     ? `${runApiBase()}/items?after=${encodeURIComponent(chatCursor)}`
     : `${runApiBase()}/items`;
@@ -712,15 +729,19 @@ async function loadChatMore() {
     const res = await apiFetch(url);
     if (!res.ok) throw new Error("bad");
     const data = await res.json();
+    if (seq !== runSeq) return;
     chatCursor = data.next_cursor || chatCursor;
     appendItems(data.items || []);
     await loadQuestions();
+    if (seq !== runSeq) return;
     await flushPendingSends();
+    if (seq !== runSeq) return;
     applyPartial(data.partial);
     applyError(data.error);
     setOffline(false);
     onOk();
   } catch {
+    if (seq !== runSeq) return;
     // 切れている間は読みかけの会話を残し，帯だけ出す．次回に回す．
     setOffline(true);
     onFail();
@@ -729,11 +750,18 @@ async function loadChatMore() {
 }
 
 // 表示中の画面だけ更新する（実行画面は Meta → 会話 の順で2秒ごと）
+// 前の呼び出しが終わっていなければ何もしない（遅い通信が重なって会話が二重に入るのを防ぐ）
 async function pollRun() {
-  await loadRunMeta();
-  // 起動待ちのあいだは会話を読みに行かない（まだ書き出されていない）
-  if (runStarting) return;
-  await loadChatMore();
+  if (runPolling) return;
+  runPolling = true;
+  try {
+    await loadRunMeta();
+    // 起動待ちのあいだは会話を読みに行かない（まだ書き出されていない）
+    if (runStarting) return;
+    await loadChatMore();
+  } finally {
+    runPolling = false;
+  }
 }
 
 // --- 質問カード ---
@@ -1030,7 +1058,7 @@ async function submitAnswers(q, state, card, submitBtn) {
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
-      alert(err.detail || "Could not send.");
+      saiToast(err.detail || "Could not send.", "error");
       card.querySelectorAll("button, input").forEach((el) => { el.disabled = false; });
       submitBtn.disabled = true;
       return;
@@ -1462,35 +1490,51 @@ document.getElementById("stats-button").addEventListener("click", () => {
 // 完了の処理は agent-link のデーモンが行うので、ここは要求を出すだけ。
 document.getElementById("finalize-button").addEventListener("click", async () => {
   if (!currentRun) return;
-  if (!confirm("End this run. Are you sure?")) return;
-  const res = await apiFetch(`${runApiBase()}/finalize`, { method: "POST" });
-  const out = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    alert(out.detail || "Could not end the run.");
-    return;
+  if (!(await saiConfirm({ title: "End this run. Are you sure?", danger: true }))) return;
+  const btn = document.getElementById("finalize-button");
+  btn.disabled = true; // 送信中はもう一度押せない
+  try {
+    const res = await apiFetch(`${runApiBase()}/finalize`, { method: "POST" });
+    const out = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      saiToast(out.detail || "Could not end the run.", "error");
+      return;
+    }
+    saiToast(out.message || "Asked the run to end.", "ok");
+    await loadRunMeta();
+  } catch {
+    saiToast("Could not finish the run.", "error");
+  } finally {
+    btn.disabled = false;
   }
-  alert(out.message || "Asked the run to end.");
-  await loadRunMeta();
 });
 
 // 停止（入力欄の横）。headless の実行に止まれと伝える。
 document.getElementById("interrupt-button").addEventListener("click", async () => {
   if (!currentRun) return;
-  const res = await apiFetch(`${runApiBase()}/interrupt`, { method: "POST" });
-  const out = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    alert(out.detail || "Could not interrupt.");
-    return;
+  const btn = document.getElementById("interrupt-button");
+  btn.disabled = true; // 送信中はもう一度押せない
+  try {
+    const res = await apiFetch(`${runApiBase()}/interrupt`, { method: "POST" });
+    const out = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      saiToast(out.detail || "Could not interrupt.", "error");
+      return;
+    }
+    if (out.status === "interrupted") saiToast("Stopped");
+    else if (out.status === "still_working") {
+      saiToast("Not stopped yet. Press again, or end the run with ■.");
+    } else {
+      saiToast(out.status || "Stopped");
+    }
+    // 質問中に押すと質問が取り下げられるので，質問の一覧も読み直す
+    await loadRunMeta();
+    await loadQuestions();
+  } catch {
+    saiToast("Could not interrupt.", "error");
+  } finally {
+    btn.disabled = false;
   }
-  if (out.status === "interrupted") saiToast("Stopped");
-  else if (out.status === "still_working") {
-    saiToast("Not stopped yet. Press again, or end the run with ■.");
-  } else {
-    saiToast(out.status || "Stopped");
-  }
-  // 質問中に押すと質問が取り下げられるので，質問の一覧も読み直す
-  await loadRunMeta();
-  await loadQuestions();
 });
 
 // --- 版の確認と入れ替え（ⓘボタン） ---
@@ -1516,10 +1560,11 @@ document.getElementById("version-button").addEventListener("click", async () => 
     const b = await res.json();
     server = `${b.server || "?"} (started ${b.started_at || "?"})`;
   } catch { /* 読めなければそのまま */ }
-  const ok = confirm(
-    `Screen: ${page}\nSaved screens: ${saved}\nService Worker: ${worker}\nMac server: ${server}\n\n` +
-    "Replace with the latest screen? (Your notification registration is kept.)"
-  );
+  const ok = await saiConfirm({
+    title: "Replace with the latest screen?",
+    body: `Screen: ${page}\nSaved screens: ${saved}\nService Worker: ${worker}\nMac server: ${server}\n\n` +
+      "Your notification registration is kept.",
+  });
   if (!ok) return;
   // 受け取り役（Service Worker）は登録を消さずに更新だけする（消すと通知の登録も消えるため）
   try {
@@ -1539,33 +1584,41 @@ document.getElementById("version-button").addEventListener("click", async () => 
 // iOS は一度断られると再度聞けないため．
 document.getElementById("notify-button").addEventListener("click", async () => {
   if (!("Notification" in window) || !("serviceWorker" in navigator)) {
-    alert("Notifications are not available on this device.");
+    saiToast("Notifications are not available on this device.", "error");
     return;
   }
-  const perm = await Notification.requestPermission();
-  if (perm !== "granted") return;
+  const btn = document.getElementById("notify-button");
+  btn.disabled = true; // 登録のあいだはもう一度押せない
   try {
-    const reg = await navigator.serviceWorker.ready;
-    const keyRes = await apiFetch("/api/push/key");
-    if (!keyRes.ok) throw new Error("Could not get the key.");
-    const { public_key } = await keyRes.json();
-    const sub = await reg.pushManager.subscribe({
-      userVisibleOnly: true,
-      applicationServerKey: urlBase64ToUint8Array(public_key),
-    });
-    const res = await apiFetch("/api/push/subscribe", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(sub.toJSON()),
-    });
-    if (!res.ok) throw new Error("Could not register.");
-    const body = await res.json().catch(() => ({}));
-    // 登録と同時に Mac がテスト通知を 1 通送る（届かなければ Mac 側のログを見る）
-    alert(body.test_sent
-      ? "Notifications are on (a test notification was sent)"
-      : "Notifications are on (but the test notification could not be sent)");
-  } catch (e) {
-    alert(`Could not register for notifications: ${e.message || e}`);
+    const perm = await Notification.requestPermission();
+    if (perm !== "granted") return;
+    try {
+      const reg = await navigator.serviceWorker.ready;
+      const keyRes = await apiFetch("/api/push/key");
+      if (!keyRes.ok) throw new Error("Could not get the key.");
+      const { public_key } = await keyRes.json();
+      const sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(public_key),
+      });
+      const res = await apiFetch("/api/push/subscribe", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(sub.toJSON()),
+      });
+      if (!res.ok) throw new Error("Could not register.");
+      const body = await res.json().catch(() => ({}));
+      // 登録と同時に Mac がテスト通知を 1 通送る（届かなければ Mac 側のログを見る）
+      saiToast(body.test_sent
+        ? "Notifications are on (a test notification was sent)"
+        : "Notifications are on (but the test notification could not be sent)", "ok");
+    } catch (e) {
+      saiToast(`Could not register for notifications: ${e.message || e}`, "error");
+    }
+  } catch {
+    saiToast("Could not register for notifications.", "error");
+  } finally {
+    btn.disabled = false;
   }
 });
 
@@ -1738,7 +1791,7 @@ document.getElementById("send-button").addEventListener("click", async () => {
       const err = await res.json().catch(() => ({}));
       // 質問待ちなどで断られたときはサーバーの説明をそのまま出す（C6）
       if (res.status === 409) saiToast(err.detail || "Cannot send right now.");
-      else alert(err.detail || "Could not send.");
+      else saiToast(err.detail || "Could not send.", "error");
       return;
     }
     // 質問中に送った文は質問への答えとして取り下げられた。会話の発言としては残らないので「反映待ち」にしない

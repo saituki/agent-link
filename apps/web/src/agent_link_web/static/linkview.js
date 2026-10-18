@@ -825,7 +825,7 @@ async function lvDelete() {
 async function lvAdvance(adv) {
   if (lvBusy || lvRunId == null || !adv) return;
   const label = (lvRun && lvRun.label) || `ID${lvRunId}`;
-  if (!confirm(`Move ${label} to ${adv.to}?`)) return;
+  if (!(await saiConfirm({ title: `Move ${label} to ${adv.to}?` }))) return;
   lvBusy = true;
   lvRenderActions();
   try {
@@ -853,7 +853,7 @@ async function lvRunTodo() {
   if (lvBusy || lvRunId == null) return;
   const label = (lvRun && lvRun.label) || `ID${lvRunId}`;
   // 確認は既存の ▶ 実行と同じ動き（実行はエージェントを動かすため必ず聞く）
-  if (!confirm(`Run this card?\n\n${label}`)) return;
+  if (!(await saiConfirm({ title: "Run this card?", body: label }))) return;
   lvBusy = true;
   lvRenderActions();
   try {
@@ -1999,14 +1999,17 @@ if (typeof window !== "undefined") {
 
 // --- md の中の waggle リンク（`waggle:<トークン>`）を押したら、その文書の表示へ移る ---
 // 文書に `:path:…/<run_id>/…` があればその run、無ければ今開いている run の下で開く
-// （トークンの解決は run に依らない）。List が見えているときだけ動く。
+// （トークンの解決は run に依らない）。List が見えていないときは、その旨を Toast で知らせる。
 if (typeof document !== "undefined") {
   document.addEventListener("click", (e) => {
     const a = e.target && typeof e.target.closest === "function" ? e.target.closest("a.md-waggle") : null;
     if (!a) return;
     e.preventDefault();
     const list = document.getElementById("view-list");
-    if (!list || list.hidden || !lvName) return;
+    if (!list || list.hidden || !lvName) {
+      saiToast("Open the List to view this document.");
+      return;
+    }
     const run = Number(a.dataset.waggleRun) || lvRunId;
     if (run == null) return;
     location.hash = listHash(lvName, run, "waggle", a.dataset.waggleToken);
