@@ -24,6 +24,21 @@ pub(crate) fn run(cmd: CardCmd) -> Result<(), CmdError> {
         } => print_view(ViewCmd::Card {
             cmd: ViewCardCmd::Schedule { run_id, at },
         }),
+        CardCmd::Wait {
+            run_id,
+            every,
+            clear,
+            command,
+            json,
+        } => print_view(ViewCmd::Card {
+            cmd: ViewCardCmd::Wait {
+                run_id,
+                every,
+                clear,
+                command,
+                json,
+            },
+        }),
         CardCmd::Run { run_id, json: _ } => print_view(ViewCmd::Card {
             cmd: ViewCardCmd::Run { run_id },
         }),

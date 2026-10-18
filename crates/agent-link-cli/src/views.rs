@@ -189,12 +189,16 @@ pub(crate) fn run(cmd: ViewCmd) -> ViewResult<ViewOut> {
         ViewCmd::Run { run_id, view } => val(run_view(run_id, &view)),
         ViewCmd::Md { run_id, kind, write: false } => val(md(run_id, &kind)),
         ViewCmd::Md { run_id, kind, write: true } => val(md_write(run_id, &kind)),
+        ViewCmd::Card {
+            cmd: ViewCardCmd::Wait { run_id, every, clear, command, json },
+        } => card_wait(run_id, every, clear, &command, json),
         ViewCmd::Card { cmd } => val(match cmd {
             ViewCardCmd::Options => card_options(),
             ViewCardCmd::Docs { limit } => card_docs(limit),
             ViewCardCmd::Create => card_create(),
             ViewCardCmd::Schedule { run_id, at } => card_schedule(run_id, at.as_deref()),
             ViewCardCmd::Run { run_id } => card_run(run_id),
+            ViewCardCmd::Wait { .. } => unreachable!("card wait は上の腕で処理する"),
         }),
         ViewCmd::Advance { run_id } => val(advance(run_id)),
         ViewCmd::Rm { run_id } => val(rm(run_id)),
@@ -946,6 +950,104 @@ fn card_schedule(run_id: i64, at: Option<&str>) -> ViewResult<Value> {
     Ok(json!({ "run_id": run_id, "scheduled_at": at }))
 }
 
+/// 待ち条件の命令の全長の上限（文字数。各要素の長さの合計）。
+const WAIT_COMMAND_MAX_CHARS: usize = 4000;
+
+/// `card wait` の引数を検査する。`Some((命令, 間隔 分))` は付ける、`None` は外す。
+fn validate_wait_args(
+    every: Option<i64>,
+    clear: bool,
+    command: &[String],
+) -> ViewResult<Option<(Vec<String>, i64)>> {
+    if clear {
+        if !command.is_empty() || every.is_some() {
+            return Err(ViewError::usage("--clear takes no command and no --every."));
+        }
+        return Ok(None);
+    }
+    if command.is_empty() {
+        return Err(ViewError::usage("Give a command after `--`, or use --clear."));
+    }
+    let every = every.unwrap_or(10);
+    if !(1..=1440).contains(&every) {
+        return Err(ViewError::usage("--every must be an integer from 1 to 1440 (minutes)."));
+    }
+    if command.iter().any(|c| c.contains('\n') || c.contains('\r')) {
+        return Err(ViewError::usage("A command element must not contain a newline."));
+    }
+    if command.iter().map(|c| c.chars().count()).sum::<usize>() > WAIT_COMMAND_MAX_CHARS {
+        return Err(ViewError::usage(format!(
+            "The command must be at most {} characters in total.",
+            WAIT_COMMAND_MAX_CHARS
+        )));
+    }
+    Ok(Some((command.to_vec(), every)))
+}
+
+/// `card wait <run_id> [--every N] -- <命令>…` / `card wait <run_id> --clear`:
+/// todo のカードの待ち条件（`wait:`・`wait_every:`）を書く・外す。
+///
+/// 付けると `scheduled_at` を今にして、常駐がすぐ見に行く。外すと `scheduled_at` も消す。
+/// 命令を呼ぶのは常駐（`daemon.rs` の予定の見回り・共有契約 C5）。
+fn card_wait(
+    run_id: i64,
+    every: Option<i64>,
+    clear: bool,
+    command: &[String],
+    json: bool,
+) -> ViewResult<ViewOut> {
+    let wait = validate_wait_args(every, clear, command)?;
+    let task = agent_link_engine::project::sai_path(agent_link_engine::run_dir::OUTPUTS_DIR)
+        .join(agent_link_engine::run_dir::TODO_OWNER)
+        .join(run_id.to_string())
+        .join(agent_link_engine::run_dir::TASK_FILE);
+    if !task.is_file() {
+        return Err(ViewError::not_found(TODO_NOT_FOUND));
+    }
+    let text = std::fs::read_to_string(&task)
+        .map_err(|e| ViewError::internal(format!("Cannot read task.md: {}.", e)))?;
+    let mut card = agent_link_engine::kanban::parse_card(&text)
+        .ok_or_else(|| ViewError::not_found(TODO_NOT_FOUND))?;
+    let meta = &mut card.frontmatter.meta;
+    meta.remove("wait_note");
+    let scheduled_at = match &wait {
+        Some((command, every)) => {
+            let now = chrono::Local::now().format("%Y-%m-%d %H:%M").to_string();
+            let wait_json = serde_json::to_string(command)
+                .map_err(|e| ViewError::internal(format!("Failed to serialize JSON: {}.", e)))?;
+            meta.insert("wait".to_string(), wait_json);
+            meta.insert("wait_every".to_string(), every.to_string());
+            meta.insert("scheduled_at".to_string(), now.clone());
+            Some(now)
+        }
+        None => {
+            for key in ["wait", "wait_every", "scheduled_at"] {
+                meta.remove(key);
+            }
+            None
+        }
+    };
+    std::fs::write(&task, agent_link_engine::kanban::render_card(&card))
+        .map_err(|e| ViewError::internal(format!("Cannot write task.md: {}.", e)))?;
+    if json {
+        return Ok(ViewOut::Value(json!({
+            "run_id": run_id,
+            "wait": wait.as_ref().map(|(c, _)| c),
+            "every": wait.as_ref().map(|(_, e)| e),
+            "scheduled_at": scheduled_at,
+        })));
+    }
+    Ok(ViewOut::Text(match &wait {
+        Some((command, every)) => format!(
+            "Card {} waits for: {} (every {} min).",
+            run_id,
+            command.join(" "),
+            every
+        ),
+        None => format!("Card {} no longer waits.", run_id),
+    }))
+}
+
 /// `card create`（stdin に JSON）: カードを作成し run_id とパスを返す。
 ///
 /// 受け取った値は検査（`validate_card_spec`。block は必須）にかけ、
@@ -1071,7 +1173,7 @@ fn card_create_from(parsed: CardCreateInput) -> ViewResult<Value> {
 /// - 値の改行は空白に置き換える。
 fn validate_card_meta(meta: &HashMap<String, String>) -> ViewResult<Vec<(String, String)>> {
     // 廃止した `runner`・`provider`・`tag` と round 系の 2 項目も、`meta` で同名を書かせないため残す。
-    const STANDARD_KEYS: [&str; 15] = [
+    const STANDARD_KEYS: [&str; 18] = [
         "runner",
         "creation_date",
         "execution_date",
@@ -1087,6 +1189,10 @@ fn validate_card_meta(meta: &HashMap<String, String>) -> ViewResult<Vec<(String,
         "executer",
         "source_doc",
         "scheduled_at",
+        // 待ち条件は `card wait` だけが書く
+        "wait",
+        "wait_every",
+        "wait_note",
     ];
     let mut out = Vec::with_capacity(meta.len());
     for (key, value) in meta {
