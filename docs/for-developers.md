@@ -103,6 +103,7 @@ $ agent-link init --name 'bad/name'      → 終了コード 2・「Invalid proj
 | `args[].required` / `multiple` / `default` / `help` / `web` | 真偽値・真偽値・値・文字列・真偽値 | 必須・複数・既定・説明・Web に出してよいか |
 
 - `schema --json` は命令を足すと自動で出る。プロジェクトを要らない。
+- 拡張の命令: `ext run` には `stdin`（`--stdin`）の引数がある。`ext hook`（`stdin` は `"json"`）と `ext config` は `web: false`（Web の「コマンド」画面に出さない下回りの命令。`cmd_schema.rs` の `LOWER_LEVEL`）。`card wait` は `web: true` で出る。
 
 ### Web が CLI を呼ぶ約束
 
@@ -150,7 +151,7 @@ cwd は **そのプロジェクトの root**。
 |---|---|---|
 | `control.py` | `run export`（60 秒に 1 回）・`project summary`・`project dashboard --period`・`run tree`・`run log\|stats\|history <id>`・`run md <id> --kind …`（保存は `--write`）・`run finalize\|advance <id>`・`run rm <id> --yes`・`run send\|interrupt <id>`・`doc list --run <id>`・`doc read <token>`・`doc search …`・`card options\|docs\|create\|run\|schedule`・`workflow [--subtasks]`・`def list\|show\|write\|delete`・`session search …`・`daemon start\|stop` | 10 秒（export）・20 秒（既定）・30 秒（daemon・workflow）・60 秒（検索） |
 
-- 拡張（`apps/web` の拡張の窓口）は、`ext list --json`（一覧）と `ext run <名前> -- <引数…>`（拡張の CLI）を呼ぶ。`ext run` の子は 120 秒で止まる（§2.2 の C4）。
+- 拡張（`apps/web` の拡張の窓口）は、`ext list --json`（一覧）と `ext run <名前> [--stdin] -- <引数…>`（拡張の CLI）を呼ぶ。`POST …/ext/<e>/cli` の本文に `input`（文字列）があるときだけ `--stdin` を付け、`input` を標準入力に渡す（1,000,000 文字まで。超えたら 400。[`integration.md`](./integration.md)）。`ext run` の子は 120 秒で止まる（§2.2）。
 - どの呼び出しも**シェルを使わず**、引数は配列で渡される。
 - - **C-ARGS**: `-` で始まりうる外から来た文字列（検索語・文など）を CLI に渡すとき、オプションの値は `--name=<値>` の 1 引数にする。位置引数は `--` のあとに置くか、英数字で始まる値だけを通す。`apps/web` が検査してから渡す（U02 が実装）。
 - **`target/release/` の実行ファイルを作り直す**（`cargo build --release`）。直しても作り直さないと Web は古いまま。
@@ -318,8 +319,24 @@ Web が `recent[]` に**追加で足す**項目: `description`（文字列）・
 | `card create`（**標準入力に JSON**・作成後は todo に配置） | `{"run_id", "path", "executer"}` | `run_id`（次の画面の行き先） |
 | `card run <run_id>` | JSON | 未実行カードが無ければ **終了コード 3・stderr「No unstarted card found.」**。`executer: agent` のカードは **終了コード 2**・stderr「This card is started by an agent as a subtask run (executer: agent). To start it yourself, change the card's executer to human.」。常駐が止まっているときも 2「The daemon is stopped. Start it first.」 |
 | `card schedule <run_id> [--at "YYYY-MM-DD HH:MM"]` | `{"run_id", "scheduled_at"}` | `--at` を省くと予定を消す。常駐が 5 秒ごとに見回って実行する |
+| `card wait <run_id> [--every <分>] [--json] -- <命令>…` / `card wait <run_id> --clear [--json]` | `{"run_id", "wait", "every", "scheduled_at"}`（`--clear` のときは `wait`・`every`・`scheduled_at` が `null`） | 下の「`card wait`」。Web は呼ばない（画面が無い） |
 
-`card start`・`card finish`（`runner: user` の札）と `card wait`（`after_job`）は無い。
+`card start`・`card finish`（`runner: user` の札）は無い。待ち条件は `card wait`（旧 `after_job` とは別物）。
+
+##### `card wait`
+
+todo のカードに、待ち条件の命令を付ける・外す。常駐が予定の時刻ごとに命令を呼び、終了コード 0 でカードを実行する（拡張の作者向けの説明は [`ext-contract.md`](../crates/agent-link-engine/assets/template/ext-contract.md) §4）。
+
+| 終了コード | 場面 |
+|---|---|
+| 0 | 付けた・外した |
+| 2 | `--every` が 1〜1440 の整数でない（`--every must be an integer from 1 to 1440 (minutes).`）・命令が無いのに `--clear` も無い（``Give a command after `--`, or use --clear.``）・`--clear` に命令か `--every` を付けた・命令の要素に改行がある・命令が全部で 4,000 文字を超える |
+| 3 | todo に `<run_id>` のカードが無い（`No unstarted card found.`） |
+
+- 付けると `task.md` に `wait`・`wait_every` を書き、`scheduled_at` を今（`YYYY-MM-DD HH:MM`）にし、`wait_note` を消す。外すと `wait`・`wait_every`・`wait_note`・`scheduled_at` を消す。
+- 人向けの出力は 1 行: `Card <id> waits for: <命令> (every <N> min).` / `Card <id> no longer waits.`
+- 常駐は、予定の時刻になった待ち条件つきのカードの予定を `wait_every` 分後へずらしてから、命令を 1 回呼ぶ（シェルを通さない・cwd はプロジェクトの root・環境変数 `AGENT_LINK_PROJECT_ROOT`・`AGENT_LINK_BIN`・上限 60 秒。先頭の `agent-link` は常駐の実行ファイルに置き換える）。結果は、0 → 待ち条件と予定を外してカードを実行 / 1 → まだ（待ち続ける・`wait_note` を消す）/ それ以外・時間切れ・起動できない → `wait_note` に `YYYY-MM-DD HH:MM <理由>` を書いて待ち続ける。
+- 命令を呼ぶ間に待ち条件が外された（`--clear`）カード、todo から消えたカードは、結果が 0 でも実行しない（結果を書く前に `task.md` を読み直す）。`wait` が文字列の JSON 配列でない・空のときは、`wait_note` に `wait is not a JSON array of strings` を書き、予定を消す。
 
 `card create` の標準入力の JSON（Web が作る形）:
 
@@ -417,7 +434,9 @@ Web が `recent[]` に**追加で足す**項目: `description`（文字列）・
 | `ext enable <name>` | 要る | (1) `requires` がすべてこのプロジェクトで有効か確かめる (2) block と template を写す（`update=false`） (3) `init` があれば起こす (4) `extensions` に足す。既に有効なら (2)(3) を行い、(4) は足さない | 3: 入っていない。4: `requires` が未有効。1: `init` が失敗（記録しない） |
 | `ext disable <name>` | 要る | このプロジェクトで有効な他の拡張が `requires` していないか確かめる。`extensions` から外す。写した block・template のうち、拡張の版と同じ物だけ消す（利用者が直した物は残し、`kept` に出す） | 3: このプロジェクトで有効でない。4: 他の拡張が要る |
 | `ext update [<name>]` | 要る | 有効な拡張（名前を指定すればそれだけ）の block と template を `update=true` で写し、`update` の引数があれば起こす。最初の失敗で止まる | 3: 指定した名前が有効でない。1: `update` の失敗 |
-| `ext run <name> [-- <args>…]` | 要る | 拡張の CLI を起こし、標準出力をそのまま出す（`--json` は付けても同じ。中身は拡張の物） | 3: 入っていない。4: このプロジェクトで有効でない。2: `cli` が無い。それ以外は子の終了コード（2・3・4 はそのまま、ほかは 1） |
+| `ext run <name> [--stdin] [-- <args>…]` | 要る | 拡張の CLI を起こし、標準出力をそのまま出す（`--json` は付けても同じ。中身は拡張の物）。`--stdin` は、自分の標準入力（UTF-8・1,000,000 バイトまで）を拡張の CLI の標準入力に渡す（無ければ子の標準入力は閉じる） | 3: 入っていない。4: このプロジェクトで有効でない。2: `cli` が無い・`--stdin` の入力が上限（1,000,000 バイト）を超える（`Input is larger than 1000000 bytes.`）・UTF-8 でない（`Input must be UTF-8 text.`）。それ以外は子の終了コード（2・3・4 はそのまま、ほかは 1） |
+| `ext hook question [--json]` | 要る | 標準入力の JSON（下）を、持ち主の拡張の `hooks.question` の命令にそのまま渡す（上限 10 秒）。持ち主 = このプロジェクトで有効・`question` を宣言・`block` が `<name>` か `<name>-` で始まる拡張のうち name の長い物。base の質問フック（`apps/web/hooks/cc_question.py`）が、答えが届いたときに呼ぶ | 2: 標準入力が JSON でない・`run_id`（整数）か `block`（文字列）が無い・点が `question` でない（`Unknown hook point: <点>. Use question.`）。それ以外は **0**（持ち主がいない・拡張が失敗・時間切れでも 0。`--json` が無くても JSON を出す） |
+| `ext config <name> [--json]` | 要らない | 拡張が `config` に宣言した設定値を読む（環境変数 → `$AGENT_LINK_HOME/settings.json` の `config` → 無し）。`--json` が無いときは `<名前>: set` か `<名前>: not set` だけを出し、値は出さない | 3: 入っていない |
 
 - すべて `--json` を受ける。失敗のとき、標準出力は空にし、標準エラーの最後の行に英語の理由を 1 行出す（§1 の約束）。`--json` が無いときは、人向けの英語の文を 1 行以上出す。
 - **有効の記録**は `<root>/.agent-link/settings.json` の `extensions`（§3.1）。`$AGENT_LINK_HOME/settings.json` の `extensions` は読まない。
@@ -431,25 +450,33 @@ ext uninstall --json → {"name", "removed": true}
 ext enable --json   → {"name", "enabled": true, "assets": [{"path", "outcome"}], "init": "ran" | "none"}
 ext disable --json  → {"name", "enabled": false, "removed": [<path>…], "kept": [<path>…]}
 ext update --json   → {"updated": [{"name", "assets": [...], "update": "ran" | "none"}]}
+ext hook question --json → {"ext": <名前>|null, "ran": <真偽値>, "code": <拡張の終了コード>|null}
+ext config --json   → {"name", "values": {<名前>: <値>|null}}
 ```
 
+- `ext hook question` の標準入力: `{"run_id": <整数>, "block": "<block の id>", "qid": "<Web の質問 id>", "questions": [<cc の questions そのまま>], "answers": {"<質問文>": "<答え>"}, "answered_by": "user"}`。拡張の `question` の命令には、この JSON をそのまま標準入力で渡す。出力は、持ち主がいなければ `{"ext": null, "ran": false, "code": null}`、呼べたら `{"ext": "<name>", "ran": true, "code": <終了コード>}`、起動できない・時間切れなら `{"ext": "<name>", "ran": false, "code": null}`（標準エラーに `Extension <name> question hook did not run: <理由>`）。
+- `ext config --json` の `values` のキーは辞書順（人向けの出力と `ext list` の `config` は宣言の順）。宣言していない名前は読めない。値は秘密でありうるので、`--json` を呼ぶのは拡張の CLI だけにし、エージェントに呼ばせない。
+
 - `outcome` は `created`・`updated`・`unchanged`・`kept`。
-- `ext list --json` の `extensions` の 1 件（無い項目は `null`（`cli`・`ui`・`service`）か `[]`（`requires`・`init`・`update`・`blocks`・`templates`））:
+- `ext list --json` の `extensions` の 1 件（無い項目は `null`（`cli`・`ui`・`service`・`hooks`）か `[]`（`requires`・`init`・`update`・`blocks`・`templates`・`config`））:
 
   ```json
   {"name": "hello", "title": "Hello", "version": "0.1.0", "description": "…",
    "path": "/Users/me/.agent-link/extensions/hello", "linked": false, "requires": [],
    "cli": {"bin": "bin/hello", "web": ["greet"]}, "init": ["init"], "update": ["init", "--update"],
+   "hooks": {"context": ["context", "{run_id}"], "write_check": null, "question": ["on-answer"]},
+   "config": [{"name": "AGENT_LINK_EXT_HELLO_TOKEN", "set": false}],
    "blocks": ["hello-agent.md"], "templates": ["hello-rules.md"],
    "ui": {"title": "Hello", "icon": "icon.svg", "scripts": ["hello.js"], "styles": ["hello.css"]},
    "service": {"url_env": "AGENT_LINK_EXT_HELLO_URL", "user_env": null, "password_env": null, "post": [], "ready": false},
    "enabled_in": ["myproj"]}
   ```
 
+- **`hooks`** は、宣言があれば 3 つのキー（`context`・`write_check`・`question`）が必ず出る（宣言の無い点は `null`）。**`config`** は宣言の順で、`set` は値があるか（値は出さない）。Web はどちらも読まない。
 - **`enabled_in`** は、登録簿（`$AGENT_LINK_HOME/registry.json`）の各 root の `<root>/.agent-link/settings.json` の `extensions` に名前があるプロジェクトの `name`（登録簿の順）。
 - **`errors`** は宣言が壊れた拡張（`extensions` に入れない）。命令は成功にする。置き場が無ければ `extensions: []`。
 - **Web が読む項目**は `ext list --json` の `name`・`title`・`ui`・`service.ready`・`cli.web`・`enabled_in`・`path`。`scripts/agent-link-setup doctor` は `errors` を読む（`extensions` の行）。項目を消す・改名すると、`apps/web` の `ext.py` と一緒に直す。
-- **base が拡張の CLI を起こすとき**（`init`・`update`・`ext run`）は、シェルを通さない。cwd はプロジェクトの root。環境変数は親の物に `AGENT_LINK_PROJECT_ROOT=<root>` と `AGENT_LINK_BIN=<agent-link の絶対パス>` を足す。時間の上限は `init`・`update` が 300 秒、`ext run` が 120 秒。超えたら子を止めて終了コード 1（`Extension command timed out after N seconds.`）。
+- **base が拡張の CLI を起こすとき**（`init`・`update`・`ext run`・hook）は、シェルを通さない。cwd はプロジェクトの root。環境変数は親の物に `AGENT_LINK_PROJECT_ROOT=<root>` と `AGENT_LINK_BIN=<agent-link の絶対パス>` を足す（hook は加えて `AGENT_LINK_PARENT_RUN_ID`・`AGENT_LINK_BLOCK_NAME`。`write_check` は `AGENT_LINK_WRITE_FILENAME`・`AGENT_LINK_WRITE_DESCRIPTION` も）。時間の上限は `init`・`update` が 300 秒、`ext run` が 120 秒、hook が `context` 20 秒・`write_check` 30 秒・`question` 10 秒。超えたら子を止めて終了コード 1（`Extension command timed out after N seconds.`）。
 - **run の中のエージェント**は、そのプロジェクトで有効な拡張について `<拡張のフォルダ>/<cli.bin のフォルダ>` が PATH の先頭側に入るので、拡張の CLI を名前だけで呼べる。
 
 #### `remote setup <host> [--mac <addr>] [--json]` / `remote check <host> [--json]`
@@ -605,7 +632,7 @@ settings は 2 か所で書ける。**後者（`$AGENT_LINK_HOME`）が前者（
 | 種類 | キー |
 |---|---|
 | 固定のキー | `creation_date`・`execution_date`・`run_id`・`block`・`thinking`・`model`・`description`（と、block の入力の `inputs`） |
-| メタのキー（**入力の欄ではなく、起動の道を決める情報**・入力検査の対象外） | `source_doc`・`scheduled_at`・`executer` |
+| メタのキー（**入力の欄ではなく、起動の道を決める情報**・入力検査の対象外） | `source_doc`・`scheduled_at`・`executer`・`wait`・`wait_every`・`wait_note` |
 | 廃止したキー（読み飛ばし、書き出さない） | `runner`・`provider`・`tag`・`round`・`global_round`・`after_job`・`target_node`・`origin_run_id`・`origin_block` |
 
 | メタのキー | 値 | 意味 |
@@ -613,6 +640,11 @@ settings は 2 か所で書ける。**後者（`$AGENT_LINK_HOME`）が前者（
 | `executer` | `human`（既定）/ `agent`（旧 `professor` も `agent` と読む） | 起動者。`agent` は、エージェントが自分の子の run として起こすカード。**人が起こす道（`card run`・常駐の予約実行）では動かさない**（起こすと root の run になり、報告が起こす側に届かないため） |
 | `scheduled_at` | `YYYY-MM-DD HH:MM` | 実行予定時刻。`card schedule` が書く。常駐が 5 秒ごとに見回る |
 | `source_doc` | 文字列 | カードの元になった文書 |
+| `wait` | 命令の JSON 配列（1 行）。例 `["agent-link","ext","run","hello","--","job-done","J1"]` | 待ち条件の命令。`card wait` だけが書く。常駐が `scheduled_at` ごとに呼び、終了コード 0 でカードを実行する |
+| `wait_every` | 1〜1440 の整数（分）。既定 10（読めなければ 10 として扱う） | 待ち条件を見に行く間隔 |
+| `wait_note` | `YYYY-MM-DD HH:MM <理由>`（理由は 1 行・200 文字まで） | 待ち条件の最後の失敗。`card wait` と常駐が書く |
+
+- `wait`・`wait_every`・`wait_note` は `card create` の `meta` では書けない（終了コード 2・`The meta key wait is reserved.`）。`card wait` だけが書く。
 
 - `executer` は `agent_link_engine::kanban::CardFrontmatter::executer()` / `is_agent_executer()` が読む。未記載・空・知らない値は `human` 扱い。`run tree` の各 run ノードと `workflow` の `lanes` の各札が `"executer"` を持つ。
 - 固定のキーとメタのキーは `kanban.rs` の `FIXED_FM_KEYS`・`META_FM_KEYS`、廃止したキーは `LEGACY_FM_KEYS`。
@@ -675,7 +707,7 @@ cc の質問フック（`apps/web/hooks/cc_question.py`・`cc_register.py`）は
 
 - cc は、tmux の対話モードで動く。tmux の session（名前は `hl-…`）の環境変数は `HERDR_PANE_ID=<pane_id>`・`AGENT_LINK_AGENT_TRANSPORT=tmux`・`AGENT_LINK_PROJECT_ROOT=<root>`・`AGENT_LINK_WEB_URL`（フックの送り先）と、`AGENT_LINK_HOME` が設定されているときはその値（`tmux.rs` の `-e`）。
 - **cc の設定**は `.agent-link/cc-settings.json`（`init` が書き、run を始めるたびに今の版に合わせる）。cc は `--settings <そのファイル>` で受ける（許可・フック・statusLine）。プロジェクトの `.claude/settings.json` は読むだけで書かない（sai-moon の物と取り合わないため）。フックは `AGENT_LINK_PARENT_RUN_ID` のある cc（agent-link の run の中）でだけ動き、無ければ何もせず終了コード 0 で素通りする。許可する外部 MCP は `.mcp.json` の名前ごとの `mcp__<名前>__*`（`mcp__*` ではない）。
-- cc の質問フックは `PreToolUse`（`AskUserQuestion`）で呼ばれ、答えを待つ（最長 24 時間）。答えが届いたら `permissionDecision: "allow"` と `updatedInput`（`questions` は cc の物をそのまま、`answers` は `{質問文: 答え}`）を返し、cc はこれを AskUserQuestion の結果としてモデルへ渡す。複数選択は label を `", "` でつなぐ。`AGENT_LINK_CC_QUESTION_MODE=deny` のときは、答えがあっても `permissionDecision: "deny"` と `permissionDecisionReason`（「利用者が Web で答えました。」と答え）で返す（`updatedInput` が cc で効かなかったときに戻すため）。答えが来ないまま打ち切ったときは `deny` と「利用者は答えませんでした。」。cc の hooks の `timeout` は 86400 秒。
+- cc の質問フックは `PreToolUse`（`AskUserQuestion`）で呼ばれ、答えを待つ（最長 24 時間）。答えが届いたら `permissionDecision: "allow"` と `updatedInput`（`questions` は cc の物をそのまま、`answers` は `{質問文: 答え}`）を返し、cc はこれを AskUserQuestion の結果としてモデルへ渡す。複数選択は label を `", "` でつなぐ。`AGENT_LINK_CC_QUESTION_MODE=deny` のときは、答えがあっても `permissionDecision: "deny"` と `permissionDecisionReason`（「利用者が Web で答えました。」と答え）で返す（`updatedInput` が cc で効かなかったときに戻すため）。答えが来ないまま打ち切ったときは `deny` と「利用者は答えませんでした。」。cc の hooks の `timeout` は 86400 秒。 答え（Web・端末のどちらでも）が届いたら、フックは `agent-link ext hook question --json` に答えの JSON を渡す（持ち主の拡張の `question` の命令に届く。失敗しても答えは cc に返す）。
 - 承認は `agent-link cc-permission-hook`（`PermissionRequest`）が常に `allow` を返す。状態は `agent-link cc-state-hook <working|idle|blocked|tool>` と `agent-link cc-prompt-hook`（`UserPromptSubmit`）が `state.json` に書く。`PreToolUse`（全ツール）は `cc-state-hook tool`（入力の `tool_name` が `AskUserQuestion` なら `blocked`、ほかは `working`）、`PostToolUse` は `working`、`Stop`・`SessionStart` は `idle`。質問が答え無しで終わったとき（取り下げ・打ち切り）は `cc_question.py` が `working` に戻す。`blocked` は質問の答え待ちで、engine は取り消さない。
 - cc の費用は cc の statusLine（`agent-link cc-statusline`）が `<AGENT_LINK_HOME>/cc-cost/<session_id>.json` に書く。
 - cc の 5 時間枠・7 日枠は同じ `agent-link cc-statusline` が `<AGENT_LINK_HOME>/cc-rate-limits.json` に書く（`{"five_hour":{"used_percentage","resets_at"},"seven_day":{…},"session_id","updated_at"}`。欠けた窓は省く）。`GET /api/usage` は `{"cc": {"limits": <枠または null>, "cost": {"today","month","sessions"}}, "saved_at": <epoch 秒>}`（Home の Claude のカードが読む）。

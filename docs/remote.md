@@ -162,6 +162,7 @@ agent-link task wait <task_id>
 - `task capture`（遠隔の画面）・`task send`・`task interrupt`・`task finalize` は、Mac の子と同じに使える。
 - 子の文書（`agent-link doc write`）と `agent-link task report` は、中継を通って Mac の run に入る。`task wait` の `report` と `outputs` も同じに返る。
 - 子の会話記録は、子が終わるときに Mac へ写される（`agent-link run md <run_id> --kind message`）。
+- **拡張の CLI を名前で呼べる。** 遠隔の子の PATH の先頭に `~/.agent-link-remote/runs/<run_id>/ext-bin/` があり、そのプロジェクトで有効で `cli` を持つ拡張ごとに、同じ名前の中継（例 `hello`）が入る。中継は Mac の `agent-link ext run <name> [--stdin] -- <引数…>` を門番経由で呼ぶ（標準入力が端末でなければ `--stdin` が付く）。つまり拡張の CLI は **Mac で動き**、遠隔の機械では動かない。上限は 120 秒（超えたら終了コード 1）。拡張の CLI が読み書きするのは Mac のファイルで、遠隔のファイルではない。遠隔の子が拡張の結果を残したいときは、`doc write` を使う。
 
 ---
 
@@ -197,6 +198,11 @@ Mac の `~/.ssh/authorized_keys` と WSL を変えるので、利用者が行う
    - 完了の `report` と `outputs` が返る。
    - `agent-link run md <子の run_id> --kind message` に会話が出る。
 7. 子が作業中に `task interrupt` と `task send` を試す。子が `AskUserQuestion` を出す依頼を 1 回試し、iPhone に質問が届くことを見る。
+8. 拡張の CLI を遠隔の子から呼べることを確かめる（Mac に見本の拡張 `hello` を入れて有効にしておく。`docs/for-developers.md` の `ext` の命令を見る）。次の子を頼んで実行させる。
+   ```json
+   {"client_id":"T2","subject":"T2: 遠隔から拡張を呼ぶ","block_type":"sub","host":"wsl-server","cwd":"~/","task_text":"hello greet x を実行し、出力を doc write で保存して task report せよ"}
+   ```
+   - 保存された文書に `{"hello": "x"}` が出る（拡張の CLI は Mac で動いたので、遠隔に `hello` が無くても通る）。
 
 未確認（実機で見る）: `ssh -t` の中の claude に、確定キー（`M-Enter`）と貼り付けが届くか。届かないと、子は `The agent did not report that it started working within 15 seconds …` で失敗する。
 
@@ -213,13 +219,14 @@ Mac の `~/.ssh/authorized_keys` と WSL を変えるので、利用者が行う
 | `cc-state-hook <working\|idle\|blocked\|tool>`・`cc-prompt-hook`・`cc-permission-hook`・`cc-statusline` | Mac の `agent-link` をその引数で実行する |
 | `doc write …`・`doc read …`・`doc list …`・`task report …` | 同上 |
 | `web-hook cc_register`・`web-hook cc_question` | Mac の `apps/web/hooks/<名>.py` を実行する |
+| `ext run <name> [--stdin] -- …`（`<name>` は拡張の名前の形 `^[a-z][a-z0-9-]{0,31}$`。`--stdin` は `--` の前だけ） | Mac の `agent-link` をその引数で実行する（有効かどうかは `ext run` が確かめる。上限 120 秒） |
 | `remote-ping` | `agent-link-remote-ok` を出して終わる |
 
-- ほかの命令（`task create`・`run`・`card`・`daemon` など）は、終了コード 2・`Remote gate does not allow this command: …` で断る。
+- ほかの命令（`task create`・`run`・`card`・`daemon` など。`ext` の `run` 以外の `install`・`enable`・`config` なども含む）は、終了コード 2・`Remote gate does not allow this command: …` で断る。
 - 環境変数は 7 つ（`HERDR_PANE_ID`・`AGENT_LINK_PROJECT_ROOT`・`AGENT_LINK_PARENT_RUN_ID`・`AGENT_LINK_BLOCK_NAME`・`AGENT_LINK_IS_SUBTASK`・`AGENT_LINK_WEB_URL`・`AGENT_LINK_HOME`）だけを、値の形を検査して通す。
 - 命令はシェルを通さず、引数の配列で起こす。
 
-つまり、遠隔の機械が乗っ取られても、できるのは「Mac の run に文書と報告を書く」「状態のフックを呼ぶ」ことまでである。Mac のファイルを読む・書く・命令を走らせることはできない。ただし `AGENT_LINK_PROJECT_ROOT` を変えれば、Mac の別のプロジェクト（`.agent-link/` を持つフォルダ）の run に文書を書ける。
+つまり、遠隔の機械が乗っ取られても、できるのは「Mac の run に文書と報告を書く」「状態のフックを呼ぶ」「有効な拡張の CLI を名前で呼ぶ」ことまでである。Mac のファイルを自由に読む・書く・任意の命令を走らせることはできない（拡張の CLI は、拡張が決めた処理だけを Mac で行う。信用できない拡張を有効にしない）。ただし `AGENT_LINK_PROJECT_ROOT` を変えれば、Mac の別のプロジェクト（`.agent-link/` を持つフォルダ）の run に文書を書ける。
 
 ### 鍵を外す
 
