@@ -21,12 +21,13 @@ from urllib.parse import urlsplit
 
 from fastapi import Body, Depends, FastAPI, HTTPException, Query, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from agent_link_web import (
     control,
+    ext,
     home,
     notify,
     questions,
@@ -111,6 +112,14 @@ _static_dir = Path(__file__).resolve().parent / "static"
 def serve_manifest() -> FileResponse:
     # PWA の設定ファイル．iPhone が読み込めるよう個別に返す．
     return FileResponse(_static_dir / "manifest.json")
+
+
+@app.get("/", include_in_schema=False)
+@app.get("/index.html", include_in_schema=False)
+def serve_index() -> HTMLResponse:
+    # 画面に出す拡張のタブ・style・script を差し込んで返す（拡張の script は app.js より前に読ませる）
+    text = (_static_dir / "index.html").read_text(encoding="utf-8")
+    return HTMLResponse(ext.render_index(text))
 
 
 # --- agent-link の実行 ---
@@ -772,6 +781,41 @@ def api_home_overview(period: str = "week") -> dict:
 def api_usage() -> dict:
     """Claude Code の使用量（上限と費用）。"""
     return {"cc": usage.cc_card(), "saved_at": int(time.time())}
+
+
+# --- 拡張（extension）の住所 ---
+# 画面（ui/）の配信・CLI の中継・service の中継。静的ファイルの mount より前に置く（後だと届かない）。
+
+
+@app.get("/api/ext")
+def api_ext() -> dict:
+    """入っている拡張の一覧（`agent-link ext list --json` から作る）。"""
+    return ext.api_list()
+
+
+@app.get("/ext/{name}/{path:path}", include_in_schema=False)
+def serve_ext_file(name: str, path: str) -> FileResponse:
+    """拡張の `ui/` の中のファイル（検査を通った物だけ）。"""
+    return FileResponse(ext.ui_file(name, path))
+
+
+@app.post("/api/projects/{name}/ext/{ext_name}/cli")
+def api_project_ext_cli(name: str, ext_name: str, payload: dict = Body(...)) -> dict:
+    """拡張の CLI（`ext run <e> -- <args…>`）。web から許した命令だけ。"""
+    return ext.run_cli(name, ext_name, payload)
+
+
+@app.get("/api/ext/{ext_name}/svc/{path:path}")
+def api_ext_svc_get(ext_name: str, path: str, request: Request) -> Response:
+    """拡張の service への GET の中継。"""
+    return ext.relay(ext_name, path, "GET", request.url.query, None)
+
+
+@app.post("/api/ext/{ext_name}/svc/{path:path}")
+async def api_ext_svc_post(ext_name: str, path: str, request: Request) -> Response:
+    """拡張の service への POST の中継（`service.post` の道だけ）。宛先の応答を待つので別スレッドで行う。"""
+    body = await request.body()
+    return await asyncio.to_thread(ext.relay, ext_name, path, "POST", request.url.query, body)
 
 
 # --- PWA（静的ファイル）の配信 ---

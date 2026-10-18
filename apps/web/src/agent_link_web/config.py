@@ -32,7 +32,7 @@ class Settings:
         registry.config_var("AGENT_LINK_WEB_RUNS_DIR", str(registry.sai_home() / "web" / "runs"))
     )
     # agent-link CLI（Project タブが呼ぶ）
-    sai_link_bin: str = registry.config_var("AGENT_LINK_BIN", "agent-link")
+    agent_link_bin: str = registry.config_var("AGENT_LINK_BIN", "agent-link")
 
 
 settings = Settings()
