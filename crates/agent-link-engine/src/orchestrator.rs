@@ -961,6 +961,8 @@ struct RemoteScriptParts<'a> {
     home: &'a str,
     /// `claude --session-id …`（`CcCommandBuilder` の出力）
     cc_command: &'a str,
+    /// 拡張の中継のフォルダ（`stage_ext_shims` の戻り値）。あれば PATH の先頭に足す
+    ext_bin: Option<&'a str>,
 }
 
 /// 遠隔の shell で走らせる 1 行。
@@ -982,9 +984,11 @@ fn remote_script(p: &RemoteScriptParts) -> String {
     if let Some(h) = p.agent_link_home {
         s.push_str(&format!("AGENT_LINK_HOME={} ", q(h)));
     }
+    let ext_prefix = p.ext_bin.map(|d| format!("{}:", q(d))).unwrap_or_default();
     s.push_str(&format!(
-        "AGENT_LINK_HOST={} PATH={}:{}:\"$PATH\" {}",
+        "AGENT_LINK_HOST={} PATH={}{}:{}:\"$PATH\" {}",
         q(p.host),
+        ext_prefix,
         q(&format!("{}/{}/bin", home, crate::remote::REMOTE_DIR)),
         q(&format!("{}/.local/bin", home)),
         p.cc_command,
@@ -1060,9 +1064,21 @@ fn prepare_remote_command(
         .build()
         .map_err(|e| err(format!("Failed to build the cc command: {}", e)))?;
 
-    let root = crate::project::project_root().to_string_lossy().to_string();
+    let project_root = crate::project::project_root();
+    let root = project_root.to_string_lossy().to_string();
+    // 有効で `cli` を持つ拡張の中継を置く（読めない拡張は飛ばす）
+    let ext_names: Vec<String> = match crate::ext::extensions_dir() {
+        Some(dir) => crate::ext::enabled_names(&project_root)
+            .into_iter()
+            .filter(|n| crate::ext::load(&dir.join(n)).is_ok_and(|i| i.manifest.cli.is_some()))
+            .collect(),
+        None => Vec::new(),
+    };
+    let ext_bin = crate::remote::stage_ext_shims(&rt.host, &home, run_id, &ext_names)
+        .map_err(|e| err(e.to_string()))?;
     let agent_link_home = std::env::var("AGENT_LINK_HOME").ok().filter(|v| !v.trim().is_empty());
     let script = remote_script(&RemoteScriptParts {
+        ext_bin: ext_bin.as_deref(),
         cwd_abs: &cwd_abs,
         pane,
         root: &root,
@@ -5981,7 +5997,45 @@ mod tests {
             host: "wsl-server",
             home: "/home/u",
             cc_command: "claude --session-id 'x' --settings '/home/u/.agent-link-remote/runs/21/cc-settings.json'",
+            ext_bin: None,
         }
+    }
+
+    /// `stage_ext_shims` が、遠隔の run フォルダの `ext-bin/<name>` に実行できる中継を置くこと。
+    #[test]
+    fn stage_ext_shims_writes_executable_relays() {
+        use std::os::unix::fs::PermissionsExt;
+        let _env_lock = finalize_env_lock();
+        let (_g_path, _g_home, rhome) = fake_ssh_env("ext-shims");
+        let home = rhome.to_string_lossy().to_string();
+        let names = vec!["demo-a".to_string(), "demo-b".to_string()];
+        let dir = crate::remote::stage_ext_shims("h", &home, 7, &names).unwrap().unwrap();
+        assert_eq!(dir, format!("{}/.agent-link-remote/runs/7/ext-bin", home));
+        for n in &names {
+            let f = std::path::Path::new(&dir).join(n);
+            assert_eq!(std::fs::read_to_string(&f).unwrap(), crate::remote::ext_shim_script(n));
+            assert_eq!(std::fs::metadata(&f).unwrap().permissions().mode() & 0o777, 0o755);
+        }
+        std::fs::remove_dir_all(rhome.parent().unwrap()).ok();
+    }
+
+    /// `ext_bin` ありなら PATH の先頭に足し、無しなら今と同じ文になること。
+    #[test]
+    fn remote_script_puts_ext_bin_first_on_path() {
+        let base = remote_script(&remote_parts());
+        let mut p = remote_parts();
+        p.ext_bin = Some("/home/u/.agent-link-remote/runs/21/ext-bin");
+        let s = remote_script(&p);
+        assert!(
+            s.contains(
+                "PATH='/home/u/.agent-link-remote/runs/21/ext-bin':'/home/u/.agent-link-remote/bin':'/home/u/.local/bin':\"$PATH\" claude"
+            ),
+            "{s}"
+        );
+        assert_eq!(
+            s.replace("'/home/u/.agent-link-remote/runs/21/ext-bin':", ""),
+            base
+        );
     }
 
     /// 遠隔の命令は、C5 の並びで、値が単引用符で包まれ、`claude` が最後に来ること。

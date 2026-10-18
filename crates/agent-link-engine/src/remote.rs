@@ -322,6 +322,51 @@ exec ssh -F "$d/ssh_config" agent-link-mac $t
 "#
 }
 
+/// 拡張の名前の形（`^[a-z][a-z0-9-]{0,31}$`。`ext.rs` の `valid_name` と同じ）。
+fn is_ext_name(s: &str) -> bool {
+    let b = s.as_bytes();
+    (1..=32).contains(&b.len())
+        && b[0].is_ascii_lowercase()
+        && b.iter().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || *c == b'-')
+}
+
+/// 遠隔の子が拡張を名前で呼ぶための中継の本文（Mac の `agent-link ext run <name>` へ送る）。
+/// `name` は検査済みの拡張の名前。標準入力が端末でなければ `--stdin` を付ける。
+pub fn ext_shim_script(name: &str) -> String {
+    format!(
+        "#!/bin/sh\n\
+         # agent-link が置いた拡張 {name} の中継。Mac の拡張の CLI を門番経由で呼ぶ。\n\
+         r=\"$HOME/{REMOTE_DIR}/bin/agent-link\"\n\
+         if [ -t 0 ]; then exec \"$r\" ext run {name} -- \"$@\"; fi\n\
+         exec \"$r\" ext run {name} --stdin -- \"$@\"\n"
+    )
+}
+
+/// `<home>/.agent-link-remote/runs/<run_id>/ext-bin/<name>` に中継を置き、実行の権限（0755）を付ける。
+/// 置いたフォルダを返す。`names` が空なら何もせず `None`。
+pub fn stage_ext_shims(
+    host: &str,
+    home: &str,
+    run_id: i64,
+    names: &[String],
+) -> Result<Option<String>, RemoteError> {
+    if names.is_empty() {
+        return Ok(None);
+    }
+    if let Some(bad) = names.iter().find(|n| !is_ext_name(n)) {
+        return Err(RemoteError(format!("Invalid extension name for the remote run folder: {}", bad)));
+    }
+    let dir = format!("{}/{}/runs/{}/ext-bin", home.trim_end_matches('/'), REMOTE_DIR, run_id);
+    let q = shell_escape_single_quotes(&dir);
+    for name in names {
+        let target = shell_escape_single_quotes(&format!("{}/{}", dir, name));
+        let script = format!("mkdir -p {q} && cat > {target} && chmod 755 {target}");
+        let body = ext_shim_script(name);
+        ok_or_last_line(host, "Writing an extension relay", ssh_run(host, &script, Some(body.as_bytes()), SSH_SHORT)?)?;
+    }
+    Ok(Some(dir))
+}
+
 /// 中継の ssh の設定。`home` は遠隔の `$HOME`、`mac_addr` は遠隔から見た Mac の住所。
 pub fn ssh_config_text(home: &str, mac_addr: &str, mac_user: &str) -> String {
     format!(
@@ -484,6 +529,10 @@ pub fn gate_plan(original_command: &str) -> Result<GatePlan, (i32, String)> {
         | ["cc-permission-hook"]
         | ["cc-statusline"] => true,
         ["doc", "write" | "read" | "list", ..] | ["task", "report", ..] => true,
+        // 拡張の CLI。有効かどうかは起こされた `ext run` が確かめる（門番は名前の形だけ）
+        ["ext", "run", name, "--", ..] | ["ext", "run", name, "--stdin", "--", ..] => {
+            is_ext_name(name)
+        }
         _ => false,
     };
     if allowed {
@@ -658,6 +707,50 @@ mod tests {
         // 壊れた tok・空・順序違い
         for bad in ["", "   ", "azz", "a6", "x61", "a61 e41", "a ff"] {
             assert_eq!(gate_plan(bad).unwrap_err(), (2, "Remote gate needs hex tokens.".to_string()), "{:?}", bad);
+        }
+    }
+
+    #[test]
+    fn gate_passes_only_ext_run_with_separator() {
+        for args in [
+            vec!["ext", "run", "hello", "--", "greet", "x"],
+            vec!["ext", "run", "hello", "--stdin", "--", "x"],
+            vec!["ext", "run", "a1-b", "--"],
+        ] {
+            assert!(matches!(gate_plan(&tok(&[], &args)), Ok(GatePlan::Exec { .. })), "{:?}", args);
+        }
+        for args in [
+            vec!["ext", "install", "x"],
+            vec!["ext", "enable", "hello"],
+            vec!["ext", "run", "Bad", "--", "x"],
+            vec!["ext", "run", "1bad", "--", "x"],
+            vec!["ext", "run", "hello", "greet"],
+            vec!["ext", "run", "hello", "--stdin", "x"],
+            vec!["ext", "run", "--", "x"],
+        ] {
+            let e = gate_plan(&tok(&[], &args)).unwrap_err();
+            assert_eq!(e.0, 2, "{:?}", args);
+            assert!(e.1.starts_with("Remote gate does not allow this command: ext "), "{}", e.1);
+        }
+        let long = "a".repeat(33);
+        assert!(gate_plan(&tok(&[], &["ext", "run", &long, "--"])).is_err());
+    }
+
+    #[test]
+    fn ext_shim_branches_on_tty_and_passes_stdin() {
+        let s = ext_shim_script("hello");
+        assert!(s.starts_with("#!/bin/sh\n"), "{s}");
+        assert!(s.contains("r=\"$HOME/.agent-link-remote/bin/agent-link\"\n"), "{s}");
+        assert!(s.contains("if [ -t 0 ]; then exec \"$r\" ext run hello -- \"$@\"; fi\n"), "{s}");
+        assert!(s.ends_with("exec \"$r\" ext run hello --stdin -- \"$@\"\n"), "{s}");
+    }
+
+    #[test]
+    fn stage_ext_shims_checks_names_before_ssh() {
+        assert_eq!(stage_ext_shims("h", "/home/u", 1, &[]), Ok(None));
+        for bad in ["Bad", "a b", "../x", "", "1a", "a;b"] {
+            let r = stage_ext_shims("h", "/home/u", 1, &["ok".to_string(), bad.to_string()]);
+            assert!(r.is_err(), "{:?}", bad);
         }
     }
 
