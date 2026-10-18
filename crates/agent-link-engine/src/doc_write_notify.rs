@@ -185,8 +185,11 @@ pub fn poll_and_process_one(
     //   スキップして pending/ に残す）
     for entry in entries {
         let notification_path = entry.path();
-        if let Ok(content) = fs::read_to_string(&notification_path) {
-            if let Ok(value) = serde_json::from_str::<serde_json::Value>(&content) {
+        let value = fs::read_to_string(&notification_path)
+            .ok()
+            .and_then(|c| serde_json::from_str::<serde_json::Value>(&c).ok());
+        match value {
+            Some(value) => {
                 let notif_type = value.get("type").and_then(|v| v.as_str()).unwrap_or("");
                 if notif_type != "file_written" {
                     // task_* 通知 → task_manager に任せる（処理しない・移動もしない）
@@ -197,12 +200,31 @@ pub fn poll_and_process_one(
                     continue;
                 }
             }
+            None => {
+                // 読めない・JSON として壊れたファイルは、書きかけの可能性がある。
+                // 更新から 30 秒を過ぎたものだけ捨てる（それまでは残して、次の回に見直す）
+                if !is_stale_notification(&notification_path) {
+                    continue;
+                }
+            }
         }
         let result = process_notification_file(&notification_path, integrator, &processed_dir);
         return Ok(Some(result));
     }
 
     Ok(None)
+}
+
+/// 壊れた通知を捨ててよい古さ（更新からこの秒数を過ぎたら、書きかけではないとみなす）。
+const STALE_NOTIFICATION_SECS: u64 = 30;
+
+/// 更新から `STALE_NOTIFICATION_SECS` 秒を過ぎたか。時刻が取れないときは古いとみなす。
+fn is_stale_notification(path: &Path) -> bool {
+    fs::metadata(path)
+        .and_then(|m| m.modified())
+        .ok()
+        .and_then(|t| t.elapsed().ok())
+        .is_none_or(|age| age.as_secs() >= STALE_NOTIFICATION_SECS)
 }
 
 /// 未処理の通知をすべて処理する。
@@ -554,6 +576,44 @@ mod tests {
         assert!(result.is_none(), "空ディレクトリではNoneが返る");
 
         // クリーンアップ
+        let _ = fs::remove_dir_all(notification_base_dir());
+    }
+
+    /// 書きかけの（JSON として壊れた）通知は、新しいうちは `processed/` へ移さず pending/ に残す。
+    /// 30 秒を過ぎても壊れたままのものだけ捨てる。
+    #[test]
+    fn poll_keeps_fresh_broken_notification_and_drops_stale_one() {
+        let _guard = crate::common::AGENT_LINK_ENV_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _ = ensure_pending_dir();
+        let _ = ensure_processed_dir();
+        let pending = crate::common::notify_pending_dir();
+        let processed = crate::common::notify_processed_dir();
+
+        let integrator = WaggleIntegrator::open_in_memory().expect("インメモリDBの作成に失敗");
+
+        // 書きかけ: 更新が新しい。残る
+        let fresh = pending.join("6000-file_written.json");
+        fs::write(&fresh, r#"{"type":"file_wr"#).unwrap();
+        let none = poll_and_process_one(&integrator, None).expect("pollに失敗");
+        assert!(none.is_none(), "書きかけは処理しない");
+        assert!(fresh.exists(), "新しい壊れた通知は pending/ に残る");
+        assert!(!processed.join("6000-file_written.json").exists());
+
+        // 更新から 30 秒を過ぎた壊れた通知: 捨てる（processed/ へ移る）
+        let stale = pending.join("7000-file_written.json");
+        fs::write(&stale, r#"{"type":"file_wr"#).unwrap();
+        let old = std::time::SystemTime::now() - std::time::Duration::from_secs(60);
+        let file = fs::File::options().write(true).open(&stale).unwrap();
+        file.set_modified(old).unwrap();
+        let result = poll_and_process_one(&integrator, None)
+            .expect("pollに失敗")
+            .expect("古い壊れた通知は処理される");
+        assert!(result.error.is_some());
+        assert!(!stale.exists(), "古い壊れた通知は pending/ から消える");
+        assert!(processed.join("7000-file_written.json").exists());
+
+        // 後始末
+        let _ = fs::remove_file(&fresh);
         let _ = fs::remove_dir_all(notification_base_dir());
     }
 

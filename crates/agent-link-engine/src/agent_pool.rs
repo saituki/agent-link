@@ -187,6 +187,7 @@ impl AgentPool {
     ///
     /// active から削除し、キュー待ちの先頭タスクがあれば active に昇格させる。
     /// 昇格したタスクの ID を返す（なければ `None`）。
+    /// active に無い ID（cancel 済みなど）では枠が空いていないので、昇格しない。
     pub fn complete(&self, task_id: i64) -> Option<i64> {
         let mut inner = self.inner.lock().unwrap();
         // 答え待ちの子は枠を持っていないので、空いた枠はない（昇格もしない）
@@ -194,7 +195,10 @@ impl AgentPool {
             self.condvar.notify_all();
             return None;
         }
-        inner.active.remove(&task_id);
+        if !inner.active.remove(&task_id) {
+            self.condvar.notify_all();
+            return None;
+        }
 
         // キューから次のタスクを昇格
         let promoted = if let Some(next_id) = inner.queue.pop_front() {
@@ -212,22 +216,42 @@ impl AgentPool {
 
     /// 実行中のタスクをキャンセルする。
     ///
-    /// active から削除し、キューが空くのを待っている後続タスクを処理可能にする。
-    pub fn cancel(&self, task_id: i64) {
+    /// active から削除し、キューの先頭タスクがあれば active に昇格させる。
+    /// 昇格したタスクの ID を返す（なければ `None`）。
+    /// active に無いタスクでは何も昇格させない（枠が空いていないため）。
+    pub fn cancel(&self, task_id: i64) -> Option<i64> {
         let mut inner = self.inner.lock().unwrap();
         // 答え待ちの子は枠を持っていないので、昇格もしない（complete と同じ）
         if inner.waiting.remove(&task_id) {
             self.condvar.notify_all();
-            return;
+            return None;
         }
-        inner.active.remove(&task_id);
+        if !inner.active.remove(&task_id) {
+            return None;
+        }
 
         // キューから次のタスクを昇格
-        if let Some(next_id) = inner.queue.pop_front() {
+        let promoted = inner.queue.pop_front();
+        if let Some(next_id) = promoted {
             inner.active.insert(next_id);
         }
 
         self.condvar.notify_all();
+        promoted
+    }
+
+    /// 待ち行列からタスクを外す（枠は持っていないので昇格しない）。
+    ///
+    /// 待ち行列にあって外したときだけ `true` を返す。
+    pub fn remove_queued(&self, task_id: i64) -> bool {
+        let mut inner = self.inner.lock().unwrap();
+        let before = inner.queue.len();
+        inner.queue.retain(|&id| id != task_id);
+        let removed = inner.queue.len() != before;
+        if removed {
+            self.condvar.notify_all();
+        }
+        removed
     }
 
     /// 答え待ちの子を同時実行の枠から外す（active → waiting）。
@@ -388,12 +412,35 @@ mod tests {
         let pool = AgentPool::with_max_concurrent(1);
         pool.enqueue(1);
         pool.enqueue(2);
-        pool.cancel(1);
+        assert_eq!(pool.cancel(1), Some(2), "昇格した ID を返す");
 
         let status = pool.status();
         assert_eq!(status.active_count, 1);
         assert!(status.active_task_ids.contains(&2));
         assert_eq!(status.queued_count, 0);
+    }
+
+    #[test]
+    fn test_cancel_queued_does_not_promote() {
+        let pool = AgentPool::with_max_concurrent(1);
+        pool.enqueue(1);
+        pool.enqueue(2);
+        pool.enqueue(3);
+        assert_eq!(pool.cancel(2), None, "待ち行列の子では枠が空かない");
+        let status = pool.status();
+        assert_eq!(status.active_task_ids, vec![1]);
+        assert_eq!(status.queued_count, 2, "cancel は待ち行列を触らない");
+    }
+
+    #[test]
+    fn test_remove_queued() {
+        let pool = AgentPool::with_max_concurrent(1);
+        pool.enqueue(1);
+        pool.enqueue(2);
+        assert!(pool.remove_queued(2));
+        assert!(!pool.remove_queued(2));
+        assert!(!pool.remove_queued(1), "active は外さない");
+        assert_eq!(pool.status().queued_count, 0);
     }
 
     #[test]

@@ -1264,9 +1264,15 @@ impl SaiStore {
     /// 完了時に、途中で足したトークン（P4 の追記）を消さないために使う。
     /// `update_execution_waggle_tokens`（置き換え）とは違い、既存の値を残す。
     pub fn merge_execution_waggle_tokens(&self, id: i64, tokens: &[String]) -> Result<(), DbError> {
-        let exec = self.get_execution_by_id(id)?;
-        let mut merged: Vec<String> = exec
-            .output_waggle_tokens
+        // 読みと書きを 1 つの IMMEDIATE トランザクションにし、間に別の書き込みが入らないようにする
+        let mut conn = self.conn.lock().unwrap();
+        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let current: Option<String> = tx.query_row(
+            "SELECT output_waggle_tokens FROM execution_history WHERE id = ?1",
+            params![id],
+            |row| row.get(0),
+        )?;
+        let mut merged: Vec<String> = current
             .as_deref()
             .and_then(|j| serde_json::from_str(j).ok())
             .unwrap_or_default();
@@ -1275,7 +1281,20 @@ impl SaiStore {
                 merged.push(token.clone());
             }
         }
-        self.update_execution_waggle_tokens(id, &merged)
+        if merged.is_empty() {
+            tx.execute(
+                "UPDATE execution_history SET output_waggle_tokens = NULL WHERE id = ?1",
+                params![id],
+            )?;
+        } else {
+            let json_array = serde_json::to_string(&merged).map_err(DbError::Json)?;
+            tx.execute(
+                "UPDATE execution_history SET output_waggle_tokens = ?1 WHERE id = ?2",
+                params![json_array, id],
+            )?;
+        }
+        tx.commit()?;
+        Ok(())
     }
 
     /// 出力タイプを更新する。
