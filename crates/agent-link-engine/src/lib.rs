@@ -80,6 +80,7 @@ pub mod remote;
 pub mod run_dir;
 pub mod run_export;
 pub mod doc_write_notify;
+pub mod ext;
 pub mod search;
 pub mod session;
 pub mod task_cwd;
