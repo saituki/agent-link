@@ -18,7 +18,7 @@ use std::sync::Arc;
 use serde_json::{json, Value};
 
 use crate::block_config::BlockConfig;
-use crate::db::models::{ExecutionHistory, Task};
+use crate::db::models::{DbError, ExecutionHistory, Task};
 use crate::parser::parse_block_file;
 use crate::task_manager::TaskManager;
 
@@ -131,11 +131,46 @@ fn write_notification(kind: &str, mut payload: Value) -> Result<PathBuf, String>
     }
 
     let filename = format!("{}-{}.json", unix_millis(), random_hex8());
-    let path = dir.join(filename);
+    let path = dir.join(&filename);
     let text = serde_json::to_string_pretty(&payload)
         .map_err(|e| format!("Failed to serialize the notification: {}", e))?;
-    std::fs::write(&path, text).map_err(|e| format!("Failed to write the notification: {}", e))?;
+    // C-NOTIFY: 同じフォルダの `.<名前>.tmp` に書いてから rename する（読み手は `.json` だけを見る）
+    let tmp = dir.join(format!(".{}.tmp", filename));
+    std::fs::write(&tmp, text).map_err(|e| format!("Failed to write the notification: {}", e))?;
+    std::fs::rename(&tmp, &path).map_err(|e| format!("Failed to write the notification: {}", e))?;
     Ok(path)
+}
+
+/// DB の「見つからない」を `missing`（`not found` を含む文）にし、ほかの失敗は `what` の文にする。
+fn db_lookup_err(e: DbError, missing: String, what: &str) -> String {
+    match e {
+        DbError::NotFound(_) => missing,
+        other => format!("{}: {}", what, other),
+    }
+}
+
+/// 子タスクを DB から引く。無ければ `Task <id> not found.`。
+fn load_task_or_not_found(task_id: i64) -> Result<Task, String> {
+    let store = crate::common::open_db().map_err(|e| format!("Failed to open the database: {}", e))?;
+    store
+        .get_task_by_id(task_id)
+        .map_err(|e| db_lookup_err(e, format!("Task {} not found.", task_id), "Failed to get the task"))
+}
+
+/// C-WT: `worktree` の値は、空・`none`・`isolation`、またはブランチ名に限る。
+/// ブランチ名は `^[A-Za-z0-9][A-Za-z0-9._/-]{0,99}$` に合い、`..`・`//` を含まず、
+/// 末尾が `/`・`.`・`.lock` でないこと。
+fn is_valid_worktree_value(v: &str) -> bool {
+    if matches!(v, "" | "none" | "isolation") {
+        return true;
+    }
+    (1..=100).contains(&v.len())
+        && v.starts_with(|c: char| c.is_ascii_alphanumeric())
+        && v.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '/' | '-'))
+        && !v.contains("..")
+        && !v.contains("//")
+        && !v.ends_with(['/', '.'])
+        && !v.ends_with(".lock")
 }
 
 // ============================================================================
@@ -383,19 +418,27 @@ fn write_with_timeout(
     if trimmed.is_empty() {
         return Err("filename is required.".to_string());
     }
-    // パス区切りを含む filename は run フォルダ直下の basename のみ使う
-    let basename = Path::new(trimmed)
-        .file_name()
-        .map(|n| n.to_string_lossy().to_string())
-        .ok_or("filename is invalid.")?;
+    // フォルダを含む名前は黙って書き換えず、断る（保存先は run フォルダ直下だけ）
+    if trimmed.contains(['/', '\\']) || trimmed == "." || trimmed == ".." {
+        return Err(format!(
+            "Invalid filename: {}. Give a file name without folders.",
+            filename
+        ));
+    }
+    let basename = trimmed.to_string();
 
     let run_id = require_run_id(run_id)?;
+    let store = crate::common::open_db().map_err(|e| format!("Failed to open the database: {}", e))?;
+    store
+        .get_execution_by_id(run_id)
+        .map_err(|e| db_lookup_err(e, format!("Run {} not found.", run_id), "Failed to get the run record"))?;
 
     // settings.json の write_check があれば、保存の前に本文を通す。
     let mut checked: Option<bool> = None;
     let mut warning: Option<String> = None;
     let mut saved_content = content.to_string();
-    let check_cmd = crate::settings::load_settings_quiet().0.write_check.unwrap_or_default();
+    let (settings, settings_warnings) = crate::settings::load_settings_quiet();
+    let check_cmd = settings.write_check.unwrap_or_default();
     if !check_cmd.is_empty() {
         let block = block_name();
         let cmd: Vec<String> = check_cmd
@@ -486,6 +529,9 @@ fn write_with_timeout(
     }
     if let Some(w) = warning {
         result["warning"] = json!(w);
+    }
+    if !settings_warnings.is_empty() {
+        result["warnings"] = json!(settings_warnings);
     }
     Ok(result)
 }
@@ -768,6 +814,12 @@ pub fn task_create(
             .and_then(|v| v.as_str())
             .unwrap_or("")
             .to_string();
+        if !is_valid_worktree_value(&worktree) {
+            return Err(format!(
+                "Invalid worktree: {}. Use isolation, none, or a branch name.",
+                worktree
+            ));
+        }
         // 作業フォルダ（相対パスはプロジェクトルート基準で解決。検証は後段で行う）
         let cwd_raw = item
             .get("cwd")
@@ -1094,11 +1146,18 @@ pub fn task_execute(
     run_id: Option<i64>,
 ) -> Result<Value, String> {
     if batch_id.is_none() && task_id.is_none() {
-        return Err("Give either batch_id or task_id.".to_string());
+        return Err("Invalid arguments: give either --batch or --task.".to_string());
     }
     let run_id = require_run_id(run_id)?;
 
     if let Some(bid) = batch_id {
+        let store = crate::common::open_db().map_err(|e| format!("Failed to open the database: {}", e))?;
+        let batch_tasks = store
+            .list_tasks_by_batch(bid)
+            .map_err(|e| format!("Failed to list the tasks of batch {}: {}", bid, e))?;
+        if batch_tasks.is_empty() {
+            return Err(format!("Batch {} not found.", bid));
+        }
         let limit = max_concurrent_limit();
         let approved = tasks_json(run_id, Some("approved"), None)?;
         let count = approved
@@ -1135,6 +1194,11 @@ pub fn task_execute(
             json!({ "parent_run_id": run_id, "batch_id": bid }),
         )?;
     } else if let Some(tid) = task_id {
+        // 自分の子でない task は、存在しても「見つからない」と同じに扱う
+        let task = load_task_or_not_found(tid)?;
+        if task.parent_run_id != run_id {
+            return Err(format!("Task {} not found.", tid));
+        }
         write_notification(
             "task_execute_request",
             json!({ "parent_run_id": run_id, "task_id": tid }),
@@ -1353,6 +1417,10 @@ pub fn task_output_ids(
 ) -> Result<Value, String> {
     if task_ids.is_empty() {
         return Err("task_ids needs at least one ID.".to_string());
+    }
+    // 待つ前に全部の ID を確かめる（無い ID を 90 秒待たないため）
+    for &id in task_ids {
+        load_task_or_not_found(id)?;
     }
     let wait_ms = clamp_wait_ms(timeout_ms);
     // 要求された時間が上限を超えていたとき（timeout_ms を省略した時も含む）
@@ -2138,6 +2206,9 @@ pub fn task_status(
     run_id: Option<i64>,
 ) -> Result<Value, String> {
     let run_id = require_run_id(run_id)?;
+    if let Some(tid) = task_id {
+        load_task_or_not_found(tid)?;
+    }
     let mut tasks = tasks_json(run_id, status.or(Some("all")), None)?;
     if let Some(tid) = task_id {
         tasks.retain(|t| t.get("server_id").and_then(|v| v.as_i64()) == Some(tid));
@@ -2182,15 +2253,22 @@ pub fn task_capture(task_id: i64, lines: Option<u32>) -> Result<Value, String> {
 
 /// 呼び出し可能なブロック定義を一覧する。
 pub fn block_discover(parent: Option<&str>) -> Result<Value, String> {
-    let parent_name: Option<String> = match parent {
-        Some(p) if !p.trim().is_empty() => Some(p.to_string()),
-        _ => std::env::var("AGENT_LINK_BLOCK_NAME").ok(),
+    // 明示された親が無いときは黙って全部を返さず断る（環境変数の親は従来どおり黙って扱う）
+    let explicit = parent.filter(|p| !p.trim().is_empty());
+    let parent_name: Option<String> = match explicit {
+        Some(p) => Some(p.to_string()),
+        None => std::env::var("AGENT_LINK_BLOCK_NAME").ok(),
     };
 
     let mut defs = collect_block_definitions();
 
     if let Some(ref parent_name) = parent_name {
         let parent_path = crate::orchestrator::resolve_block_path(parent_name);
+        if !parent_path.exists() {
+            if let Some(p) = explicit {
+                return Err(format!("Parent block {} not found.", p));
+            }
+        }
         if parent_path.exists() {
             if let Ok(parsed) = parse_block_file(&parent_path) {
                 match parsed.config.subblocks {
@@ -2243,10 +2321,7 @@ pub fn block_inspect(name: &str) -> Result<Value, String> {
         }
     }
     if !path.exists() {
-        return Err(format!(
-            "Block definition not found: {} (give the ID or display name).",
-            name
-        ));
+        return Err(format!("Block definition {} not found.", name));
     }
 
     let parsed = parse_block_file(&path).map_err(|e| format!("Failed to parse the block definition: {}", e))?;
@@ -2264,95 +2339,6 @@ fn normalize_waggle_token(input: &str) -> String {
     let s = input.trim();
     let s = s.strip_prefix("waggle:").unwrap_or(s);
     s.split(":path:").next().unwrap_or(s).trim().to_string()
-}
-
-/// waggle 文書 1 件のマニフェストから表示用の 1 行を組み立てる。
-/// トークンが解決できないときは `None`。
-fn waggle_item_line(
-    waggle: &crate::waggle_integration::WaggleIntegrator,
-    token: &str,
-    run_id: i64,
-) -> Option<String> {
-    let view = waggle.resolve_token(token).ok()?;
-    let block_name = waggle.find_block_name_by_token(token);
-    // 元ファイル名は `file://…` URL の末尾要素（`agent-link-view` の `run_docs` と同じ取り出し方）
-    let file_name = view
-        .manifest
-        .target
-        .as_str()
-        .strip_prefix("file://")
-        .and_then(|p| p.rsplit('/').next())
-        .unwrap_or("")
-        .to_string();
-    let description = view.manifest.meta.description.clone().unwrap_or_default();
-    Some(format!(
-        "waggle:{}: {} (run {} / {} / {})",
-        token, description, run_id, block_name, file_name
-    ))
-}
-
-/// waggle 文書の一覧（本文なし）を返す。`run_id` 指定時はその実行の出力だけ。
-///
-/// - `None`: 完了済みの実行の全トークン（`list_available_waggle_tokens`）
-/// - `Some(id)`: その実行の `output_waggle_tokens`
-///
-/// 解決できないトークンは一覧から落とす。
-/// U03: `include_running=true` の場合、実行中（running / pending・仮 completed）
-/// のトークンも含める（w キーで作りたて文書を選ぶ用）。
-pub fn sai_read_list(run_id: Option<i64>) -> Result<Value, String> {
-    sai_read_list_inner(run_id, false)
-}
-
-/// 実行中を含む waggle 文書一覧（`sai_read_list` の拡張版）。
-///
-/// `include_running=true` で running / review 中の文書も返す。`run_id` 指定時は従来通りその実行のみ。
-pub fn sai_read_list_including_running(run_id: Option<i64>) -> Result<Value, String> {
-    sai_read_list_inner(run_id, true)
-}
-
-fn sai_read_list_inner(run_id: Option<i64>, include_running: bool) -> Result<Value, String> {
-    let store =
-        crate::common::open_db().map_err(|e| format!("Failed to open the database: {}", e))?;
-
-    let entries: Vec<(String, i64)> = match run_id {
-        Some(id) => {
-            let exec = store
-                .get_execution_by_id(id)
-                .map_err(|e| format!("Failed to get run id = {}: {}", id, e))?;
-            let tokens: Vec<String> = exec
-                .output_waggle_tokens
-                .as_deref()
-                .and_then(|j| serde_json::from_str(j).ok())
-                .unwrap_or_default();
-            tokens.into_iter().map(|t| (t, id)).collect()
-        }
-        None => {
-            // ponytail: 全件は上限なしで取る。件数が増えたら limit 引数を足す
-            store
-                .list_waggle_tokens(None, -1, include_running)
-                .map_err(|e| format!("Failed to list waggle tokens: {}", e))?
-                .into_iter()
-                .map(|e| (e.token, e.execution_id))
-                .collect()
-        }
-    };
-
-    let db_path = crate::project::db_path();
-    let waggle = crate::waggle_integration::WaggleIntegrator::open(&db_path)
-        .map_err(|e| format!("Failed to open the waggle DB: {}", e))?;
-
-    let mut items = Vec::new();
-    for (token, id) in entries {
-        if let Some(line) = waggle_item_line(&waggle, &token, id) {
-            items.push(line);
-        }
-    }
-
-    Ok(json!({
-        "count": items.len(),
-        "items": items,
-        "hint": "Read the body with `agent-link doc read <token>`. To pass it to a subtask, write waggle:<token> in task_text and the body is embedded.",
-    }))
 }
 
 /// waggle 文書 1 件の本文を返す。
@@ -2404,11 +2390,9 @@ pub fn sai_read(token: &str) -> Result<Value, String> {
 mod tests {
     use super::*;
 
-    /// `task_output` の待ちのテストに使う、誰の run にも無いタスク番号。
-    /// （タスクを作ると `AGENT_LINK_PROJECT_ROOT` を持つロックを長く抱え、
-    /// 環境の取り合いで他のテストが落ちるため）
-    const NO_SUCH_TASK_A: i64 = 999_998;
-    const NO_SUCH_TASK_B: i64 = 999_999;
+    /// 誰の run・task にも無い番号（「見つからない」の試験に使う）。
+    const NO_SUCH_RUN: i64 = 999_998;
+    const NO_SUCH_TASK: i64 = 999_997;
 
     // 環境変数を設定する他モジュールのテスト（orchestrator / cc_command / task_cwd）と
     // 排他する。モジュール固有のロックに分けると AGENT_LINK_PROJECT_ROOT が競合する。
@@ -2545,7 +2529,7 @@ mod tests {
     #[test]
     fn run_wait_missing_run_is_error() {
         let _guard = EnvGuard::new();
-        let err = run_wait(&[NO_SUCH_TASK_A], Some(0), &AtomicBool::new(false)).unwrap_err();
+        let err = run_wait(&[NO_SUCH_RUN], Some(0), &AtomicBool::new(false)).unwrap_err();
         assert!(err.contains("not found"), "{err}");
     }
 
@@ -2569,6 +2553,7 @@ mod tests {
     /// write_check を設定した一時プロジェクトで `write` を呼ぶ補助。script は sh の本文。
     fn write_with_check(
         guard: &EnvGuard,
+        run_id: i64,
         script: &str,
         timeout_ms: u64,
         content: &str,
@@ -2576,7 +2561,7 @@ mod tests {
         let root = &guard.project_root;
         std::fs::create_dir_all(root.join("empty-home")).unwrap();
         std::env::set_var("AGENT_LINK_HOME", root.join("empty-home"));
-        std::env::set_var("AGENT_LINK_PARENT_RUN_ID", "42");
+        std::env::set_var("AGENT_LINK_PARENT_RUN_ID", run_id.to_string());
         std::env::set_var("AGENT_LINK_BLOCK_NAME", "blk");
         let sh = root.join("check.sh");
         std::fs::write(&sh, script).unwrap();
@@ -2588,7 +2573,7 @@ mod tests {
         )
         .unwrap();
         let r = write_with_timeout(
-            "a/doc.md",
+            "doc.md",
             content,
             Some("説明"),
             None,
@@ -2602,7 +2587,8 @@ mod tests {
     #[test]
     fn write_check_rejected_does_not_save() {
         let g = EnvGuard::new();
-        let err = write_with_check(&g, "echo 違反です >&2; exit 1", 5000, "x").unwrap_err();
+        let run = create_test_execution(false);
+        let err = write_with_check(&g, run, "echo 違反です >&2; exit 1", 5000, "x").unwrap_err();
         assert!(err.contains("違反です"), "{err}");
         assert!(!g.project_root.join(".agent-link/outputs").exists()
             || !walk_has(&g.project_root.join(".agent-link/outputs"), "doc.md"));
@@ -2617,7 +2603,8 @@ mod tests {
     #[test]
     fn write_check_stdout_replaces_content() {
         let g = EnvGuard::new();
-        let r = write_with_check(&g, "sed 's/^/X/'", 5000, "abc\n").unwrap();
+        let run = create_test_execution(false);
+        let r = write_with_check(&g, run, "sed 's/^/X/'", 5000, "abc\n").unwrap();
         assert_eq!(r["checked"], true);
         let saved = std::fs::read_to_string(r["path"].as_str().unwrap()).unwrap();
         assert_eq!(saved, "Xabc\n");
@@ -2626,8 +2613,9 @@ mod tests {
     #[test]
     fn write_check_broken_saves_original_with_warning() {
         let g = EnvGuard::new();
+        let run = create_test_execution(false);
         for (script, ms) in [("exit 3", 5000), ("sleep 5", 300)] {
-            let r = write_with_check(&g, script, ms, "orig").unwrap();
+            let r = write_with_check(&g, run, script, ms, "orig").unwrap();
             assert_eq!(r["checked"], false);
             assert!(r["warning"].as_str().unwrap().contains("Saved without checking"));
             assert_eq!(std::fs::read_to_string(r["path"].as_str().unwrap()).unwrap(), "orig");
@@ -2637,10 +2625,11 @@ mod tests {
     #[test]
     fn write_check_missing_binary_saves_original_with_warning() {
         let g = EnvGuard::new();
+        let run = create_test_execution(false);
         let root = &g.project_root;
         std::fs::create_dir_all(root.join("empty-home")).unwrap();
         std::env::set_var("AGENT_LINK_HOME", root.join("empty-home"));
-        std::env::set_var("AGENT_LINK_PARENT_RUN_ID", "42");
+        std::env::set_var("AGENT_LINK_PARENT_RUN_ID", run.to_string());
         std::fs::create_dir_all(root.join(".agent-link")).unwrap();
         std::fs::write(
             root.join(".agent-link/settings.json"),
@@ -2656,24 +2645,26 @@ mod tests {
     #[test]
     fn write_check_expands_placeholders_and_env() {
         let g = EnvGuard::new();
+        let run = create_test_execution(false);
         let out = g.project_root.join("seen.txt");
         let script = format!(
             "echo \"$1 $2 $3 $AGENT_LINK_WRITE_FILENAME $AGENT_LINK_WRITE_DESCRIPTION\" > {}; cat >/dev/null",
             out.display()
         );
-        write_with_check(&g, &script, 5000, "x").unwrap();
+        write_with_check(&g, run, &script, 5000, "x").unwrap();
         assert_eq!(
             std::fs::read_to_string(out).unwrap().trim(),
-            "42 blk doc.md doc.md 説明"
+            format!("{} blk doc.md doc.md 説明", run)
         );
     }
 
     #[test]
     fn write_without_write_check_has_no_checked_key() {
         let g = EnvGuard::new();
+        let run = create_test_execution(false);
         std::fs::create_dir_all(g.project_root.join("empty-home")).unwrap();
         std::env::set_var("AGENT_LINK_HOME", g.project_root.join("empty-home"));
-        std::env::set_var("AGENT_LINK_PARENT_RUN_ID", "42");
+        std::env::set_var("AGENT_LINK_PARENT_RUN_ID", run.to_string());
         let r = write("doc.md", "x", None, None).unwrap();
         std::env::remove_var("AGENT_LINK_HOME");
         assert!(r.get("checked").is_none() && r.get("warning").is_none());
@@ -2682,14 +2673,15 @@ mod tests {
     #[test]
     fn write_returns_token_and_ref_and_daemon_keeps_the_same_token() {
         let guard = EnvGuard::new();
-        std::env::set_var("AGENT_LINK_PARENT_RUN_ID", "42");
+        let run = create_test_execution(false);
+        std::env::set_var("AGENT_LINK_PARENT_RUN_ID", run.to_string());
 
         let result = write("report.md", "# 報告\n", Some("報告書"), None).unwrap();
         let token = result["token"].as_str().expect("token が返る").to_string();
         assert!(!token.is_empty());
         assert_eq!(
             result["ref"].as_str().unwrap(),
-            format!("waggle:{}:path:.agent-link/outputs/*/42/report.md", token)
+            format!("waggle:{}:path:.agent-link/outputs/*/{}/report.md", token, run)
         );
 
         // 通知 payload に waggle_token が入っていること
@@ -3882,13 +3874,11 @@ mod tests {
     }
 
     /// 複数待ちで誰も終わらないと、全部が pending で返る。
-    ///
-    /// 待つ対象は作らない（作ると `AGENT_LINK_PROJECT_ROOT` を持つロックを長く抱え、
-    /// 環境の取り合いで他のテストが落ちるため）。誰も居ないことは大きなタスク番号で確認する。
     #[test]
     fn task_output_ids_timeout_lists_all_pending() {
+        let guard = EnvGuard::new();
+        let (ids, _) = create_tasks("agent-api-timeout-block", 2);
         let cancel = AtomicBool::new(false);
-        let ids = [NO_SUCH_TASK_A, NO_SUCH_TASK_B];
 
         let started = std::time::Instant::now();
         let out = task_output_ids(&ids, Some(200), &cancel, true).unwrap();
@@ -3898,12 +3888,14 @@ mod tests {
         let message = out["message"].as_str().unwrap();
         assert!(message.contains("at most 90 seconds"), "{}", message);
         assert!(started.elapsed() < std::time::Duration::from_secs(3));
+        drop(guard);
     }
 
     /// AC4: 待ちのあいだに取り消しが来たら待たずに `in_progress` で返る。
-    /// 誰かの結果があっても良いので、待つ対象は作らない（ロックを短く保つため）。
     #[test]
     fn task_output_ids_cancel_stops_waiting_midway() {
+        let guard = EnvGuard::new();
+        let (ids, _) = create_tasks("agent-api-cancel-block", 2);
         let cancel = Arc::new(AtomicBool::new(false));
         let flag = Arc::clone(&cancel);
         let handle = std::thread::spawn(move || {
@@ -3912,9 +3904,7 @@ mod tests {
         });
 
         let started = std::time::Instant::now();
-        let out =
-            task_output_ids(&[NO_SUCH_TASK_A, NO_SUCH_TASK_B], Some(60_000), cancel.as_ref(), true)
-                .unwrap();
+        let out = task_output_ids(&ids, Some(60_000), cancel.as_ref(), true).unwrap();
         handle.join().unwrap();
 
         assert_eq!(out["status"], "in_progress");
@@ -3926,6 +3916,7 @@ mod tests {
             "取り消しで早く返る: {:?}",
             started.elapsed()
         );
+        drop(guard);
     }
 
     /// AC4: 取り消しで抜けたときは結果ファイルを消さない（あとから読み直せる）。
@@ -3933,11 +3924,12 @@ mod tests {
     #[test]
     fn task_output_ids_cancelled_keeps_result_file() {
         let guard = EnvGuard::new();
-        // 待つ対象の 1 件目に結果を先に置いておく
-        let path = write_task_completed_result(NO_SUCH_TASK_B, 0);
+        let (ids, parent_run_id) = create_tasks("agent-api-keep-block", 1);
+        // 待つ対象に結果を先に置いておく
+        let path = write_task_completed_result(ids[0], parent_run_id);
 
         let cancel = AtomicBool::new(true); // 最初から取り消し済み
-        let out = task_output_ids(&[NO_SUCH_TASK_B], Some(60_000), &cancel, true).unwrap();
+        let out = task_output_ids(&ids, Some(60_000), &cancel, true).unwrap();
         assert_eq!(out["status"], "in_progress");
         assert!(path.exists(), "取り消したときは結果ファイルを残す");
 
@@ -3947,12 +3939,69 @@ mod tests {
     /// 後方互換: 明示した待ち時間が切れたときは今まで通り timeout。
     #[test]
     fn task_output_timeout_status_stays_timeout() {
+        let _guard = EnvGuard::new();
+        let (ids, _) = create_tasks("agent-api-timeout-single-block", 1);
         let cancel = AtomicBool::new(false);
-        let out = task_output_ids(&[NO_SUCH_TASK_A], Some(200), &cancel, false).unwrap();
-        assert_eq!(out["task_id"], NO_SUCH_TASK_A);
+        let out = task_output_ids(&ids, Some(200), &cancel, false).unwrap();
+        assert_eq!(out["task_id"], ids[0]);
         assert_eq!(out["status"], "timeout");
         let error = out["error"].as_str().unwrap();
         assert!(error.contains("at most 90 seconds"), "{}", error);
+    }
+
+    /// AC1: 無い task の task_execute・task_status と、無い batch の task_execute は「見つからない」を返す。
+    #[test]
+    fn task_execute_and_status_missing_is_not_found() {
+        let guard = EnvGuard::new();
+        let run = create_test_execution(false);
+
+        let err = task_execute(None, Some(NO_SUCH_TASK), Some(run)).unwrap_err();
+        assert!(err.contains("not found"), "{err}");
+        let err = task_status(None, Some(NO_SUCH_TASK), Some(run)).unwrap_err();
+        assert!(err.contains("not found"), "{err}");
+        let err = task_execute(Some("no-such-batch"), None, Some(run)).unwrap_err();
+        assert!(err.contains("not found"), "{err}");
+        // 両方無いときは入力の誤り（終了コード 2）
+        let err = task_execute(None, None, Some(run)).unwrap_err();
+        assert!(err.starts_with("Invalid arguments:"), "{err}");
+
+        drop(guard);
+    }
+
+    /// AC1: 無い run への doc write は断る。フォルダを含む filename は黙って書き換えず断る。
+    #[test]
+    fn doc_write_checks_run_and_filename() {
+        let guard = EnvGuard::new();
+        let run = create_test_execution(false);
+        std::env::set_var("AGENT_LINK_PARENT_RUN_ID", run.to_string());
+
+        let err = write("x.md", "x", None, Some(NO_SUCH_RUN)).unwrap_err();
+        assert!(err.contains("not found"), "{err}");
+        let err = write("../x.md", "x", None, None).unwrap_err();
+        assert!(err.starts_with("Invalid filename: ../x.md."), "{err}");
+
+        drop(guard);
+    }
+
+    /// AC1: worktree は C-WT の規則に合うものだけ。合わなければ task_create は断る。
+    #[test]
+    fn worktree_value_follows_the_rule() {
+        for ok in ["", "none", "isolation", "feature/x-1", "a.b_c"] {
+            assert!(is_valid_worktree_value(ok), "{ok}");
+        }
+        let too_long = "a".repeat(101);
+        for ng in ["../x", "a//b", "a..b", "/a", "-a", "a/", "a.", "a.lock", "a b", too_long.as_str()] {
+            assert!(!is_valid_worktree_value(ng), "{ng}");
+        }
+
+        let guard = EnvGuard::new();
+        let run = create_test_execution(false);
+        std::env::set_var("AGENT_LINK_PARENT_RUN_ID", run.to_string());
+        let tasks = json!([{ "client_id": "W1", "subject": "件名", "task_text": "本文",
+            "block_type": "model-block", "worktree": "../x" }]);
+        let err = task_create(&tasks, None, None, None).unwrap_err();
+        assert!(err.starts_with("Invalid worktree: ../x."), "{err}");
+        drop(guard);
     }
 
     /// 上限で切った待ち（90 秒以上を要求されたとき、または timeout_ms を省いたとき）は

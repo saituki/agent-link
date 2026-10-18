@@ -116,15 +116,31 @@ fn merge_settings_from(
 /// 設定ファイルを `merged` へマージする（存在するキーのみ上書き）。
 ///
 /// パース失敗時は `warnings` に文言を積む（stderr には出さない）。
+/// 項目ごとに読み、読めない項目だけを飛ばす（ファイル全体は捨てない）。
 fn merge_settings_file(path: &std::path::Path, merged: &mut SettingsJson, warnings: &mut Vec<String>) {
     let Ok(content) = std::fs::read_to_string(path) else {
         return;
     };
-    let Ok(parsed) = serde_json::from_str::<SettingsJson>(&content) else {
+    let Ok(serde_json::Value::Object(items)) = serde_json::from_str::<serde_json::Value>(&content) else {
         warnings.push(format!(
             "Failed to parse settings.json: {}",
             path.display()
         ));
+        return;
+    };
+    let mut valid = serde_json::Map::new();
+    for (key, value) in items {
+        // 1 項目だけを SettingsJson として読んで、通らない項目は警告して飛ばす
+        let mut one = serde_json::Map::new();
+        one.insert(key.clone(), value.clone());
+        match serde_json::from_value::<SettingsJson>(serde_json::Value::Object(one)) {
+            Ok(_) => {
+                valid.insert(key, value);
+            }
+            Err(e) => warnings.push(format!("Ignored settings key {}: {}", key, e)),
+        }
+    }
+    let Ok(parsed) = serde_json::from_value::<SettingsJson>(serde_json::Value::Object(valid)) else {
         return;
     };
     // 各キーは「値が存在する場合のみ」上書きする（None は既存値を保持）
@@ -337,6 +353,25 @@ mod tests {
         assert_eq!(warnings.len(), 1, "警告は stderr ではなく返り値で渡る");
         assert!(warnings[0].contains("Failed to parse settings.json"));
         assert!(warnings[0].contains(&bad_display));
+    }
+
+    /// 1 項目の型が違っても、ほかの項目は読まれる。壊れた項目だけ警告して飛ばす。
+    #[test]
+    fn bad_key_is_skipped_and_other_keys_are_kept() {
+        let dir = std::env::temp_dir().join(format!("sai-settings-item-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("settings.json");
+        std::fs::write(&path, r#"{"wip": "3", "write_check": ["sh", "-c", "cat"]}"#).unwrap();
+        let (settings, warnings) = merge_settings_from(Some(&path), None);
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(
+            settings.write_check,
+            Some(vec!["sh".to_string(), "-c".to_string(), "cat".to_string()]),
+            "壊れていない write_check は読まれる"
+        );
+        assert_eq!(settings.wip, None, "型が違う wip は飛ばす");
+        assert_eq!(warnings.len(), 1, "{:?}", warnings);
+        assert!(warnings[0].starts_with("Ignored settings key wip:"), "{}", warnings[0]);
     }
 
     /// load_settings() のマージテスト。
