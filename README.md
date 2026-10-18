@@ -110,6 +110,23 @@ agent-link-web serve        # 既定は 127.0.0.1:8400
 - CLI だけでも同じことができます。`agent-link card create`（標準入力に JSON）→ `agent-link card run <run_id>`。命令の一覧は `agent-link schema --json` で見られます。Web の HTTP API は `agent-link-web api <METHOD> <path>` で呼べます。
 - `init` は、プロジェクトに `.agent-link/`（cc の設定 `.agent-link/cc-settings.json` を含む）・`.mcp.json`・`.claude/commands/`・`.claude/skills/`・`.serena/project.yml` を書きます（既にある設定は `.bak` に退避します）。
 
+## 拡張を使う
+
+拡張（extension）は、agent-link に後から足す機能です。拡張は別のリポジトリで作り、ここでは入れて有効にするだけです。
+
+```bash
+# 1) 拡張のフォルダを入れる（置き場は $AGENT_LINK_HOME/extensions。開発中は --link で symlink にする）
+agent-link ext install <拡張のフォルダ>            # 開発中は --link を付ける
+# 2) 使うプロジェクトで有効にする（block と template が <root>/.agent-link/ に写り、init があれば起こす）
+cd <プロジェクト> && agent-link ext enable <name>
+# 3) Web を開く。サイドバーに拡張のタブが出る
+```
+
+- 拡張が外部のサービス（service）を使うときは、宛先の URL を `$AGENT_LINK_HOME/settings.json` の `config` に書く（キーは拡張の宣言の `service.url_env`、例 `AGENT_LINK_EXT_HELLO_URL`）。
+- 拡張を作るときは、カードの block `extension-plan` を使う。
+- 確かめる: `agent-link ext list`（入っている拡張と、宣言の誤り）。外す: `agent-link ext disable <name>`（そのプロジェクトだけ）。消す: `agent-link ext uninstall <name>`（どこかのプロジェクトで有効なら断る）。
+- 拡張の宣言（`extension.json`）と CLI の作法の正は [`crates/agent-link-engine/assets/template/ext-contract.md`](./crates/agent-link-engine/assets/template/ext-contract.md)。命令の終了コードと `--json` の形は [`docs/for-developers.md`](./docs/for-developers.md) の §2.2。
+
 ## 起動とポート
 
 | ポート | 誰 | 備考 |
@@ -157,6 +174,8 @@ Web の Projects → Dashboard からも起動・停止できます。
 | 変数 | 既定値 | 用途 | `config` に書ける |
 |---|---|---|---|
 | `AGENT_LINK_HOME` | `~/.agent-link` | 利用者全体の置き場。空でない値があればそれが優先（規則の全文は [`docs/for-developers.md`](./docs/for-developers.md)） | |
+| `AGENT_LINK_EXTENSIONS_DIR` | `$AGENT_LINK_HOME/extensions` | 拡張を入れる置き場（`agent-link ext install` が写す先） | ○ |
+| `AGENT_LINK_EXT_*`（例 `AGENT_LINK_EXT_HELLO_URL`） | （拡張の宣言による） | 拡張の service の宛先。`http://` か `https://` で始まれば ready。拡張の宣言の名前だけ読む | ○ |
 
 `AGENT_LINK_HOME` の中身:
 
@@ -165,6 +184,7 @@ Web の Projects → Dashboard からも起動・停止できます。
 | `registry.json` | プロジェクトの登録簿（`agent-link init` が書く。形は `docs/for-developers.md` の §3.8） |
 | `blocks/`・`template/`・`settings.json` | 全プロジェクト共通の block・template・settings（`settings.json` の `config` は上の設定） |
 | `web/` | Web の置き場: `runs/`（実行の書き出し）・`agent_link_web.db`・`vapid.json`・`agent-link-web.log`（上の `agent-link-web-restart` で起こしたときのログの出し先） |
+| `extensions/` | 入れた拡張（`agent-link ext install`。`AGENT_LINK_EXTENSIONS_DIR` で変えられる）。有効かどうかは各プロジェクトの `.agent-link/settings.json` の `extensions` |
 | `cc-cost/`・`cc-rate-limits.json` | cc の費用（`cc-cost/<session_id>.json`）と 5 時間枠・7 日枠。cc の statusLine（`agent-link cc-statusline`）が書き、Home の Claude のカードが読む |
 
 プロジェクトの中の `<root>/.agent-link/`（`engine/agent-link.db`・`blocks/`・`template/`・`settings.json`・`outputs/`）はこれとは別です。古い置き場（sai-moon の物）は読みません。
@@ -298,5 +318,7 @@ agent-link と sai-moon は、同じ Mac・同じプロジェクトで並べて�
 | [`ARCHITECTURE.md`](./ARCHITECTURE.md) | 層・置き場・ファイル構成・機能を足す手順 |
 | [`CONCEPT.md`](./CONCEPT.md) | 概念と用語（run・card・doc・block・Workflow・画面の名前ほか） |
 | [`AGENTS.md`](./AGENTS.md) | このリポジトリで作業するエージェントへの約束とテストの命令 |
+| [`docs/separation.md`](./docs/separation.md) | sai-tree と agent-link を同じ Mac で分けて使う手順書（点検・決めること・片付け・戻し方）。利用者が行う。エージェントは実行しない |
+| [`crates/agent-link-engine/assets/template/ext-contract.md`](./crates/agent-link-engine/assets/template/ext-contract.md) | 拡張の作者向けの契約の正（宣言・置き場・CLI の作法・Web の住所・画面の約束） |
 | [`docs/remote.md`](./docs/remote.md) | 遠隔の機械で子の claude を動かす手順書 |
 | [`docs/switch-over.md`](./docs/switch-over.md) | sai-moon と並べて使う手順書 |
