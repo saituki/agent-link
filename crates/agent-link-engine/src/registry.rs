@@ -3,7 +3,7 @@
 //! プロジェクトの登録名を引く（書き出し先のフォルダ名になる）。
 //! `agent-link init` が足す。読み手は Web（`apps/web/src/agent_link_web/registry.py`）。
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// パス文字列を比較用に正規化する（末尾スラッシュ除去 + 可能なら canonicalize）。
 fn normalize_path_str(p: &Path) -> String {
@@ -61,6 +61,29 @@ pub fn project_name_using(registry: Option<&Path>, project_root: &Path) -> Strin
         }
     }
     folder_name(project_root)
+}
+
+/// 登録簿の項目を (name, root) で返す（ファイルの順）。読めない・配列でなければ空。
+///
+/// `name` と `root` が文字列の項目だけを返す。
+pub fn list_entries(registry: &Path) -> Vec<(String, PathBuf)> {
+    let Some(value) = std::fs::read_to_string(registry)
+        .ok()
+        .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
+    else {
+        return Vec::new();
+    };
+    let Some(entries) = value.as_array() else {
+        return Vec::new();
+    };
+    entries
+        .iter()
+        .filter_map(|e| {
+            let name = e.get("name")?.as_str()?;
+            let root = e.get("root")?.as_str()?;
+            Some((name.to_string(), PathBuf::from(root)))
+        })
+        .collect()
 }
 
 /// 登録簿に足した結果。

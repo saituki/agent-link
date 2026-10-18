@@ -89,7 +89,7 @@ pub fn run_with(cmd: &[String], root: &Path, timeout: Duration) -> PreRunOutcome
 /// - 起動できなかった・待機に失敗したときは、その理由を `Err` で返します
 ///   （時間切れと区別するため）。
 /// - 子が大量に出力しても現れないよう、パイプは別スレッドで読み切ります。
-fn run_child(
+pub(crate) fn run_child(
     cmd: &[String],
     root: &Path,
     envs: &[(&str, String)],
