@@ -186,7 +186,7 @@ fn web_default(path: &[String]) -> bool {
         "task report",
         "task question",
     ];
-    const LOWER_LEVEL: [&str; 10] = [
+    const LOWER_LEVEL: [&str; 11] = [
         "init",
         "daemon recover",
         "usage backfill",
@@ -197,6 +197,7 @@ fn web_default(path: &[String]) -> bool {
         "ext install",
         "ext uninstall",
         "ext hook",
+        "ext config",
     ];
     let joined = path.join(" ");
     !AGENT_ONLY.contains(&joined.as_str()) && !LOWER_LEVEL.contains(&joined.as_str())
@@ -255,6 +256,7 @@ mod tests {
             "doc read\tjson,token",
             "doc search\tblock,category,from_id,json,limit,since,to_id,until,word",
             "doc write\tdescription,filename,json,run_id",
+            "ext config\tjson,name",
             "ext disable\tjson,name",
             "ext enable\tjson,name",
             "ext hook\tjson,point",

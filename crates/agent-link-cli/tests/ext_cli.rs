@@ -312,6 +312,60 @@ fn hook_question_rejects_bad_input() {
 }
 
 #[test]
+fn config_reads_settings_env_wins_and_hides_values() {
+    let env = Env::new("config");
+    let dir = env.base.join("cfg/hello");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(
+        dir.join("extension.json"),
+        r#"{"name": "hello", "title": "Hello", "config": ["AGENT_LINK_EXT_HELLO_KEY", "AGENT_LINK_EXT_HELLO_DIR"]}"#,
+    )
+    .unwrap();
+    json(&env.run(&["ext", "install", &path_str(&dir), "--json"]));
+    std::fs::write(
+        env.home.join("settings.json"),
+        r#"{"config": {"AGENT_LINK_EXT_HELLO_KEY": "abc"}}"#,
+    )
+    .unwrap();
+
+    // settings.json の値。未設定は null（JSON の object は順序を持たない。宣言の順は人向けの出力で確かめる）
+    let v = json(&env.run(&["ext", "config", "hello", "--json"]));
+    assert_eq!(
+        v,
+        json!({"name": "hello", "values": {"AGENT_LINK_EXT_HELLO_KEY": "abc", "AGENT_LINK_EXT_HELLO_DIR": null}})
+    );
+
+    // 環境変数が勝つ
+    let mut cmd = env.command(&["ext", "config", "hello", "--json"]);
+    cmd.env("AGENT_LINK_EXT_HELLO_KEY", "xyz");
+    let v = json(&cmd.output().unwrap());
+    assert_eq!(v["values"]["AGENT_LINK_EXT_HELLO_KEY"], "xyz");
+
+    // ext list は set だけ出し、値は出さない
+    let out = env.run(&["ext", "list", "--json"]);
+    assert!(!stdout(&out).contains("abc"));
+    assert_eq!(
+        json(&out)["extensions"][0]["config"],
+        json!([
+            {"name": "AGENT_LINK_EXT_HELLO_KEY", "set": true},
+            {"name": "AGENT_LINK_EXT_HELLO_DIR", "set": false}
+        ])
+    );
+
+    // --json 無しは値を出さない。プロジェクトの外でも動く
+    let out = env.run_outside(&["ext", "config", "hello"]);
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert_eq!(
+        stdout(&out),
+        "AGENT_LINK_EXT_HELLO_KEY: set\nAGENT_LINK_EXT_HELLO_DIR: not set\n"
+    );
+    assert!(!stdout(&out).contains("abc") && !stderr(&out).contains("abc"));
+
+    // 入っていない拡張: 3
+    assert_failure(&env.run(&["ext", "config", "nosuch", "--json"]), 3);
+}
+
+#[test]
 fn run_stdin_passes_body_and_checks_limits() {
     let env = Env::new("run-stdin");
     env.enable_hooked_hello();

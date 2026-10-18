@@ -51,7 +51,7 @@ fn main() {
     };
 
     // プロジェクトを要る命令は、見つからなければ終了コード 2 で止める（`.agent-link/` を勝手に作らない）。
-    // 要らないのは `init`・`schema`・`remote`・`remote-gate`・置き場だけを使う `ext list`/`install`/`uninstall`。
+    // 要らないのは `init`・`schema`・`remote`・`remote-gate`・置き場だけを使う `ext list`/`install`/`uninstall`/`config`。
     // cc のフック（`cc-*`）は、失敗すると cc の操作を止めるので、今のまま検査せずに動かす。
     let needs_project = !matches!(
         &cli.cmd,
@@ -59,7 +59,10 @@ fn main() {
             | Cmd::Schema { .. }
             | Cmd::Remote { .. }
             | Cmd::Ext {
-                cmd: ExtCmd::List { .. } | ExtCmd::Install { .. } | ExtCmd::Uninstall { .. },
+                cmd: ExtCmd::List { .. }
+                    | ExtCmd::Install { .. }
+                    | ExtCmd::Uninstall { .. }
+                    | ExtCmd::Config { .. },
             }
             | Cmd::RemoteGate
             | Cmd::CcPromptHook
