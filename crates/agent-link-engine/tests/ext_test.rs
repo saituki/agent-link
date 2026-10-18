@@ -82,7 +82,7 @@ fn block(id: &str) -> String {
 
 /// 見本の宣言 1 つ分のフォルダ（`cli` あり、`init` なし）。
 fn plain_ext(dir: &Path, name: &str, extra: &str) {
-    let manifest = format!(r#"{{"name": "{name}", "version": "1.0.0"{extra}}}"#);
+    let manifest = format!(r#"{{"name": "{name}", "title": "T", "version": "1.0.0"{extra}}}"#);
     make_ext(dir, &manifest, &[("bin/x", "#!/bin/sh\nexit 0\n")]);
 }
 
@@ -104,64 +104,88 @@ fn load_rejects_bad_manifests() {
     let cases: Vec<(&str, String, Vec<(&str, String)>, &str)> = vec![
         (
             "unknown field",
-            r#"{"name": "x", "version": "1", "hooks": {}}"#.to_string(),
+            r#"{"name": "x", "title": "T", "version": "1", "hooks": {}}"#.to_string(),
             vec![],
             "unknown field",
         ),
         (
             "bad name",
-            r#"{"name": "Bad_Name", "version": "1"}"#.to_string(),
+            r#"{"name": "Bad_Name", "title": "T", "version": "1"}"#.to_string(),
             vec![],
             "name 'Bad_Name' is not valid",
         ),
         (
             "parent path in cli.bin",
-            r#"{"name": "x", "version": "1", "cli": {"bin": "../x"}}"#.to_string(),
+            r#"{"name": "x", "title": "T", "version": "1", "cli": {"bin": "../x"}}"#.to_string(),
             vec![],
             "cli.bin '../x' must be a relative path",
         ),
         (
             "cli.bin not executable",
-            r#"{"name": "x", "version": "1", "cli": {"bin": "bin/x"}}"#.to_string(),
+            r#"{"name": "x", "title": "T", "version": "1", "cli": {"bin": "bin/x"}}"#.to_string(),
             vec![("bin/x", "#!/bin/sh\n".to_string())],
             "is not an executable file",
         ),
         (
             "block named outside the rule",
-            r#"{"name": "x", "version": "1"}"#.to_string(),
+            r#"{"name": "x", "title": "T", "version": "1"}"#.to_string(),
             vec![("blocks/other.md", block("other"))],
             "must be named x.md or x-*.md",
         ),
         (
             "block id differs from file name",
-            r#"{"name": "x", "version": "1"}"#.to_string(),
+            r#"{"name": "x", "title": "T", "version": "1"}"#.to_string(),
             vec![("blocks/x-a.md", block("x-b"))],
             "has id 'x-b', expected 'x-a'",
         ),
         (
             "ui file parent path",
-            r#"{"name": "x", "version": "1", "ui": {"scripts": ["../a.js"]}}"#.to_string(),
+            r#"{"name": "x", "title": "T", "version": "1", "ui": {"scripts": ["../a.js"]}}"#.to_string(),
             vec![],
             "must be a relative path inside ui/",
         ),
         (
             "service env name without prefix",
-            r#"{"name": "x", "version": "1", "service": {"url_env": "URL"}}"#.to_string(),
+            r#"{"name": "x", "title": "T", "version": "1", "service": {"url_env": "URL"}}"#.to_string(),
             vec![],
             "must be AGENT_LINK_EXT_",
         ),
         (
             "service post with parent segment",
-            r#"{"name": "x", "version": "1", "service": {"url_env": "AGENT_LINK_EXT_URL", "post": ["a/../b"]}}"#
+            r#"{"name": "x", "title": "T", "version": "1", "service": {"url_env": "AGENT_LINK_EXT_URL", "post": ["a/../b"]}}"#
                 .to_string(),
             vec![],
             "is not a valid path",
         ),
         (
             "init without cli",
-            r#"{"name": "x", "version": "1", "init": ["init"]}"#.to_string(),
+            r#"{"name": "x", "title": "T", "version": "1", "init": ["init"]}"#.to_string(),
             vec![],
             "init needs cli",
+        ),
+        (
+            "title missing",
+            r#"{"name": "x", "version": "1"}"#.to_string(),
+            vec![],
+            "missing field `title`",
+        ),
+        (
+            "title longer than 40 characters",
+            format!(r#"{{"name": "x", "title": "{}"}}"#, "あ".repeat(41)),
+            vec![],
+            "title must be 1 to 40 characters",
+        ),
+        (
+            "title empty",
+            r#"{"name": "x", "title": "  "}"#.to_string(),
+            vec![],
+            "title must be 1 to 40 characters",
+        ),
+        (
+            "reserved name",
+            r#"{"name": "kantoku", "title": "T"}"#.to_string(),
+            vec![],
+            "name 'kantoku' is reserved",
         ),
     ];
     for (i, (label, manifest, files, want)) in cases.iter().enumerate() {
@@ -177,6 +201,25 @@ fn load_rejects_bad_manifests() {
         assert!(err.starts_with("extension.json:"), "{label}: {err}");
         assert!(err.contains(want), "{label}: {err}");
     }
+}
+
+#[test]
+fn title_is_kept_and_version_defaults_to_empty() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().join("x");
+    fs::create_dir_all(&dir).unwrap();
+    // 40 文字ちょうどの title は通り、version を省くと空文字になる
+    let title = "あ".repeat(40);
+    fs::write(
+        dir.join("extension.json"),
+        format!(r#"{{"name": "x", "title": "{title}"}}"#),
+    )
+    .unwrap();
+    let info = load(&dir).expect("version may be omitted");
+    assert!(info.manifest.version.is_none());
+    let item = list_in(tmp.path(), None).to_json(tmp.path());
+    assert_eq!(item["extensions"][0]["title"], title.as_str());
+    assert_eq!(item["extensions"][0]["version"], "");
 }
 
 // ---- 導入と一覧 ----
@@ -279,7 +322,7 @@ fn enable_failed_init_does_not_record() {
     let dir = e.ext_dir.join("broken");
     make_ext(
         &dir,
-        r#"{"name": "broken", "version": "1", "cli": {"bin": "bin/b"}, "init": ["init"]}"#,
+        r#"{"name": "broken", "title": "T", "version": "1", "cli": {"bin": "bin/b"}, "init": ["init"]}"#,
         &[("bin/b", "#!/bin/sh\necho boom >&2\nexit 3\n")],
     );
     let err = enable_in(&e.ext_dir, &e.root, "broken", EXE).unwrap_err();
@@ -423,7 +466,7 @@ fn run_cli_times_out() {
     let dir = e.ext_dir.join("slow");
     make_ext(
         &dir,
-        r#"{"name": "slow", "version": "1", "cli": {"bin": "bin/s"}}"#,
+        r#"{"name": "slow", "title": "T", "version": "1", "cli": {"bin": "bin/s"}}"#,
         &[("bin/s", "#!/bin/sh\nsleep 5\n")],
     );
     enable_in(&e.ext_dir, &e.root, "slow", EXE).unwrap();

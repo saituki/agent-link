@@ -33,9 +33,11 @@ pub const RUN_TIMEOUT: Duration = Duration::from_secs(120);
 #[serde(deny_unknown_fields)]
 pub struct Manifest {
     pub name: String,
-    pub version: String,
+    /// 表示名（必須・1〜40 文字）。
+    pub title: String,
+    /// 版（任意。表示用の文字列。未指定は空文字として扱う）。
     #[serde(default)]
-    pub title: Option<String>,
+    pub version: Option<String>,
     #[serde(default)]
     pub description: String,
     #[serde(default)]
@@ -290,11 +292,11 @@ impl ListResult {
 
 fn listed_json(l: &Listed) -> Value {
     let m = &l.installed.manifest;
-    let title = m.title.clone().unwrap_or_else(|| m.name.clone());
+    let title = m.title.clone();
     json!({
         "name": m.name,
         "title": title,
-        "version": m.version,
+        "version": m.version.clone().unwrap_or_default(),
         "description": m.description,
         "path": l.installed.path.to_string_lossy(),
         "linked": l.installed.linked,
@@ -618,8 +620,12 @@ fn check_manifest(m: &Manifest, dir: &Path) -> Result<(), String> {
             m.name
         ));
     }
-    if m.version.trim().is_empty() {
-        return bad("version is empty".to_string());
+    if RESERVED_NAMES.contains(&m.name.as_str()) {
+        return bad(format!("name '{}' is reserved", m.name));
+    }
+    let title_len = m.title.trim().chars().count();
+    if !(1..=40).contains(&title_len) {
+        return bad("title must be 1 to 40 characters".to_string());
     }
     for r in &m.requires {
         if !valid_name(r) {
@@ -901,6 +907,24 @@ fn read_settings(root: &Path) -> Option<Value> {
 fn has(list: &[String], name: &str) -> bool {
     list.iter().any(|n| n == name)
 }
+
+/// 拡張の名前に使えない予約名（本体の命令・既定の block 名と衝突するため）。
+const RESERVED_NAMES: &[&str] = &[
+    "link",
+    "doc",
+    "mcp",
+    "ext",
+    "plan",
+    "extension",
+    "main",
+    "sub",
+    "web",
+    "worker",
+    "review",
+    "explore",
+    "kantoku",
+    "bugfix",
+];
 
 /// 拡張の名前の形（`^[a-z][a-z0-9-]{0,31}$`）。
 fn valid_name(s: &str) -> bool {
