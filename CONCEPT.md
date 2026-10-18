@@ -34,6 +34,7 @@ agent-link は、2 つの部品（実行エンジン・Web の窓口）ででき
 | **`agent-link.db`** | 実行エンジンの DB。run・card・子タスクなどの記録が入る。Web は開かない。 | `<root>/.agent-link/engine/agent-link.db` |
 | **プロジェクト（`<root>/.agent-link/`）** | 作業の単位となるフォルダ。中の `.agent-link/` に DB・block・template・settings・成果物（`outputs/`）を置く。 | `agent-link init` が作る。`AGENT_LINK_PROJECT_ROOT` か、今のフォルダから上へたどって `.agent-link/` を持つ最初のフォルダ |
 | **`AGENT_LINK_HOME`** | 利用者全体の置き場。環境変数 `AGENT_LINK_HOME`（空でない値）が優先、無ければ `~/.agent-link`。登録簿・共通の block / template / settings・`web/` が入る。プロジェクトの `.agent-link/` とは別。 | `agent_link_engine::project::sai_home()`・`registry.sai_home()`（Python）。**2 つの規則をそろえる**（違いは `HOME` が無いときだけ。Rust は `None`、Python は `Path.home()`） |
+| **拡張（extension）** | 基盤に後から足す機能。フォルダ 1 つ（`extension.json`）に、任意の言語の CLI・block と template・サイドバーのタブ 1 つ（`ui/`）・任意の service（外部サービスへの読み取りの中継）をまとめたもの。基盤は拡張の名前を知らない。有効かどうかはプロジェクトごとに決まる（`ext enable`）。 | 置き場は `AGENT_LINK_EXTENSIONS_DIR`（既定 `$AGENT_LINK_HOME/extensions`）。命令は `agent-link ext`（`docs/for-developers.md` §2.2）。宣言と作法の正は `crates/agent-link-engine/assets/template/ext-contract.md` |
 | **登録簿（registry）** | 全プロジェクトの一覧。`agent-link init` が書き、Web のプロジェクト一覧が読む。 | `$AGENT_LINK_HOME/registry.json`、読む側は `apps/web/src/agent_link_web/registry.py` |
 
 ---
@@ -146,6 +147,11 @@ review          …… .agent-link/outputs/review/<run_id>/    利用者の確�
 - **def（定義）** — block・template・settings の総称と、それを読み書きする命令 — §2
 - **doc（文書）** — waggle トークンの付いた文書 — §2
 - **`executer`** — card を起こす人（`human` / `agent`） — §2
+- **`ext enable`** — 拡張をプロジェクトで有効にする命令 — §1
+- **`ext-contract`** — 拡張の作者向けの契約の正（template の名前） — §1
+- **extension（拡張）** — 基盤に後から足す機能 — §1
+- **`extension-plan`** — 拡張を作るための block — §1
+- **`extension.json`** — 拡張の宣言（名前・CLI・画面・service） — §1
 - **finalize** — 完了を確定すること — §2
 - **Home** — 最初に出る画面 — §3
 - **`host`（遠隔の子）** — 子の claude を ssh 先の機械で動かす入力 — §2
@@ -160,6 +166,7 @@ review          …… .agent-link/outputs/review/<run_id>/    利用者の確�
 - **`SaiRoutes`** — 画面を登録する場所 — §3
 - **`saiTerm`（用語の札）** — 押すと説明が出る札 — §3
 - **`schema --json`** — 命令の一覧を出す命令 — §4
+- **service** — 拡張の外部サービスへの読み取りの中継（宛先は `config`） — §1
 - **Settings（設定）** — block・template・settings を読み書きする画面 — §3
 - **`task.md`** — card と run の依頼書 — §2
 - **`# task_text`** — `task.md` の依頼文の節 — §2
@@ -170,6 +177,7 @@ review          …… .agent-link/outputs/review/<run_id>/    利用者の確�
 ### 日本語
 
 - **画面の版** — `sw.js` の `CACHE` と `index.html` の `?v=` — §3
+- **拡張（extension）** — 基盤に後から足す機能 — §1
 - **日付フォルダ（date folder）** — Workflow に移した run が入る `outputs/<yymmdd>/` — §2
 - **会話検索（セッション検索）** — 会話の履歴を検索する画面 — §3
 - **子タスク** — 親の run が作る子の run — §2

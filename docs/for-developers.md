@@ -10,6 +10,8 @@
 
 ## 0. 最初に読む節の早見表
 
+拡張（extension）の作者向けの契約の正は [`../crates/agent-link-engine/assets/template/ext-contract.md`](../crates/agent-link-engine/assets/template/ext-contract.md)。この文書は、CLI（`agent-link ext` の命令・`ext list --json` の形）と Web が読む項目だけを書く（§2.2・§3.1）。
+
 | 直すもの | その節 | 最低限守ること |
 |---|---|---|
 | **CLI（`agent-link`）** | [§1](#1-cli-の約束) | 終了コード・失敗の出し方・`--json`・`schema --json` |
@@ -17,6 +19,7 @@
 | **エージェントとの約束**（settings・カードの frontmatter・報告・質問・フック） | [§3](#3-web-とエージェントの間の約束) | 項目の名前と置き場 |
 | **項目を変える** | [§4](#4-項目を変えるときの決まり) | Web が読む項目を変えたら、この文書と Web を一緒に直す |
 | **連携が壊れた** | [§5](#5-連携が壊れたときの見分け方) | 画面の文言から原因を引く |
+| **拡張（`ext` 命令・Web の拡張の読み取り）** | §2.2 の「拡張の命令（`ext`）」 | 命令の終了コードと `--json` の形。`ext list --json` の項目名 |
 
 ---
 
@@ -147,6 +150,7 @@ cwd は **そのプロジェクトの root**。
 |---|---|---|
 | `control.py` | `run export`（60 秒に 1 回）・`project summary`・`project dashboard --period`・`run tree`・`run log\|stats\|history <id>`・`run md <id> --kind …`（保存は `--write`）・`run finalize\|advance <id>`・`run rm <id> --yes`・`run send\|interrupt <id>`・`doc list --run <id>`・`doc read <token>`・`doc search …`・`card options\|docs\|create\|run\|schedule`・`workflow [--subtasks]`・`def list\|show\|write\|delete`・`session search …`・`daemon start\|stop` | 10 秒（export）・20 秒（既定）・30 秒（daemon・workflow）・60 秒（検索） |
 
+- 拡張（`apps/web` の拡張の窓口）は、`ext list --json`（一覧）と `ext run <名前> -- <引数…>`（拡張の CLI）を呼ぶ。`ext run` の子は 120 秒で止まる（§2.2 の C4）。
 - どの呼び出しも**シェルを使わず**、引数は配列で渡される。
 - - **C-ARGS**: `-` で始まりうる外から来た文字列（検索語・文など）を CLI に渡すとき、オプションの値は `--name=<値>` の 1 引数にする。位置引数は `--` のあとに置くか、英数字で始まる値だけを通す。`apps/web` が検査してから渡す（U02 が実装）。
 - **`target/release/` の実行ファイルを作り直す**（`cargo build --release`）。直しても作り直さないと Web は古いまま。
@@ -401,6 +405,53 @@ Web が `recent[]` に**追加で足す**項目: `description`（文字列）・
 
 **文字出力**（JSON ではない）。Web は終了コードだけで成否を見る。
 
+#### 拡張の命令（`ext`）
+
+`agent-link ext` は拡張（extension）を入れる・外す・有効にする・起こす命令。拡張の置き場は `AGENT_LINK_EXTENSIONS_DIR`（既定 `$AGENT_LINK_HOME/extensions`）。拡張 1 つ = `<置き場>/<name>`（フォルダ、または `--link` の symlink）。宣言（`extension.json`）の規則と、拡張の CLI を作る人の約束は [`ext-contract.md`](../crates/agent-link-engine/assets/template/ext-contract.md)（この文書は、CLI と Web の間の形だけを書く）。
+
+| 命令 | プロジェクト | すること | 主な失敗（終了コード） |
+|---|---|---|---|
+| `ext list` | 要らない | 置き場の拡張を名前順に並べる | — |
+| `ext install <dir> [--link]` | 要らない | 宣言を検査し、`<置き場>/<name>` を作る。既にあれば置き換える（中身・symlink を消してから作る）。複製は `extension.json`・`bin/`・`lib/`・`blocks/`・`template/`・`ui/` だけで、実行の権限は保つ | 2: 宣言の誤り・`<dir>` が無い・symlink を含む |
+| `ext uninstall <name>` | 要らない | `<置き場>/<name>` を消す（symlink なら link だけ） | 3: 無い。4: どこかのプロジェクトで有効（`enabled_in` が空でない） |
+| `ext enable <name>` | 要る | (1) `requires` がすべてこのプロジェクトで有効か確かめる (2) block と template を写す（`update=false`） (3) `init` があれば起こす (4) `extensions` に足す。既に有効なら (2)(3) を行い、(4) は足さない | 3: 入っていない。4: `requires` が未有効。1: `init` が失敗（記録しない） |
+| `ext disable <name>` | 要る | このプロジェクトで有効な他の拡張が `requires` していないか確かめる。`extensions` から外す。写した block・template のうち、拡張の版と同じ物だけ消す（利用者が直した物は残し、`kept` に出す） | 3: このプロジェクトで有効でない。4: 他の拡張が要る |
+| `ext update [<name>]` | 要る | 有効な拡張（名前を指定すればそれだけ）の block と template を `update=true` で写し、`update` の引数があれば起こす。最初の失敗で止まる | 3: 指定した名前が有効でない。1: `update` の失敗 |
+| `ext run <name> [-- <args>…]` | 要る | 拡張の CLI を起こし、標準出力をそのまま出す（`--json` は付けても同じ。中身は拡張の物） | 3: 入っていない。4: このプロジェクトで有効でない。2: `cli` が無い。それ以外は子の終了コード（2・3・4 はそのまま、ほかは 1） |
+
+- すべて `--json` を受ける。失敗のとき、標準出力は空にし、標準エラーの最後の行に英語の理由を 1 行出す（§1 の約束）。`--json` が無いときは、人向けの英語の文を 1 行以上出す。
+- **有効の記録**は `<root>/.agent-link/settings.json` の `extensions`（§3.1）。`$AGENT_LINK_HOME/settings.json` の `extensions` は読まない。
+
+`--json` の形（成功のとき、標準出力に JSON を 1 つ）:
+
+```
+ext list --json     → {"dir", "extensions": [...], "errors": [{"path", "error"}]}
+ext install --json  → {"name", "path", "linked"}
+ext uninstall --json → {"name", "removed": true}
+ext enable --json   → {"name", "enabled": true, "assets": [{"path", "outcome"}], "init": "ran" | "none"}
+ext disable --json  → {"name", "enabled": false, "removed": [<path>…], "kept": [<path>…]}
+ext update --json   → {"updated": [{"name", "assets": [...], "update": "ran" | "none"}]}
+```
+
+- `outcome` は `created`・`updated`・`unchanged`・`kept`。
+- `ext list --json` の `extensions` の 1 件（無い項目は `null`（`cli`・`ui`・`service`）か `[]`（`requires`・`init`・`update`・`blocks`・`templates`））:
+
+  ```json
+  {"name": "hello", "title": "Hello", "version": "0.1.0", "description": "…",
+   "path": "/Users/me/.agent-link/extensions/hello", "linked": false, "requires": [],
+   "cli": {"bin": "bin/hello", "web": ["greet"]}, "init": ["init"], "update": ["init", "--update"],
+   "blocks": ["hello-agent.md"], "templates": ["hello-rules.md"],
+   "ui": {"title": "Hello", "icon": "icon.svg", "scripts": ["hello.js"], "styles": ["hello.css"]},
+   "service": {"url_env": "AGENT_LINK_EXT_HELLO_URL", "user_env": null, "password_env": null, "post": [], "ready": false},
+   "enabled_in": ["myproj"]}
+  ```
+
+- **`enabled_in`** は、登録簿（`$AGENT_LINK_HOME/registry.json`）の各 root の `<root>/.agent-link/settings.json` の `extensions` に名前があるプロジェクトの `name`（登録簿の順）。
+- **`errors`** は宣言が壊れた拡張（`extensions` に入れない）。命令は成功にする。置き場が無ければ `extensions: []`。
+- **Web が読む項目**は `ext list --json` の `name`・`title`・`ui`・`service.ready`・`cli.web`・`enabled_in`・`path`。`scripts/agent-link-setup doctor` は `errors` を読む（`extensions` の行）。項目を消す・改名すると、`apps/web` の `ext.py` と一緒に直す。
+- **base が拡張の CLI を起こすとき**（`init`・`update`・`ext run`）は、シェルを通さない。cwd はプロジェクトの root。環境変数は親の物に `AGENT_LINK_PROJECT_ROOT=<root>` と `AGENT_LINK_BIN=<agent-link の絶対パス>` を足す。時間の上限は `init`・`update` が 300 秒、`ext run` が 120 秒。超えたら子を止めて終了コード 1（`Extension command timed out after N seconds.`）。
+- **run の中のエージェント**は、そのプロジェクトで有効な拡張について `<拡張のフォルダ>/<cli.bin のフォルダ>` が PATH の先頭側に入るので、拡張の CLI を名前だけで呼べる。
+
 #### `remote setup <host> [--mac <addr>] [--json]` / `remote check <host> [--json]`
 
 遠隔の機械（Mac の `~/.ssh/config` の Host 名）で claude を動かす準備と確認。手順は [`remote.md`](./remote.md)。`host` の書式は `task create` の `host` と同じ（違えば終了コード 2・`host must be an ssh host name (letters, digits, '.', '_', '-'; 1-63 chars): <値>`）。プロジェクトを要らない。
@@ -519,6 +570,7 @@ settings は 2 か所で書ける。**後者（`$AGENT_LINK_HOME`）が前者（
 | `pre_run` | 文字列の配列 \| null | 起動直前の準備（シェルは通さない） |
 | `write_check` | 文字列の配列 \| null | `agent-link doc write` が保存の前に本文を標準入力で通す命令。`{run_id}`・`{block}`・`{filename}` を置き換える（シェルは通さない）。環境変数 `AGENT_LINK_WRITE_FILENAME`・`AGENT_LINK_WRITE_DESCRIPTION`・`AGENT_LINK_PARENT_RUN_ID`・`AGENT_LINK_BLOCK_NAME`。終了コード 0: 標準出力が空でなければそれを保存、空なら元の本文を保存。1: 標準エラーを返して保存しない。それ以外（起動失敗・30 秒の時間切れ・2 以上）: 元の本文を保存し警告を返す |
 | `env` | オブジェクト（KEY → 値） | **agent の起動コマンドの先頭に付ける環境変数** |
+| `extensions` | 文字列の配列 \| null | **このプロジェクトで有効な拡張の名前**（`ext enable` が足し、`ext disable` が外す）。**プロジェクトの `.agent-link/settings.json` だけ**で読む。`$AGENT_LINK_HOME/settings.json` の物は読まない（上の「後者が前者を上書き」の対象外）。書くときは他のキーを保つ |
 
 読み込みは `crates/agent-link-engine/src/settings.rs` の `load_settings()`。
 
@@ -533,7 +585,7 @@ settings は 2 か所で書ける。**後者（`$AGENT_LINK_HOME`）が前者（
 - **置き場**: `$AGENT_LINK_HOME/settings.json` だけ。**プロジェクトの `.agent-link/settings.json` の `config` は読まない**（プロジェクトの設定は利用者全体の設定を変えない）。
 - **優先**: 環境変数（空白だけの値は無いのと同じ）→ `config` → 既定値。
 - **値**: 文字列か整数。空白だけの文字列・真偽値・小数・配列などは無いのと同じ。ファイルが壊れていても黙って無視する（警告は出さない）。
-- **書ける名前**: `AGENT_LINK_WEB_PORT`・`AGENT_LINK_WEB_URL`・`AGENT_LINK_BIN`・`AGENT_LINK_WEB_RUNS_DIR`・`AGENT_LINK_WEB_HOOKS_DIR`・`AGENT_LINK_WEB_NO_WATCH`・`AGENT_LINK_CLAUDE_BIN`・`AGENT_LINK_IDLE_TIMEOUT_MS`・`AGENT_LINK_LONG_RUN_ALERT_MS`・`AGENT_LINK_SSH_BIN`・`CLAUDE_SESSIONS_DIR`。`AGENT_LINK_HOME` は書けない（`config` を探す場所を決める値だから）。ほかの名前は `config` に書いても読まれない。
+- **書ける名前**: `AGENT_LINK_WEB_PORT`・`AGENT_LINK_WEB_URL`・`AGENT_LINK_BIN`・`AGENT_LINK_WEB_RUNS_DIR`・`AGENT_LINK_WEB_HOOKS_DIR`・`AGENT_LINK_WEB_NO_WATCH`・`AGENT_LINK_CLAUDE_BIN`・`AGENT_LINK_IDLE_TIMEOUT_MS`・`AGENT_LINK_LONG_RUN_ALERT_MS`・`AGENT_LINK_SSH_BIN`・`CLAUDE_SESSIONS_DIR`・`AGENT_LINK_EXTENSIONS_DIR`。拡張が宣言する `AGENT_LINK_EXT_*`（`service.url_env`・`service.user_env`・`service.password_env` の名前。Web が読む）も書ける。`AGENT_LINK_HOME` は書けない（`config` を探す場所を決める値だから）。ほかの名前は `config` に書いても読まれない（拡張の名前は宣言された物だけ）。
 - **実装は 2 か所**（そろえて直す）: Rust は `crates/agent-link-engine/src/settings.rs` の `config_var`、Python は `apps/web/src/agent_link_web/registry.py` の `config_var`。`scripts/agent-link-setup` の `doctor` も後者を通して読む。
 - 名前ごとの意味と既定値の表は [`../README.md`](../README.md)。
 
