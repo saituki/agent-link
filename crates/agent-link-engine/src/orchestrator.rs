@@ -4326,6 +4326,46 @@ mod tests {
         assert!(context_section(&broken).unwrap().contains("timed out"));
     }
 
+    /// `append_ext_context` が、持ち主の拡張の block の run にだけ `# context` を足すこと
+    /// （`run_id` が無ければ足さない）。
+    #[test]
+    fn append_ext_context_only_for_owner_block_with_run_id() {
+        use std::os::unix::fs::PermissionsExt;
+        let _env_lock = finalize_env_lock();
+        let root = finalize_test_temp_dir("ext-context");
+        let ext_dir = root.join("exts");
+        let hello = ext_dir.join("hello");
+        std::fs::create_dir_all(hello.join("bin")).unwrap();
+        std::fs::write(
+            hello.join("extension.json"),
+            r#"{"name":"hello","title":"Hello","version":"0.1.0","description":"d",
+                "cli":{"bin":"bin/hello"},"hooks":{"context":["context","{run_id}"]}}"#,
+        )
+        .unwrap();
+        let bin = hello.join("bin/hello");
+        std::fs::write(&bin, "#!/bin/sh\necho \"scope for run $2\"\n").unwrap();
+        std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o755)).unwrap();
+        std::fs::create_dir_all(root.join(".agent-link")).unwrap();
+        std::fs::write(
+            root.join(".agent-link/settings.json"),
+            r#"{"extensions":["hello"]}"#,
+        )
+        .unwrap();
+        std::env::set_var("AGENT_LINK_PROJECT_ROOT", &root);
+        std::env::set_var("AGENT_LINK_EXTENSIONS_DIR", &ext_dir);
+
+        let own = append_ext_context("first".to_string(), "hello-agent", Some(7));
+        let other = append_ext_context("first".to_string(), "plan", Some(7));
+        let no_run = append_ext_context("first".to_string(), "hello-agent", None);
+
+        std::env::remove_var("AGENT_LINK_PROJECT_ROOT");
+        std::env::remove_var("AGENT_LINK_EXTENSIONS_DIR");
+        std::fs::remove_dir_all(&root).ok();
+        assert_eq!(own, "first\n\n# context\n\nscope for run 7");
+        assert_eq!(other, "first");
+        assert_eq!(no_run, "first");
+    }
+
     // ---- StallDetector（U3: 停止検知） ----
 
     /// long_run に十分大きい値（working では LongRunning が出ないようにする）
