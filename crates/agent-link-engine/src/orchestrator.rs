@@ -776,7 +776,7 @@ pub fn prepare_pipeline(config: &PipelineConfig) -> Result<PreparedPipeline, Orc
         // shell エスケープして渡す。
         format!(
             "AGENT_LINK_IS_SUBTASK=1 AGENT_LINK_BIN={} ",
-            crate::common::shell_escape_single_quotes(&crate::cc_command::sai_link_exe())
+            crate::common::shell_escape_single_quotes(&crate::cc_command::agent_link_exe())
         )
     } else {
         String::new()
@@ -813,18 +813,26 @@ pub fn prepare_pipeline(config: &PipelineConfig) -> Result<PreparedPipeline, Orc
 
     // ── CLI を名前だけで呼べるようにする（子の pane・エージェントの pane）──
     // テンプレートとフックは `agent-link …`・`agent-link-web …` を名前だけで呼ぶ。
-    // 実行ファイルは同じフォルダにできるので、`sai_link_exe()` のあるフォルダを
+    // 実行ファイルは同じフォルダにできるので、`agent_link_exe()` のあるフォルダを
     // PATH の先頭に足す。利用者の PATH の設定に頼らない。
+    // プロジェクトで有効な拡張の bin も、同じく名前だけで呼べるよう後ろに足す。
     if !is_remote {
-        let exe = crate::cc_command::sai_link_exe();
-        if let Some(dir) = std::path::Path::new(&exe).parent() {
-            if !dir.as_os_str().is_empty() {
-                agent_command = format!(
-                    "PATH={}:$PATH {}",
-                    crate::common::shell_escape_single_quotes(&dir.to_string_lossy()),
-                    agent_command
-                );
+        let mut dirs: Vec<String> = Vec::new();
+        let exe = crate::cc_command::agent_link_exe();
+        if let Some(dir) = std::path::Path::new(&exe)
+            .parent()
+            .filter(|d| !d.as_os_str().is_empty())
+        {
+            dirs.push(crate::common::shell_escape_single_quotes(&dir.to_string_lossy()));
+        }
+        if let Some(ext_dir) = crate::ext::extensions_dir() {
+            let root = crate::project::project_root();
+            for d in crate::ext::enabled_bin_dirs(&ext_dir, &root) {
+                dirs.push(crate::common::shell_escape_single_quotes(&d.to_string_lossy()));
             }
+        }
+        if !dirs.is_empty() {
+            agent_command = format!("PATH={}:$PATH {}", dirs.join(":"), agent_command);
         }
     }
 
@@ -4768,12 +4776,12 @@ mod tests {
             cmd
         );
         assert!(
-            cmd.contains(&crate::cc_command::sai_link_exe()),
-            "AGENT_LINK_BIN は sai_link_exe() のパス: {}",
+            cmd.contains(&crate::cc_command::agent_link_exe()),
+            "AGENT_LINK_BIN は agent_link_exe() のパス: {}",
             cmd
         );
         // 子の pane は CLI を名前だけで呼べるよう PATH の先頭に実行ファイルのフォルダが付く
-        let exe_dir = std::path::Path::new(&crate::cc_command::sai_link_exe())
+        let exe_dir = std::path::Path::new(&crate::cc_command::agent_link_exe())
             .parent()
             .expect("実行ファイルの親フォルダ")
             .to_path_buf();
@@ -5892,7 +5900,7 @@ mod tests {
         config.block_config.name = "sai-test-main".to_string();
         let prepared = prepare_pipeline(&config).expect("prepare_pipeline に失敗");
 
-        let exe = crate::cc_command::sai_link_exe();
+        let exe = crate::cc_command::agent_link_exe();
         let dir = std::path::Path::new(&exe).parent().unwrap().to_string_lossy().to_string();
         let expected = format!(
             "PATH={}:$PATH AGENT_LINK_PARENT_RUN_ID=77 AGENT_LINK_BLOCK_NAME=sai-test-main claude {}",
@@ -5903,6 +5911,36 @@ mod tests {
         assert_eq!(prepared.remote_host, None);
         assert!(!prepared.pi_command.contains("ssh"), "{}", prepared.pi_command);
         crate::session::cleanup_session_dir(&prepared.session_dir);
+    }
+
+    /// 有効な拡張の bin のフォルダは、agent-link のフォルダの後ろに PATH の先頭側へ入ること。
+    #[test]
+    fn prepare_pipeline_puts_enabled_extension_bin_on_path() {
+        let _env_lock = finalize_env_lock();
+        let (_root_guard, _home_guard, root, home) =
+            finalize_settings_env_dirs("ext-path", None, None);
+        let ext_dir = home.join("extensions");
+        let _ext_guard = EnvVarGuard::set("AGENT_LINK_EXTENSIONS_DIR", ext_dir.as_os_str());
+        let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/ext/hello");
+        crate::ext::install_in(&ext_dir, &fixture, false).expect("見本の拡張を入れる");
+        crate::ext::enable_in(&ext_dir, &root, "hello", "agent-link").expect("見本の拡張を有効にする");
+
+        let prepared = prepare_pipeline(&minimal_config()).expect("prepare_pipeline に失敗");
+
+        let exe_dir = std::path::Path::new(&crate::cc_command::agent_link_exe())
+            .parent()
+            .expect("実行ファイルの親フォルダ")
+            .to_path_buf();
+        let bin_dir = ext_dir.join("hello").join("bin");
+        let expected_prefix = format!("PATH='{}':'{}':$PATH ", exe_dir.display(), bin_dir.display());
+        assert!(
+            prepared.pi_command.starts_with(&expected_prefix),
+            "拡張の bin が agent-link のフォルダの後ろに入る: {}",
+            prepared.pi_command
+        );
+        crate::session::cleanup_session_dir(&prepared.session_dir);
+        let _ = std::fs::remove_dir_all(&root);
+        let _ = std::fs::remove_dir_all(&home);
     }
 
     /// 遠隔の分岐: 偽の遠隔の HOME に設定と固定部分が置かれ、`~/.claude.json` が整い、ssh の命令になること。
