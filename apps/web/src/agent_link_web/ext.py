@@ -198,6 +198,17 @@ def _check_args(payload: dict) -> list[str]:
     return args
 
 
+def _check_input(payload: dict) -> str | None:
+    text = payload.get("input")
+    if text is None:
+        return None
+    if not isinstance(text, str) or len(text) > 1_000_000:
+        raise HTTPException(
+            status_code=400, detail="input must be a string of at most 1000000 characters."
+        )
+    return text
+
+
 def run_cli(project: str, ext_name: str, payload: dict) -> dict:
     """拡張の CLI（`ext run <e> -- <args…>`）を、検査を通した物だけ呼ぶ。"""
     proj = control.find_project(project)  # 登録簿に無ければ 404
@@ -209,10 +220,18 @@ def run_cli(project: str, ext_name: str, payload: dict) -> dict:
     if not ext or project not in ext.get("enabled_in", []):
         raise HTTPException(status_code=403, detail="Extension is not enabled in this project.")
     args = _check_args(payload)
+    text = _check_input(payload)
     if args[0] not in (ext.get("cli") or {}).get("web", []):
         raise HTTPException(status_code=403, detail="This command is not allowed from the web.")
+    if text is None:
+        return control._cli_json(
+            ["ext", "run", ext_name, "--", *args], root=proj["root"], timeout=_CLI_TIMEOUT
+        )
     return control._cli_json(
-        ["ext", "run", ext_name, "--", *args], root=proj["root"], timeout=_CLI_TIMEOUT
+        ["ext", "run", ext_name, "--stdin", "--", *args],
+        root=proj["root"],
+        timeout=_CLI_TIMEOUT,
+        stdin_text=text,
     )
 
 

@@ -66,7 +66,9 @@ class FakeCli:
         self.run_err = ""
 
     def __call__(self, args, *, app, cwd=None, env=None, timeout=20.0, input_text=None):
-        self.calls.append({"args": list(args), "cwd": cwd, "env": env, "timeout": timeout})
+        self.calls.append(
+            {"args": list(args), "cwd": cwd, "env": env, "timeout": timeout, "input": input_text}
+        )
         if args[1:3] == ["ext", "list"]:
             return subprocess.CompletedProcess(list(args), self.list_rc, self.list_json, "")
         return subprocess.CompletedProcess(list(args), self.run_rc, self.run_out, self.run_err)
@@ -223,6 +225,23 @@ def test_cli_success_and_checks(cli: FakeCli, root: Path) -> None:
     assert call["args"] == [control.settings.agent_link_bin, "ext", "run", "hello", "--", "greet", "x"], call
     assert call["cwd"] == str(root), call["cwd"]
     assert call["env"]["AGENT_LINK_PROJECT_ROOT"] == str(root), call["env"]
+    assert call["input"] is None, call
+
+    # input 付きは --stdin を足し、本文を標準入力に渡す
+    body = "# 見出し\n本文"
+    server.api_project_ext_cli("p", "hello", {"args": ["greet", "A12"], "input": body})
+    call = cli.calls[-1]
+    assert call["args"] == [
+        control.settings.agent_link_bin, "ext", "run", "hello", "--stdin", "--", "greet", "A12",
+    ], call
+    assert call["input"] == body, call
+    server.api_project_ext_cli("p", "hello", {"args": ["greet"], "input": "x" * 1_000_000})
+
+    # input の誤り（型・長さ）は 400 で CLI を呼ばない
+    cli.calls.clear()
+    for bad in (1, ["a"], "x" * 1_000_001):
+        expect(400, lambda bad=bad: server.api_project_ext_cli("p", "hello", {"args": ["greet"], "input": bad}))
+    assert cli.calls_of("run") == [], cli.calls
 
     # 値の誤り（型・個数・長さ・改行・NUL・空）は 400 で CLI を呼ばない
     cli.calls.clear()
