@@ -158,6 +158,13 @@ fn load_rejects_bad_manifests() {
             "is not a valid path",
         ),
         (
+            "service post with leading slash",
+            r#"{"name": "x", "title": "T", "version": "1", "service": {"url_env": "AGENT_LINK_EXT_URL", "post": ["/ok"]}}"#
+                .to_string(),
+            vec![],
+            "is not a valid path",
+        ),
+        (
             "init without cli",
             r#"{"name": "x", "title": "T", "version": "1", "init": ["init"]}"#.to_string(),
             vec![],

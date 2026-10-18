@@ -48,7 +48,7 @@ agent-link 本体（以下 **base**）のリポジトリは読まなくてよい
 | `init` | | 文字列の配列。有効化のとき `cli` に渡す引数。`cli` が無いのに書いたら誤り |
 | `update` | | 文字列の配列。`ext update` のとき `cli` に渡す引数。`cli` が無いのに書いたら誤り |
 | `ui` | | `{title?, icon?, scripts, styles?}`。どれも `ui/` からの相対パス（`..`・絶対パスは不可）で、ファイルがあること。`scripts` は `.js`（1 個以上）、`styles` は `.css`、`icon` は `.svg`。`title` を省くと上の `title` |
-| `service` | | `{url_env, user_env?, password_env?, post?}`。`*_env` は `^AGENT_LINK_EXT_[A-Z0-9_]{1,40}$`。`post` は POST を中継してよい道（`^[A-Za-z0-9._/-]{1,200}$`、`..` の区切りは不可）の配列（既定 `[]`） |
+| `service` | | `{url_env, user_env?, password_env?, post?}`。`*_env` は `^AGENT_LINK_EXT_[A-Z0-9_]{1,40}$`。`post` は POST を中継してよい道（`^[A-Za-z0-9._/-]{1,200}$`、`..` の区切りは不可。**先頭の `/` は付けない**: `/api/ext/<ext>/svc/<path>` の `<path>` と同じ形で書く。例 `"api/runs"`）の配列（既定 `[]`） |
 | （その他） | | **知らない項目は誤り**（綴りの誤りを見つけるため） |
 
 - `blocks/` と `template/` の `.md` は宣言に書かない。フォルダの中身から決まる。ファイル名は `<name>.md` か `<name>-*.md` でなければ誤り。

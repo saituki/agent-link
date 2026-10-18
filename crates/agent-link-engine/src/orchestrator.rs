@@ -4760,7 +4760,7 @@ mod tests {
     /// サブブロックの起動コマンドには AGENT_LINK_IS_SUBTASK=1 と AGENT_LINK_BIN（実行ファイルのパス）が付く。
     /// 子が AGENT_LINK_BIN で agent-link の場所を知るため。
     #[test]
-    fn test_prepare_pipeline_subtask_gets_sai_link_bin() {
+    fn test_prepare_pipeline_subtask_gets_agent_link_bin() {
         let _env_lock = finalize_env_lock();
         let _project_root_guard = EnvVarGuard::remove("AGENT_LINK_PROJECT_ROOT");
 

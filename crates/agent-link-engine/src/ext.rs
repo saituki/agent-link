@@ -954,9 +954,10 @@ fn is_rel_path(p: &str) -> bool {
             .all(|c| matches!(c, Component::Normal(_)))
 }
 
-/// 道（`^[A-Za-z0-9._/-]{1,200}$`）。`..` の区切りは不可。
+/// 道（`^[A-Za-z0-9._/-]{1,200}$`）。`..` の区切りと先頭の `/` は不可（Web は先頭の `/` なしの道と照らす）。
 fn valid_post_path(p: &str) -> bool {
     (1..=200).contains(&p.len())
+        && !p.starts_with('/')
         && p.bytes()
             .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'/' | b'-'))
         && !p.split('/').any(|s| s == "..")

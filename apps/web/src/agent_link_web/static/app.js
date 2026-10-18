@@ -62,6 +62,7 @@ function parseRoute(hashArg) {
     }
   }
   if (hash.startsWith("#/session/")) return { name: "legacy" }; // 旧画面の住所
+  if (hash.startsWith("#/ext/")) return { name: "legacy" }; // 登録の無い拡張の住所（外した拡張）。一覧へ戻す
   return { name: "days" };
 }
 
