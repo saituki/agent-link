@@ -301,6 +301,8 @@ fn listed_json(l: &Listed) -> Value {
         "path": l.installed.path.to_string_lossy(),
         "linked": l.installed.linked,
         "requires": m.requires,
+        "init": m.init.clone().unwrap_or_default(),
+        "update": m.update.clone().unwrap_or_default(),
         "blocks": l.installed.blocks,
         "templates": l.installed.templates,
         "cli": m.cli.as_ref().map(|c| json!({"bin": c.bin, "web": c.web})),
