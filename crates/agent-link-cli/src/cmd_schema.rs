@@ -186,7 +186,7 @@ fn web_default(path: &[String]) -> bool {
         "task report",
         "task question",
     ];
-    const LOWER_LEVEL: [&str; 7] = [
+    const LOWER_LEVEL: [&str; 9] = [
         "init",
         "daemon recover",
         "usage backfill",
@@ -194,6 +194,8 @@ fn web_default(path: &[String]) -> bool {
         "schema",
         "remote setup",
         "remote check",
+        "ext install",
+        "ext uninstall",
     ];
     let joined = path.join(" ");
     !AGENT_ONLY.contains(&joined.as_str()) && !LOWER_LEVEL.contains(&joined.as_str())
@@ -251,6 +253,13 @@ mod tests {
             "doc read\tjson,token",
             "doc search\tblock,category,from_id,json,limit,since,to_id,until,word",
             "doc write\tdescription,filename,json,run_id",
+            "ext disable\tjson,name",
+            "ext enable\tjson,name",
+            "ext install\tdir,json,link",
+            "ext list\tjson",
+            "ext run\targs,json,name",
+            "ext uninstall\tjson,name",
+            "ext update\tjson,name",
             "init\tname,update",
             "project dashboard\tjson,period",
             "project summary\tjson",
