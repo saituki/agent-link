@@ -904,6 +904,33 @@ body.tabbar-hidden:not(.mini-visible) .inputbar {
 .tabbar button.active { color: var(--accent); }
 .tabbar svg { width: 24px; height: 24px; display: block; }
 
+/* 拡張のタブ：アイコンは img（svg と同じ大きさ）。無いときは 1 文字の四角。
+   名前が長くても 4 つ並んだ 390px で隣と重ならないよう省略記号にする */
+.tabbar button { min-width: 0; }
+.tabbar img,
+.ext-tab-letter {
+  width: 24px;
+  height: 24px;
+  display: block;
+}
+.ext-tab-letter {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  border: 1.5px solid currentColor;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1;
+}
+.tabbar button span {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* 小さな再生バー（見た目と中身は 09）。hidden のときは場所を取らない */
 .mini-player[hidden] { display: none; }
 /* タブバーを隠している間は再生バーが一番下になる */
@@ -2053,4 +2080,24 @@ button.lv-tl-preview { cursor: pointer; }
 .nc-error { color: var(--danger); font-size: 13px; }
 .nc-loading { color: var(--text-soft); font-size: 14px; padding: 8px 0; }
 .nc-start { align-self: flex-start; }
+
+/* 拡張の画面（#view-ext）。見出しの下にプロジェクトの欄（狭い画面）。
+   900px 以上は見出しと欄を横に並べる */
+.ext-head { flex-wrap: wrap; }
+.ext-head h1 { flex-basis: 100%; }
+.ext-project {
+  flex: 1 1 100%;
+  min-height: 44px;
+  padding: 0 var(--sp-3);
+  font-size: 16px; /* iPhone で入力時に拡大されないための大きさ */
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+}
+.ext-body { padding: var(--sp-4); }
+@media (min-width: 900px) {
+  .ext-head h1 { flex-basis: auto; }
+  .ext-project { flex: 0 1 260px; }
+}
 

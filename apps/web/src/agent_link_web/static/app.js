@@ -270,11 +270,11 @@ document.querySelectorAll("#tabbar button").forEach((btn) => {
     const tab = btn.dataset.tab;
     if (!tab) return;
     if (tab === currentTab()) {
-      location.hash = TAB_FIRST_URL[tab] || "#/";
+      location.hash = TAB_FIRST_URL[tab] || btn.dataset.first || "#/";
       return;
     }
     const last = loadTabLast();
-    location.hash = last[tab] || TAB_FIRST_URL[tab] || "#/";
+    location.hash = last[tab] || TAB_FIRST_URL[tab] || btn.dataset.first || "#/";
   });
 });
 
