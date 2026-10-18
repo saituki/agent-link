@@ -106,7 +106,7 @@
 | 2026-10-18 | K2: `ext install` は既定で複製し、`--link` で symlink にする | 利用者の決定。拡張は別のリポジトリで開発するため | 採用 | 拡張 K2 |
 | 2026-10-18 | K3: extensions リポジトリ（`~/workdir/Sai/agent-link-extensions`）の作成は最後の kantoku が行う。カードは作るだけ | 利用者の決定 | 採用 | 拡張 K3 |
 | 2026-10-18 | K4: 第 1 部（sai-tree との分離）は、コードの部分（改名・doctor）と手順書（`docs/separation.md`）を今回に含める。環境の片付けは利用者が行う | 利用者の決定。エージェントは利用者の環境（`~/.zshrc`・`~/.local/bin`・`~/.agent-link`・`~/.sai`・登録簿）を変えない | 採用 | 拡張 K4 |
-| 2026-10-18 | P1: 「Tool」は拡張の CLI のこと。MCP・hook・skill は配らない | I4（エージェントの道具は CLI 1 本）に反するため | 採用 | 拡張 P1 |
+| 2026-10-18 | P1: 「Tool」は拡張の CLI のこと。MCP・cc の hook・skill は配らない（P1 の「hook」は cc の hook を指す。Q1 で文言を明確化） | I4（エージェントの道具は CLI 1 本）に反するため | 採用（Q1 で文言を明確化） | 拡張 P1 |
 | 2026-10-18 | P2: 拡張の block と template は、enable のときに `install_one` の規則で写す | block の探し方が 3 通りあり、そこに手を入れないため | 採用 | 拡張 P2 |
 | 2026-10-18 | P3: 有効の記録はプロジェクトの `.agent-link/settings.json` の `extensions`。`$AGENT_LINK_HOME/settings.json` の `extensions` は読まない | 記録を 1 か所にするため | 採用 | 拡張 P3 |
 | 2026-10-18 | P4: service は拡張の種類ではなく能力。`service.url_env` の値（環境変数 → `config`）が `http://` か `https://` で始まれば ready | 有効・無効の規則を 1 つにするため | 採用 | 拡張 P4 |
@@ -114,3 +114,17 @@
 | 2026-10-18 | P6: 拡張の JS は同じオリジンで動き、サンドボックスは無い | 個人ローカル専用（I5・I6） | 採用 | 拡張 P6 |
 | 2026-10-18 | P7: 改名は `sai_link_exe` → `agent_link_exe`（Rust）と `sai_link_bin` → `agent_link_bin`（Python）だけ。画面の頭 `sai*` と `sai_home` は残す | `sai*` は画面の決まり（P-8・2026-10-17）で、他の App の名前ではないため | 採用 | 拡張 P7 |
 | 2026-10-18 | P8: 下書きの C6「`sai-engine` のコメントが残る」は、HEAD（`crates/`・`apps/`・`scripts/`）では 0 件。事実として訂正する | 下書きの実測と現在のコードが食い違った。コードを正とする | 採用 | 拡張 P8 |
+
+## 7. 拡張の基盤の拡張（2026-10-18）
+
+2026-10-18 の決定。ある拡張を例に base の不足を洗い出し、利用者と決めた（出典の「拡張の基盤 Q」。要件定義書 `requirements.md` の D1〜D13 から起こした）。拡張の作者向けの契約の全文は [`ext-contract.md`](../crates/agent-link-engine/assets/template/ext-contract.md)。
+
+| 日付 | 決定 | 理由（D は要件定義書の番号）・採用しなかった案 | 状態 | 出典 |
+|---|---|---|---|---|
+| 2026-10-18 | Q1: 拡張の hook。点は `context`・`write_check`・`question` の 3 つ。呼ぶのは、その拡張の block の run だけ（block の id が `<name>` か `<name>-` で始まる拡張。複数なら name の長い方）。命令は `cli.bin` に渡す引数の配列。P1 の「hook」は cc の hook を指す（P1 の文は「MCP・cc の hook・skill は配らない」と読み替える） | 理由（D1・D8〜D10）: 起動直前に作る物は `context` の出力に入れられるので `pre_run` は作らない。base が呼ぶだけで、エージェントの道具は増えない（I4 を保つ）。持ち主が 1 つに決まり、順序の取り決めが要らない。採用しなかった案: base を変えず settings に手で書く・hook をやめる | 採用 | 拡張の基盤 Q1 |
+| 2026-10-18 | Q2: 待ち条件付きカード（`card wait`・task.md の `wait`・`wait_every`・`wait_note`）。daemon が予定の時刻ごとに命令を呼び、0 で実行・1 でまだ・それ以外は理由を残して待つ。命令の先頭の `agent-link` は base の実行ファイルに置き換える | 理由（D2・D11）: 拡張の名前を知らずに作れる。daemon の PATH に拡張の bin は無いので、`agent-link ext run <name> -- …` で拡張の CLI を呼ばせる。採用しなかった案: `card schedule` で見に行くカードを予約し直す（待つ間に run が増える）・待ちをやめる | 採用 | 拡張の基盤 Q2 |
+| 2026-10-18 | Q3: Web の拡張の CLI の呼び出しに `input` を足し（`ctx.cli(args, {input})`）、CLI に `ext run --stdin` を足す。1,000,000 文字（バイト）まで | 理由（D3）: 編集の画面を持つ拡張すべてに要る。引数は 1 本 1,000 文字までで改行を含められない。採用しなかった案: なし（要件定義書に挙げた物は無い） | 採用 | 拡張の基盤 Q3 |
+| 2026-10-18 | Q4: 拡張の設定値。`extension.json` の `config`（名前の宣言）と `agent-link ext config`。値は環境変数 → `settings.json` の `config` → 無し。`--json` 無しは値を出さない。値は CLI で読ませ、エージェントには読ませない | 理由（D4・D12）: API の鍵を使う拡張すべてに要る。読む規則を base の 1 か所（`config_var`）に保ち、秘密を pane の起動の文字や記録に出さない。採用しなかった案: なし（要件定義書に挙げた物は無い） | 採用 | 拡張の基盤 Q4 |
+| 2026-10-18 | Q5: 遠隔の子から拡張を名前で呼べる。遠隔の PATH の先頭に中継（`ext-bin/<name>`）を置き、Mac の `ext run <name> [--stdin] -- …` を門番経由で呼ぶ。門番は `ext run` だけを通す。拡張の CLI は Mac で動き、上限は 120 秒 | 理由（D5・D13）: 遠隔で動く拡張の block すべてに要る。拡張は Mac で動く（I1 を保つ）。遠隔の子からは、他の命令と同じ門番を通る。採用しなかった案: なし（要件定義書に挙げた物は無い。拡張の CLI を遠隔へ配ると状態の主人が 2 つになるので、考えない） | 採用 | 拡張の基盤 Q5 |
+| 2026-10-18 | Q6: 拡張の利用者全体のデータの置き場は足さない。共有したい物の場所は、設定値（Q4）で利用者が指す | 理由（D6）: I2（実行の状態はプロジェクトごとに閉じる）を変えない。利用者の決定。採用しなかった案: `$AGENT_LINK_HOME/ext/<name>/` を契約に足す | 採用 | 拡張の基盤 Q6 |
+| 2026-10-18 | Q7: 今も動くが契約に無かった物を契約（`ext-contract.md`）に書いた。拡張の CLI が呼んでよい base の命令・requires 先の呼び方（`ext run`）・block の frontmatter の拡張の項目（`<name>_…`）・`lib/` の置き場・他の画面へのリンク。block の `timeout` の誤りの文も直した（上限は無く、断るのは 0 だけ） | 理由（D7）: 拡張の作者が契約だけで作れるようにする。呼んでよい base の命令は、読む命令と `card create`・`card schedule`・`card wait` に絞る（run の実行・完了は人とエージェントの仕事）。採用しなかった案: 拡張の CLI に base の命令の全部を許す（状態を大きく変える命令まで拡張の判断になる） | 採用 | 拡張の基盤 Q7 |

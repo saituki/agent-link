@@ -86,7 +86,7 @@
 
 | | 固定（base が持つ。拡張は変えられない） | 拡張できる（拡張が持つ） |
 |---|---|---|
-| 実行エンジン | DB・daemon・run・カード・文書・子タスク・block の解析・起動の組み立て・`ext` 命令 | 拡張の CLI（任意の言語）と、そのデータ（`<root>/.agent-link/ext/<name>/`） |
+| 実行エンジン | DB・daemon・run・カード・文書・子タスク・block の解析・起動の組み立て・`ext` 命令 | 拡張の CLI（任意の言語）と、そのデータ（`<root>/.agent-link/ext/<name>/`）。hook の命令（`context`・`write_check`・`question`）・設定値の名前 |
 | エージェント | 基盤の block 11 本と template 13 本（`extension-plan`・`ext-contract` を含む） | 拡張の block（`<name>.md`・`<name>-*.md`）と template（同じ規則） |
 | Web | 枠・Home・Projects・Chats・API・入口の守り・公開部品（`saiApi` ほか） | サイドバーのタブ 1 つと、その中の画面（`ui/*.js`・`*.css`） |
 | 外部サービス | 読み取り専用の汎用の中継（`/api/ext/<name>/svc/…`） | 宛先の URL（`config` の `AGENT_LINK_EXT_*`）と、POST を許す道の一覧 |
@@ -102,6 +102,9 @@ agent-link ext enable <name>            （プロジェクトで）
         │  <root>/.agent-link/settings.json の extensions に足す
         ▼
 run を起こすとき        有効な拡張の <cli.bin のフォルダ> を PATH の先頭に足す（エージェントは名前で呼ぶ）
+run の起動 → hook context        その拡張の block の run の最初の文の末尾に `# context` の節を足す
+doc write → hook write_check      設定の write_check の後に呼ぶ（0 は置き換え・1 は保存しない）
+質問の答え → ext hook question    base の質問フックが呼び、拡張の question の命令に答えの JSON を渡す
 Web のサイドバーのタブ  GET /api/ext（ext list --json）→ GET /ext/<name>/<file>（ui/）
                         → POST /api/projects/<p>/ext/<e>/cli → agent-link ext run <e> -- <args>
 ```
