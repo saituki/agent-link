@@ -66,6 +66,48 @@ impl Env {
         cmd
     }
 
+    /// 標準入力に `input` を流して動かす（子が読み切らずに終わっても詰まらない）。
+    fn run_stdin(&self, args: &[&str], input: &[u8]) -> Output {
+        use std::io::Write;
+        use std::process::Stdio;
+        let mut child = self
+            .command(args)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("agent-link の起動に失敗しました");
+        let mut stdin = child.stdin.take().unwrap();
+        let input = input.to_vec();
+        let writer = std::thread::spawn(move || {
+            let _ = stdin.write_all(&input);
+        });
+        let out = child.wait_with_output().expect("待機に失敗しました");
+        let _ = writer.join();
+        out
+    }
+
+    /// `hello`（`hooks.question` を宣言した見本）を置き場に入れて有効にする。
+    fn enable_hooked_hello(&self) {
+        let dir = self.base.join("hooked/hello");
+        std::fs::create_dir_all(dir.join("bin")).unwrap();
+        std::fs::write(
+            dir.join("extension.json"),
+            r#"{"name": "hello", "title": "Hello", "cli": {"bin": "bin/hello"}, "hooks": {"question": ["q", "{run_id}"]}}"#,
+        )
+        .unwrap();
+        let bin = dir.join("bin/hello");
+        std::fs::write(
+            &bin,
+            "#!/bin/sh\ncase \"$1\" in\n  q) cat > \"$AGENT_LINK_PROJECT_ROOT/q.json\"; [ \"$2\" = 9 ] && exit 5; exit 0 ;;\n  echo) cat ;;\nesac\n",
+        )
+        .unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o755)).unwrap();
+        json(&self.run(&["ext", "install", &path_str(&dir), "--json"]));
+        json(&self.run(&["ext", "enable", "hello", "--json"]));
+    }
+
     /// プロジェクトの外（`base`）で動かす。`AGENT_LINK_PROJECT_ROOT` も外す。
     fn run_outside(&self, args: &[&str]) -> Output {
         let mut cmd = self.command(args);
@@ -148,6 +190,7 @@ fn install_enable_run_disable_uninstall() {
         "templates",
         "ui",
         "service",
+        "hooks",
         "enabled_in",
     ] {
         assert!(ext.get(key).is_some(), "list --json に {key} が無い: {ext}");
@@ -206,12 +249,12 @@ fn error_exit_codes_and_empty_stdout() {
     // 入っていない拡張を有効にする: 3
     assert_failure(&env.run(&["ext", "enable", "nosuch"]), 3);
 
-    // 壊れた宣言の install: 2（知らない項目 hooks）
+    // 壊れた宣言の install: 2（知らない項目 bogus）
     let broken = env.base.join("broken");
     std::fs::create_dir_all(&broken).unwrap();
     std::fs::write(
         broken.join("extension.json"),
-        r#"{"name": "broken", "title": "Broken", "hooks": {}}"#,
+        r#"{"name": "broken", "title": "Broken", "bogus": 1}"#,
     )
     .unwrap();
     assert_failure(&env.run(&["ext", "install", &path_str(&broken)]), 2);
@@ -232,4 +275,69 @@ fn error_exit_codes_and_empty_stdout() {
     assert_failure(&out, 2);
     let out = env.run_outside(&["ext", "list", "--json"]);
     assert_eq!(json(&out)["extensions"][0]["name"], "hello");
+}
+
+#[test]
+fn hook_question_passes_stdin_to_the_owner() {
+    let env = Env::new("hook-question");
+    env.enable_hooked_hello();
+    let input = r#"{"run_id": 7, "block": "hello-agent", "qid": "q1", "questions": [{"question": "Go?"}], "answers": {"Go?": "yes"}, "answered_by": "user"}"#;
+
+    // 持ち主あり: 子が標準入力の中身をそのまま受け取る
+    let v = json(&env.run_stdin(&["ext", "hook", "question"], input.as_bytes()));
+    assert_eq!(v, json!({"ext": "hello", "ran": true, "code": 0}));
+    assert_eq!(std::fs::read_to_string(env.root.join("q.json")).unwrap(), input);
+
+    // 子が 0 以外で終わっても、この命令は 0 で終わる
+    let failing = input.replace("\"run_id\": 7", "\"run_id\": 9");
+    let v = json(&env.run_stdin(&["ext", "hook", "question", "--json"], failing.as_bytes()));
+    assert_eq!(v, json!({"ext": "hello", "ran": true, "code": 5}));
+
+    // 持ち主なし（block が当てはまらない）
+    let other = input.replace("hello-agent", "plan");
+    let v = json(&env.run_stdin(&["ext", "hook", "question"], other.as_bytes()));
+    assert_eq!(v, json!({"ext": null, "ran": false, "code": null}));
+}
+
+#[test]
+fn hook_question_rejects_bad_input() {
+    let env = Env::new("hook-bad");
+    env.enable_hooked_hello();
+    for input in ["not json", r#"{"block": "hello"}"#, r#"{"run_id": "7", "block": "hello"}"#, r#"{"run_id": 7}"#] {
+        assert_failure(&env.run_stdin(&["ext", "hook", "question"], input.as_bytes()), 2);
+    }
+    let out = env.run_stdin(&["ext", "hook", "nosuch"], b"{}");
+    assert_failure(&out, 2);
+    assert!(stderr(&out).contains("Unknown hook point: nosuch. Use question."));
+}
+
+#[test]
+fn run_stdin_passes_body_and_checks_limits() {
+    let env = Env::new("run-stdin");
+    env.enable_hooked_hello();
+
+    // 改行を含む本文がそのまま届く
+    let out = env.run_stdin(&["ext", "run", "hello", "--stdin", "--", "echo"], b"a\nb\n");
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert_eq!(stdout(&out), "a\nb\n");
+
+    // 上限ちょうどは通り、1 バイト超えると 2
+    let limit = vec![b'x'; 1_000_000];
+    let out = env.run_stdin(&["ext", "run", "hello", "--stdin", "--", "echo"], &limit);
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert_eq!(out.stdout.len(), 1_000_000);
+    let over = vec![b'x'; 1_000_001];
+    let out = env.run_stdin(&["ext", "run", "hello", "--stdin", "--", "echo"], &over);
+    assert_failure(&out, 2);
+    assert!(stderr(&out).contains("Input is larger than 1000000 bytes."));
+
+    // UTF-8 でなければ 2
+    let out = env.run_stdin(&["ext", "run", "hello", "--stdin", "--", "echo"], &[0xff, 0xfe]);
+    assert_failure(&out, 2);
+    assert!(stderr(&out).contains("Input must be UTF-8 text."));
+
+    // --stdin が無ければ子の標準入力は閉じている（読んでも空）
+    let out = env.run_stdin(&["ext", "run", "hello", "--", "echo"], b"ignored");
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert!(out.stdout.is_empty());
 }

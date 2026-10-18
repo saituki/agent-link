@@ -581,6 +581,84 @@ impl PipelineHandle {
     }
 }
 
+/// 拡張の `context` hook の時間の上限。
+const EXT_CONTEXT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(20);
+/// `context` の節の本文の上限（文字数）。
+const EXT_CONTEXT_MAX_CHARS: usize = 200_000;
+
+/// block の持ち主の拡張の `context` を、最初の文の末尾に足す。
+/// `run_id` が無い（`block preview` など）・置き場が無いときは何もしない。
+fn append_ext_context(first_message: String, block: &str, run_id: Option<i64>) -> String {
+    use crate::ext::{call_hook, HookOutcome, HookPoint};
+    let (Some(run_id), Some(ext_dir)) = (run_id, crate::ext::extensions_dir()) else {
+        return first_message;
+    };
+    let exe = std::env::current_exe()
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_else(|_| "agent-link".to_string());
+    let outcome = call_hook(
+        &ext_dir,
+        &crate::project::project_root(),
+        HookPoint::Context,
+        block,
+        run_id,
+        None,
+        &[],
+        None,
+        &exe,
+        EXT_CONTEXT_TIMEOUT,
+    );
+    let failed = !matches!(
+        outcome,
+        HookOutcome::NoOwner | HookOutcome::Done { code: 0, .. }
+    );
+    match context_section(&outcome) {
+        Some(section) => {
+            if failed {
+                eprintln!("[agent-link] 警告: {}", section.trim());
+            }
+            format!("{first_message}{section}")
+        }
+        None => first_message,
+    }
+}
+
+/// `context` の結果から、最初の文に足す節を作る。足す物が無ければ `None`。
+fn context_section(outcome: &crate::ext::HookOutcome) -> Option<String> {
+    use crate::ext::HookOutcome;
+    let failed = |ext: &str, reason: &str| {
+        Some(format!(
+            "\n\n# context\n\n（拡張 {ext} の context を作れなかった: {reason}）"
+        ))
+    };
+    match outcome {
+        HookOutcome::NoOwner => None,
+        HookOutcome::Done {
+            code: 0, stdout, ..
+        } => {
+            if stdout.trim().is_empty() {
+                return None;
+            }
+            let body = stdout.strip_suffix('\n').unwrap_or(stdout);
+            let body: String = body.chars().take(EXT_CONTEXT_MAX_CHARS).collect();
+            Some(format!("\n\n# context\n\n{body}"))
+        }
+        HookOutcome::Done {
+            ext,
+            code,
+            stderr_last,
+            ..
+        } => {
+            if stderr_last.is_empty() {
+                failed(ext, &format!("exit code {code}"))
+            } else {
+                failed(ext, stderr_last)
+            }
+        }
+        HookOutcome::Broken { ext, reason } => failed(ext, reason),
+    }
+}
+
 // ============================================================================
 // Public API 1: prepare_pipeline — ユーザー確認前の準備
 // ============================================================================
@@ -629,6 +707,9 @@ pub fn prepare_pipeline(config: &PipelineConfig) -> Result<PreparedPipeline, Orc
     // 起動コマンドのフラグで渡す。最初の文には入力値だけが入る。
     let (mut system_prompt, first_message) =
         split_fixed_and_variable(&config.block_body, &resolved_values);
+    // 拡張の context を最初の文の末尾に足す（遠隔の run も同じ文になるよう variable_part の前）
+    let first_message =
+        append_ext_context(first_message, &config.block_config.block_id(), config.run_id);
     // 遠隔の run は固定部分を遠隔に置くので、最初の文は入力値だけにする
     let variable_part = first_message.clone();
 
@@ -4194,6 +4275,39 @@ mod tests {
         assert_eq!(subtask_setting(None, Some(" opus ")), Some("opus".into()));
         assert_eq!(subtask_setting(None, Some("   ")), None);
         assert_eq!(subtask_setting(None, None), None);
+    }
+
+    fn hook_done(code: i32, stdout: &str, stderr_last: &str) -> crate::ext::HookOutcome {
+        crate::ext::HookOutcome::Done {
+            ext: "hello".to_string(),
+            code,
+            stdout: stdout.to_string(),
+            stderr: stderr_last.to_string(),
+            stderr_last: stderr_last.to_string(),
+        }
+    }
+
+    #[test]
+    fn context_section_cases() {
+        use crate::ext::HookOutcome;
+        assert_eq!(context_section(&HookOutcome::NoOwner), None);
+        assert_eq!(
+            context_section(&hook_done(0, "範囲 A\n\n", "")).as_deref(),
+            Some("\n\n# context\n\n範囲 A\n")
+        );
+        assert_eq!(context_section(&hook_done(0, " \n", "")), None);
+        assert_eq!(
+            context_section(&hook_done(3, "", "boom")).as_deref(),
+            Some("\n\n# context\n\n（拡張 hello の context を作れなかった: boom）")
+        );
+        assert!(context_section(&hook_done(3, "", ""))
+            .unwrap()
+            .contains("exit code 3"));
+        let broken = HookOutcome::Broken {
+            ext: "hello".to_string(),
+            reason: "timed out".to_string(),
+        };
+        assert!(context_section(&broken).unwrap().contains("timed out"));
     }
 
     // ---- StallDetector（U3: 停止検知） ----

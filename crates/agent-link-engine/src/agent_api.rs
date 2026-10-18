@@ -472,6 +472,53 @@ fn write_with_timeout(
             }
         }
     }
+
+    // 拡張の write_check（設定の検査の後。設定で断られたらここへは来ない）。
+    if let Some(ext_dir) = crate::ext::extensions_dir() {
+        use crate::ext::{call_hook, HookOutcome, HookPoint};
+        let exe = std::env::current_exe()
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_else(|_| "agent-link".to_string());
+        let envs = [
+            ("AGENT_LINK_WRITE_FILENAME", basename.clone()),
+            ("AGENT_LINK_WRITE_DESCRIPTION", description.unwrap_or("").to_string()),
+        ];
+        let outcome = call_hook(
+            &ext_dir,
+            &crate::project::project_root(),
+            HookPoint::WriteCheck,
+            &block_name(),
+            run_id,
+            Some(&basename),
+            &envs,
+            Some(&saved_content),
+            &exe,
+            check_timeout,
+        );
+        let why = match outcome {
+            HookOutcome::NoOwner => None,
+            HookOutcome::Done { code: 0, stdout, .. } => {
+                if !stdout.is_empty() {
+                    saved_content = stdout;
+                }
+                checked = checked.or(Some(true));
+                None
+            }
+            HookOutcome::Done { code: 1, stderr, .. } => {
+                return Err(format!("Not saved. The document breaks the rules:\n{stderr}"));
+            }
+            HookOutcome::Done { code, .. } => Some(format!("exit code {code}")),
+            HookOutcome::Broken { reason, .. } => Some(reason),
+        };
+        if let Some(why) = why {
+            checked = Some(false);
+            let msg = format!("The extension checker did not run ({why}). Saved without checking.");
+            warning = Some(match warning {
+                Some(w) => format!("{w}\n{msg}"),
+                None => msg,
+            });
+        }
+    }
     let content = saved_content.as_str();
 
     let path = crate::doc_write_notify::resolve_output_path(run_id, &basename)
@@ -2656,6 +2703,102 @@ mod tests {
             std::fs::read_to_string(out).unwrap().trim(),
             format!("{} blk doc.md doc.md 説明", run)
         );
+    }
+
+    /// 拡張（block `blk` の持ち主）の write_check を設定した一時プロジェクトで `write` を呼ぶ補助。
+    /// `ext_script` は拡張の `bin/x` の本文、`config_check` は設定の write_check の sh の本文（あれば）。
+    fn write_with_ext_check(
+        guard: &EnvGuard,
+        run_id: i64,
+        ext_script: &str,
+        config_check: Option<&str>,
+        content: &str,
+    ) -> Result<Value, String> {
+        use std::os::unix::fs::PermissionsExt;
+        let root = &guard.project_root;
+        let ext = root.join("exts/blk");
+        std::fs::create_dir_all(ext.join("bin")).unwrap();
+        std::fs::write(
+            ext.join("extension.json"),
+            r#"{"name":"blk","title":"T","cli":{"bin":"bin/x"},"hooks":{"write_check":["check","{filename}"]}}"#,
+        )
+        .unwrap();
+        std::fs::write(ext.join("bin/x"), ext_script).unwrap();
+        std::fs::set_permissions(ext.join("bin/x"), std::fs::Permissions::from_mode(0o755)).unwrap();
+        std::fs::create_dir_all(root.join("empty-home")).unwrap();
+        std::env::set_var("AGENT_LINK_HOME", root.join("empty-home"));
+        std::env::set_var("AGENT_LINK_EXTENSIONS_DIR", root.join("exts"));
+        std::env::set_var("AGENT_LINK_PARENT_RUN_ID", run_id.to_string());
+        std::env::set_var("AGENT_LINK_BLOCK_NAME", "blk-doc");
+        let mut settings = json!({ "extensions": ["blk"] });
+        if let Some(script) = config_check {
+            let sh = root.join("check.sh");
+            std::fs::write(&sh, script).unwrap();
+            settings["write_check"] = json!(["sh", sh.to_string_lossy()]);
+        }
+        std::fs::create_dir_all(root.join(".agent-link")).unwrap();
+        std::fs::write(root.join(".agent-link/settings.json"), settings.to_string()).unwrap();
+        let r = write_with_timeout(
+            "doc.md",
+            content,
+            Some("説明"),
+            None,
+            std::time::Duration::from_secs(5),
+        );
+        std::env::remove_var("AGENT_LINK_HOME");
+        std::env::remove_var("AGENT_LINK_EXTENSIONS_DIR");
+        std::env::remove_var("AGENT_LINK_BLOCK_NAME");
+        r
+    }
+
+    fn saved_text(r: &Value) -> String {
+        std::fs::read_to_string(r["path"].as_str().unwrap()).unwrap()
+    }
+
+    #[test]
+    fn ext_write_check_replaces_content_on_zero() {
+        let g = EnvGuard::new();
+        let run = create_test_execution(false);
+        // 標準入力の本文の先頭に、引数と環境変数を足して返す
+        let script = "#!/bin/sh\necho \"$1 $2 $AGENT_LINK_WRITE_FILENAME $AGENT_LINK_BLOCK_NAME\"; cat\n";
+        let r = write_with_ext_check(&g, run, script, None, "abc\n").unwrap();
+        assert_eq!(r["checked"], true);
+        assert_eq!(saved_text(&r), "check doc.md doc.md blk-doc\nabc\n");
+    }
+
+    #[test]
+    fn ext_write_check_rejects_on_one() {
+        let g = EnvGuard::new();
+        let run = create_test_execution(false);
+        let script = "#!/bin/sh\necho line1 >&2; echo line2 >&2; exit 1\n";
+        let err = write_with_ext_check(&g, run, script, None, "x").unwrap_err();
+        assert!(err.starts_with("Not saved. The document breaks the rules:\nline1\nline2"), "{err}");
+        assert!(!walk_has(&g.project_root.join(".agent-link/outputs"), "doc.md"));
+    }
+
+    #[test]
+    fn ext_write_check_broken_saves_original_with_warning() {
+        let g = EnvGuard::new();
+        let run = create_test_execution(false);
+        let r = write_with_ext_check(&g, run, "#!/bin/sh\nexit 2\n", None, "orig").unwrap();
+        assert_eq!(r["checked"], false);
+        assert!(r["warning"].as_str().unwrap().starts_with("The extension checker did not run (exit code 2)"));
+        assert_eq!(saved_text(&r), "orig");
+    }
+
+    #[test]
+    fn config_write_check_runs_before_ext_and_can_reject_it() {
+        let g = EnvGuard::new();
+        let run = create_test_execution(false);
+        let marker = g.project_root.join("ext-ran");
+        let ext = format!("#!/bin/sh\ntouch {}\ncat\n", marker.display());
+        // 設定が 0 で本文を置き換え、その結果を拡張が受ける
+        let r = write_with_ext_check(&g, run, "#!/bin/sh\nsed 's/^/E/'\n", Some("sed 's/^/C/'"), "a\n").unwrap();
+        assert_eq!(saved_text(&r), "ECa\n");
+        // 設定が拒否したら拡張は呼ばない
+        let err = write_with_ext_check(&g, run, &ext, Some("exit 1"), "a").unwrap_err();
+        assert!(err.starts_with("Not saved."), "{err}");
+        assert!(!marker.exists());
     }
 
     #[test]

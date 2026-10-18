@@ -5,8 +5,8 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use agent_link_engine::ext::{
-    disable_in, enable_in, enabled_bin_dirs, enabled_names, install_in, list_in, load, run_cli,
-    uninstall_in, update_in, ExtError, RUN_TIMEOUT,
+    call_hook, disable_in, enable_in, enabled_bin_dirs, enabled_names, hook_owner, install_in,
+    list_in, load, run_cli, uninstall_in, update_in, ExtError, HookOutcome, HookPoint, RUN_TIMEOUT,
 };
 use tempfile::TempDir;
 
@@ -104,7 +104,7 @@ fn load_rejects_bad_manifests() {
     let cases: Vec<(&str, String, Vec<(&str, String)>, &str)> = vec![
         (
             "unknown field",
-            r#"{"name": "x", "title": "T", "version": "1", "hooks": {}}"#.to_string(),
+            r#"{"name": "x", "title": "T", "version": "1", "bogus": 1}"#.to_string(),
             vec![],
             "unknown field",
         ),
@@ -428,6 +428,7 @@ fn run_cli_returns_output_and_codes() {
         &args(&["greet", "x"]),
         EXE,
         RUN_TIMEOUT,
+        None,
     )
     .unwrap();
     assert_eq!(out.code, 0);
@@ -441,6 +442,7 @@ fn run_cli_returns_output_and_codes() {
         &args(&["fail"]),
         EXE,
         RUN_TIMEOUT,
+        None,
     )
     .unwrap();
     assert_eq!(out.code, 3);
@@ -456,6 +458,7 @@ fn run_cli_returns_output_and_codes() {
         &args(&["greet"]),
         EXE,
         RUN_TIMEOUT,
+        None,
     )
     .unwrap_err();
     assert!(matches!(err, ExtError::Conflict(_)), "{err:?}");
@@ -484,6 +487,7 @@ fn run_cli_times_out() {
         &[],
         EXE,
         Duration::from_secs(1),
+        None,
     )
     .unwrap_err();
     assert!(err.message().contains("timed out after 1 seconds"), "{err}");
@@ -504,4 +508,180 @@ fn list_json_has_contract_keys() {
     assert_eq!(item["cli"]["web"][0], "greet");
     assert!(item["service"].is_null());
     assert!(json["errors"].as_array().unwrap().is_empty());
+}
+
+// ---- hooks ----
+
+/// `hooks` を宣言した拡張（`hooks_json` は `"hooks": {...}` の中身）。`bin/x` は引数と標準入力を `seen.txt` に書く。
+fn hooked_ext(dir: &Path, name: &str, hooks_json: &str) {
+    let manifest = format!(
+        r#"{{"name": "{name}", "title": "T", "cli": {{"bin": "bin/x"}}, "hooks": {hooks_json}}}"#
+    );
+    let script = "#!/bin/sh\n\
+        { echo \"$@\"; echo \"$AGENT_LINK_PARENT_RUN_ID $AGENT_LINK_BLOCK_NAME $AGENT_LINK_BIN $AGENT_LINK_X\"; cat; } > \"$AGENT_LINK_PROJECT_ROOT/seen-$(basename \"$0\")-$AGENT_LINK_BLOCK_NAME.txt\"\n\
+        echo ctx-out\n";
+    make_ext(dir, &manifest, &[("bin/x", script)]);
+}
+
+#[test]
+fn hooks_declaration_is_checked() {
+    let tmp = tempfile::tempdir().unwrap();
+    let cases = [
+        (
+            r#"{"name": "x", "title": "T", "cli": {"bin": "bin/x"}, "hooks": {"context": ["c"], "write_check": ["w", "{filename}"], "question": ["q"]}}"#,
+            None,
+        ),
+        (
+            r#"{"name": "x", "title": "T", "cli": {"bin": "bin/x"}, "hooks": {}}"#,
+            None,
+        ),
+        (
+            r#"{"name": "x", "title": "T", "hooks": {"context": ["c"]}}"#,
+            Some("hooks needs cli"),
+        ),
+        (
+            r#"{"name": "x", "title": "T", "cli": {"bin": "bin/x"}, "hooks": {"context": []}}"#,
+            Some("hooks.context must not be empty"),
+        ),
+        (
+            r#"{"name": "x", "title": "T", "cli": {"bin": "bin/x"}, "hooks": {"question": []}}"#,
+            Some("hooks.question must not be empty"),
+        ),
+        (
+            r#"{"name": "x", "title": "T", "cli": {"bin": "bin/x"}, "hooks": {"pre_run": ["p"]}}"#,
+            Some("unknown field"),
+        ),
+    ];
+    for (i, (manifest, want)) in cases.iter().enumerate() {
+        let dir = tmp.path().join(format!("c{i}/x"));
+        make_ext(&dir, manifest, &[("bin/x", "#!/bin/sh\n")]);
+        match (load(&dir), want) {
+            (Ok(_), None) => {}
+            (Err(e), Some(w)) => assert!(e.starts_with("extension.json: ") && e.contains(w), "{e}"),
+            (got, want) => panic!("case {i}: {got:?} vs {want:?}"),
+        }
+    }
+}
+
+#[test]
+fn list_json_has_hooks() {
+    let e = env();
+    hooked_ext(&e.ext_dir.join("hooked"), "hooked", r#"{"context": ["c", "{run_id}"]}"#);
+    install_in(&e.ext_dir, &hello_src(), false).unwrap();
+    let json = list_in(&e.ext_dir, None).to_json(&e.ext_dir);
+    let items = json["extensions"].as_array().unwrap();
+    let hooked = items.iter().find(|i| i["name"] == "hooked").unwrap();
+    assert_eq!(
+        hooked["hooks"],
+        serde_json::json!({"context": ["c", "{run_id}"], "write_check": null, "question": null})
+    );
+    let hello = items.iter().find(|i| i["name"] == "hello").unwrap();
+    assert!(hello["hooks"].is_null());
+}
+
+#[test]
+fn hook_owner_selection() {
+    let e = env();
+    hooked_ext(&e.ext_dir.join("hello"), "hello", r#"{"context": ["c"], "question": ["q"]}"#);
+    hooked_ext(&e.ext_dir.join("hello-x"), "hello-x", r#"{"context": ["c"]}"#);
+    let name = |block: &str, point| {
+        hook_owner(&e.ext_dir, &e.root, block, point).map(|i| i.manifest.name)
+    };
+
+    // 有効でなければ持ち主は無い
+    assert_eq!(name("hello-agent", HookPoint::Context), None);
+
+    enable_in(&e.ext_dir, &e.root, "hello", EXE).unwrap();
+    assert_eq!(name("hello-agent", HookPoint::Context).as_deref(), Some("hello"));
+    assert_eq!(name("hello", HookPoint::Context).as_deref(), Some("hello"));
+    assert_eq!(name("plan", HookPoint::Context), None);
+    // 名前の続きが '-' でなければ当てはまらない
+    assert_eq!(name("helloagent", HookPoint::Context), None);
+    // hello-x は有効でない
+    assert_eq!(name("hello-x-foo", HookPoint::Context).as_deref(), Some("hello"));
+
+    // 両方有効なら長い名前が勝つ。その点を宣言していなければ短い方
+    enable_in(&e.ext_dir, &e.root, "hello-x", EXE).unwrap();
+    assert_eq!(name("hello-x-foo", HookPoint::Context).as_deref(), Some("hello-x"));
+    assert_eq!(name("hello-x-foo", HookPoint::Question).as_deref(), Some("hello"));
+    assert_eq!(name("hello-x-foo", HookPoint::WriteCheck), None);
+}
+
+#[test]
+fn call_hook_expands_args_and_env() {
+    let e = env();
+    hooked_ext(
+        &e.ext_dir.join("hello"),
+        "hello",
+        r#"{"context": ["context", "--run", "{run_id}", "{block}", "[{filename}]"]}"#,
+    );
+    enable_in(&e.ext_dir, &e.root, "hello", EXE).unwrap();
+
+    let out = call_hook(
+        &e.ext_dir,
+        &e.root,
+        HookPoint::Context,
+        "hello-agent",
+        42,
+        None,
+        &[("AGENT_LINK_X", "extra".to_string())],
+        Some("stdin body\n"),
+        EXE,
+        Duration::from_secs(10),
+    );
+    match out {
+        HookOutcome::Done { ext, code, stdout, .. } => {
+            assert_eq!((ext.as_str(), code, stdout.trim()), ("hello", 0, "ctx-out"));
+        }
+        other => panic!("{other:?}"),
+    }
+    let seen = fs::read_to_string(e.root.join("seen-x-hello-agent.txt")).unwrap();
+    assert_eq!(
+        seen,
+        format!("context --run 42 hello-agent []\n42 hello-agent {EXE} extra\nstdin body\n")
+    );
+
+    let none = call_hook(
+        &e.ext_dir, &e.root, HookPoint::Context, "plan", 42, None, &[], None, EXE,
+        Duration::from_secs(10),
+    );
+    assert_eq!(none, HookOutcome::NoOwner);
+}
+
+#[test]
+fn call_hook_reports_failure_and_timeout() {
+    let e = env();
+    let dir = e.ext_dir.join("hello");
+    make_ext(
+        &dir,
+        r#"{"name": "hello", "title": "T", "cli": {"bin": "bin/x"}, "hooks": {"context": ["c"]}}"#,
+        &[("bin/x", "#!/bin/sh\ncase \"$1\" in c) echo one >&2; echo bad >&2; exit 4;; esac\n")],
+    );
+    enable_in(&e.ext_dir, &e.root, "hello", EXE).unwrap();
+    let out = call_hook(
+        &e.ext_dir, &e.root, HookPoint::Context, "hello", 1, None, &[], None, EXE,
+        Duration::from_secs(10),
+    );
+    match out {
+        HookOutcome::Done { code, stderr, stderr_last, .. } => {
+            assert_eq!((code, stderr.as_str(), stderr_last.as_str()), (4, "one\nbad", "bad"));
+        }
+        other => panic!("{other:?}"),
+    }
+
+    make_ext(
+        &dir,
+        r#"{"name": "hello", "title": "T", "cli": {"bin": "bin/x"}, "hooks": {"context": ["c"]}}"#,
+        &[("bin/x", "#!/bin/sh\nsleep 5\n")],
+    );
+    let out = call_hook(
+        &e.ext_dir, &e.root, HookPoint::Context, "hello", 1, None, &[], None, EXE,
+        Duration::from_secs(1),
+    );
+    match out {
+        HookOutcome::Broken { ext, reason } => {
+            assert!(ext == "hello" && reason.contains("timed out"), "{reason}");
+        }
+        other => panic!("{other:?}"),
+    }
 }

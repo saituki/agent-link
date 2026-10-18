@@ -253,6 +253,15 @@ pub enum ExtCmd {
         /// Arguments for the extension CLI (after `--`)
         #[arg(last = true)]
         args: Vec<String>,
+        /// Pass this command's stdin (UTF-8, up to 1000000 bytes) to the extension CLI
+        #[arg(long, default_value_t = false)]
+        stdin: bool,
+        #[arg(long, default_value_t = false)]
+        json: bool,
+    },
+    /// Call the extension hook for a point (stdin: JSON). Only `question` is supported
+    Hook {
+        point: String,
         #[arg(long, default_value_t = false)]
         json: bool,
     },
