@@ -78,6 +78,39 @@
 
 ---
 
+### 1.5 拡張（extension）
+
+拡張は、base（実行エンジン・Web の枠）に後から載る機能。作り方と契約の全文は [`crates/agent-link-engine/assets/template/ext-contract.md`](./crates/agent-link-engine/assets/template/ext-contract.md)（ここは全体の形だけ）。
+
+固定部分と拡張できる部分（要件定義書の §2 の表）:
+
+| | 固定（base が持つ。拡張は変えられない） | 拡張できる（拡張が持つ） |
+|---|---|---|
+| 実行エンジン | DB・daemon・run・カード・文書・子タスク・block の解析・起動の組み立て・`ext` 命令 | 拡張の CLI（任意の言語）と、そのデータ（`<root>/.agent-link/ext/<name>/`） |
+| エージェント | 基盤の block 11 本と template 13 本（`extension-plan`・`ext-contract` を含む） | 拡張の block（`<name>.md`・`<name>-*.md`）と template（同じ規則） |
+| Web | 枠・Home・Projects・Chats・API・入口の守り・公開部品（`saiApi` ほか） | サイドバーのタブ 1 つと、その中の画面（`ui/*.js`・`*.css`） |
+| 外部サービス | 読み取り専用の汎用の中継（`/api/ext/<name>/svc/…`） | 宛先の URL（`config` の `AGENT_LINK_EXT_*`）と、POST を許す道の一覧 |
+
+流れ:
+
+```
+agent-link ext install <dir> [--link]   → <置き場>/<name>（複製。--link は symlink）
+        │
+agent-link ext enable <name>            （プロジェクトで）
+        │  block・template を <root>/.agent-link/ に写す（install_one の規則）
+        │  init があれば起こす（失敗したら記録しない）
+        │  <root>/.agent-link/settings.json の extensions に足す
+        ▼
+run を起こすとき        有効な拡張の <cli.bin のフォルダ> を PATH の先頭に足す（エージェントは名前で呼ぶ）
+Web のサイドバーのタブ  GET /api/ext（ext list --json）→ GET /ext/<name>/<file>（ui/）
+                        → POST /api/projects/<p>/ext/<e>/cli → agent-link ext run <e> -- <args>
+```
+
+- 拡張の名前は base のコードに書かない（テスト `ext_names.rs` で固定）。拡張が増えても base の変更は要らない。
+- 拡張の置き場は `AGENT_LINK_EXTENSIONS_DIR`（既定 `$AGENT_LINK_HOME/extensions`）。有効の記録はプロジェクトの `settings.json` だけに置く（`AGENT_LINK_HOME` の `settings.json` は読まない）。
+
+---
+
 ## 2. 大原則
 
 ### 2.1 境界
@@ -141,6 +174,7 @@
 | `registry.json` | プロジェクトの登録簿 |
 | `blocks/` | 全プロジェクト共通の block |
 | `template/` | 全プロジェクト共通の template |
+| `extensions/<name>/` | 入れた拡張（`agent-link ext install`。フォルダか `--link` の symlink）。場所は `AGENT_LINK_EXTENSIONS_DIR` で変えられる |
 | `settings.json` | 全プロジェクト共通の settings（プロジェクトの `.agent-link/settings.json` を**キー単位で上書き**する）。利用者の設定 `config`（環境変数の名前をキーにした値）も入る |
 | `cc-cost/<session_id>.json` | cc の会話ごとの費用（`agent-link cc-statusline` が書く。`crates/agent-link-engine/src/cc_cost.rs`。Web の `usage.py` が読む） |
 | `cc-rate-limits.json` | cc の 5 時間枠・7 日枠の値（`cc_cost.rs` が書く。`apps/web/src/agent_link_web/usage.py` が読む） |
@@ -152,6 +186,7 @@
 ### 3.3 `AGENT_LINK_HOME` に入らないもの
 
 - **プロジェクトの中の `<root>/.agent-link/`** は別。`engine/agent-link.db`（同じフォルダに `daemon.pid`・`daemon.status`・`daemon.log`・`notifications/`・`waggle-blobs/`）・`blocks/`・`template/`・`settings.json`・`outputs/` がここにある。`outputs/` の中は `todo/`・`running/`・`review/` と、Workflow に移した run の日付フォルダ `<yymmdd>/`（日付は一番上の親 run の実行開始日・ローカル時刻。子の run は親の日付フォルダに入る）。
+- **拡張のデータ** `<root>/.agent-link/ext/<name>/` は、拡張の CLI が作って使う。base は作らず、消さない（`ext uninstall` も消さない）。有効な拡張の記録は `<root>/.agent-link/settings.json` の `extensions`。
 - `~/.claude/projects` などは元の置き場のまま。
 - **遠隔の子に関わる置き場**: Mac の `~/.ssh/authorized_keys`（`agent-link remote setup` が門番の行を足す）と、遠隔の機械の `~/.agent-link-remote/`（中継 `bin/agent-link`・鍵・run ごとの `runs/<run_id>/`。`crates/agent-link-engine/src/remote.rs` の `REMOTE_DIR`）。詳しくは [`docs/remote.md`](./docs/remote.md)。
 
@@ -172,6 +207,7 @@
 | `questions.py` / `store.py` | 質問の保管と回答（先着）・通知の購読 |
 | `watch.py` / `notify.py` | 2 秒ごとの状態の監視（headless の state.json を読む）・プッシュ通知 |
 | `usage.py` | Claude の使用量（cc の 5 時間枠・7 日枠と費用。`GET /api/usage` が `{"cc", "saved_at"}` を返す） |
+| `ext.py` | 拡張（`agent-link ext list --json` の一覧・画面に出す拡張の選び・`ui/` の配信・`index.html` の目印の差し込み・`cli` と `service` の中継）。CLI は `agent-link ext run` を通してだけ呼ぶ |
 | `config.py` | 設定（環境変数と `apps/web/.env`） |
 | `webcli.py` | `agent-link-web` の命令（`serve`・`projects`・`home`・`questions`・`question`・`answer`・`send`・`usage`・`api`）。HTTP の状態を終了コードに直す |
 | `hooks/`（`apps/web/hooks/`） | cc のフック（質問・セッションの登録）。何も出力せず、必ず終了コード 0 で終わる |
@@ -197,6 +233,7 @@
 
 | ファイル | 画面 |
 |---|---|
+| `ext.js` | 拡張のタブの画面の枠（`#/ext/<ext>/<project>` の住所・プロジェクトの選び・拡張の `mount`）と `AgentLinkExt.register`。拡張の画面（`ui/*.js`）は `/ext/<name>/…` から読む |
 | `app.js` | 切り替えの本体・Chats（日付・実行・メッセージ）・タブ |
 | `home.js` | Home（質問・todo・合計・最近・Claude のカード） |
 | `project.js` / `workflow.js` / `linkview.js` / `cardform.js` / `stats.js` / `defs.js` | Projects（一覧・Dashboard・Workflow・List・カードの作成・統計・設定） |
@@ -261,9 +298,11 @@ agent-link/
 │   │   │   ├── headless.rs        # headless の実行
 │   │   │   ├── remote.rs          # 遠隔の子（中継・門番・ssh の部品）
 │   │   │   ├── settings.rs        # settings.json（config_var を含む）
-│   │   │   └── project.rs         # プロジェクトと AGENT_LINK_HOME の決め方
+│   │   │   ├── ext.rs             # 拡張（宣言の検査・置き場・有効化・無効化・CLI の起動）
+│   │   └── project.rs         # プロジェクトと AGENT_LINK_HOME の決め方
 │   │   ├── assets/                # init が配る block・template・skill・remote-guide.md
 │   │   └── tests/
+│   │       └── fixtures/ext/hello/ # 拡張の見本（テスト用）
 │   ├── agent-link-view/           # lib  CLI が使う表示用の組み立て（描画は持たない）
 │   │   └── src/
 │   │       ├── run_docs.rs        # run の文書の組み立て
@@ -274,6 +313,7 @@ agent-link/
 │       │   ├── views.rs           # Web が読む JSON を出す命令
 │       │   ├── def_files.rs       # 定義ファイル（block・template・settings）の読み書き
 │       │   ├── cmd_remote.rs      # remote setup・remote check・remote-gate
+│       │   ├── cmd_ext.rs         # ext 命令（list・install・uninstall・enable・disable・update・run）
 │       │   └── cmd_schema.rs      # schema --json
 │       └── tests/
 ├── waggle/                        # 独立 [workspace] の vendor クレート群（exclude 済み）
@@ -313,7 +353,7 @@ agent-link/
 | **MCP の `agent-link`**（エージェントの道具） | やめた。エージェントは CLI を Bash で呼ぶ。外部の MCP（serena・playwright・donsetch・headroom）は残る |
 | **global の cc フック** | `~/.claude/settings.json` にもプロジェクトの `.claude/settings.json` にも**入れない**。`.agent-link/cc-settings.json` に書き、run の cc に `--settings` で渡す（sai-moon と同じプロジェクトで取り合わないため） |
 | **Mac の常駐（launchd）・herdr・cc のコマンド承認・遠隔ブラウザ（画面の遠隔操作）・5 時間枠・pi** | 持たない。daemon と Web は手で起こす。headless の実行（擬似 pane）で動く。engine の `pane.rs` は擬似 pane の型と、headless・tmux への窓口。遠隔の子（`task create` の `host`）は持つ（§1.1） |
-| **論文・研究（Paper・Research）・Radio・MLflow・sai-ts・sai-prep** | 持たない（sai-tree の機能） |
+| **論文・研究（Paper・Research）・Radio・MLflow・sai-ts・sai-prep** | base には持たない。拡張として別リポジトリ（`~/workdir/Sai/agent-link-extensions`）で作る（Radio・sai-prep は予定なし） |
 | **多人数モード・サーバ（ログイン・コンテナ）・Customer サポート** | 持たない（sai-tree の機能） |
 | **runner の選択（`runner: user`・`agent-link card start\|finish`・gl・pi）・provider・tag** | やめた。runner は cc だけ。block 定義の `tag`・`provider`・`round` と settings.json の `default_provider` も使わない。古い `runner`・`provider`・`tag` の項目は読み飛ばし、書き出さない |
 | **round・global_round** | やめた。Workflow に移した run は `<yymmdd>/`（日付フォルダ）に入る。`run list`・`run log`・`session search`（`-R`・`-r`）の round 系の項目も無い |

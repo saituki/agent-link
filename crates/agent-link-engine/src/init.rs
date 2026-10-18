@@ -479,7 +479,7 @@ mod tests {
         assert_eq!(sai_dir(dir.path()), dir.path().join(".agent-link"));
     }
 
-    /// 空のフォルダに基盤の block 10 本と template 12 本が配られ、
+    /// 空のフォルダに基盤の block 11 本と template 13 本が配られ、
     /// block の frontmatter が `model:` を持つこと（既定値は block ごと）。
     #[test]
     fn test_init_project_installs_base_assets() {
@@ -488,8 +488,8 @@ mod tests {
 
         init_project(root, false).unwrap();
 
-        assert_eq!(crate::assets::BASE_BLOCKS.len(), 10);
-        assert_eq!(crate::assets::BASE_TEMPLATES.len(), 12);
+        assert_eq!(crate::assets::BASE_BLOCKS.len(), 11);
+        assert_eq!(crate::assets::BASE_TEMPLATES.len(), 13);
         for (name, _) in crate::assets::BASE_BLOCKS {
             let p = root.join(".agent-link/blocks").join(name);
             assert!(p.is_file(), "欠落: {}", p.display());

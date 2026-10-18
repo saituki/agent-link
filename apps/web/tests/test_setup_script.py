@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import shutil
@@ -25,7 +26,8 @@ HOME = T / "home"
 ALHOME = T / "alhome"
 BIN = T / "bin"
 FAKE = T / "fakebin"
-for d in (HOME, ALHOME, BIN, FAKE):
+EXTBIN = T / "extbin"  # 拡張の確かめ用の agent-link の偽物だけを置く
+for d in (HOME, ALHOME, BIN, FAKE, EXTBIN):
     d.mkdir()
 for tool in ("cargo", "uv"):
     f = FAKE / tool
@@ -33,12 +35,12 @@ for tool in ("cargo", "uv"):
     f.chmod(0o755)
 
 
-def run(*args: str, alhome: Path = ALHOME) -> subprocess.CompletedProcess:
+def run(*args: str, alhome: Path = ALHOME, path: str | None = None) -> subprocess.CompletedProcess:
     env = {
         "HOME": str(HOME),
         "AGENT_LINK_HOME": str(alhome),
         "AGENT_LINK_WEB_PORT": "9",  # 応えない番号
-        "PATH": f"{FAKE}:/usr/bin:/bin",
+        "PATH": path or f"{FAKE}:/usr/bin:/bin",
     }
     return subprocess.run(
         [str(SCRIPT), *args], env=env, capture_output=True, text=True, timeout=60
@@ -75,6 +77,40 @@ def main() -> None:
             assert r.returncode == 1, r.stdout
             assert re.search(r"^NG +registry\b", r.stdout, re.M), r.stdout
             (ALHOME / "registry.json").unlink()
+
+        # 2c. 登録簿の root に .sai があると ownership が warn（無ければ ok）
+        proj = T / "proj"
+        (proj / ".agent-link").mkdir(parents=True)
+        (ALHOME / "registry.json").write_text(
+            json.dumps([{"name": "proj", "root": str(proj), "kind": "link"}])
+        )
+        r = run("doctor")
+        assert re.search(r"^ok +ownership +no project has \.sai$", r.stdout, re.M), r.stdout
+        (proj / ".sai").mkdir()
+        r = run("doctor")
+        assert re.search(r"^warn +ownership +\S.* has both \.agent-link and \.sai", r.stdout, re.M), r.stdout
+        assert "no project has .sai" not in r.stdout, r.stdout
+        (ALHOME / "registry.json").unlink()
+
+        # 2d. extensions: 偽物の agent-link（ext list --json の固定の JSON を返す）を PATH の先頭に置く
+        if (REPO / "apps/web/.venv/bin/python").exists():
+            (EXTBIN / "agent-link").write_text(f"#!/bin/sh\ncat {T}/ext.json\n")
+            (EXTBIN / "agent-link").chmod(0o755)
+            ext_path = f"{EXTBIN}:{FAKE}:/usr/bin:/bin"
+            (T / "ext.json").write_text(json.dumps({
+                "dir": "x", "extensions": [{"name": "hello"}],
+                "errors": [{"path": "/x/broken", "error": "extension.json: unknown key 'hooks'"}],
+            }))
+            r = run("doctor", path=ext_path)
+            assert re.search(
+                r"^warn +extensions +/x/broken: extension\.json: unknown key 'hooks'$", r.stdout, re.M
+            ), r.stdout
+            (T / "ext.json").write_text(json.dumps({"dir": "x", "extensions": [{"name": "hello"}], "errors": []}))
+            r = run("doctor", path=ext_path)
+            assert re.search(r"^ok +extensions +1 installed$", r.stdout, re.M), r.stdout
+            (T / "ext.json").write_text("not json")
+            r = run("doctor", path=ext_path)
+            assert re.search(r"^warn +extensions +could not run agent-link ext list$", r.stdout, re.M), r.stdout
 
         # 3. 普通のファイルは上書きしない
         (BIN / "agent-link").unlink()

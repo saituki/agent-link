@@ -62,6 +62,7 @@ function parseRoute(hashArg) {
     }
   }
   if (hash.startsWith("#/session/")) return { name: "legacy" }; // 旧画面の住所
+  if (hash.startsWith("#/ext/")) return { name: "legacy" }; // 登録の無い拡張の住所（外した拡張）。一覧へ戻す
   return { name: "days" };
 }
 
@@ -270,11 +271,11 @@ document.querySelectorAll("#tabbar button").forEach((btn) => {
     const tab = btn.dataset.tab;
     if (!tab) return;
     if (tab === currentTab()) {
-      location.hash = TAB_FIRST_URL[tab] || "#/";
+      location.hash = TAB_FIRST_URL[tab] || btn.dataset.first || "#/";
       return;
     }
     const last = loadTabLast();
-    location.hash = last[tab] || TAB_FIRST_URL[tab] || "#/";
+    location.hash = last[tab] || TAB_FIRST_URL[tab] || btn.dataset.first || "#/";
   });
 });
 

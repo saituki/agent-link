@@ -181,8 +181,8 @@ def test_list_projects(base: Path) -> None:
 
     # summary を呼ぶのは alpha と beta だけ（DB と root が両方ある物）
     assert cli.link_calls() == [
-        [settings.sai_link_bin, "project", "summary"],
-        [settings.sai_link_bin, "project", "summary"],
+        [settings.agent_link_bin, "project", "summary"],
+        [settings.agent_link_bin, "project", "summary"],
     ], cli.link_calls()
     for call in cli.calls:
         assert call["cwd"] in (str(base / "alpha"), str(base / "beta")), call
@@ -292,7 +292,7 @@ def test_dashboard(base: Path) -> None:
     dash = [c for c in cli.calls if "dashboard" in c["args"]]
     assert len(dash) == 1, cli.calls
     assert dash[0]["args"] == [
-        settings.sai_link_bin,
+        settings.agent_link_bin,
         "project",
         "dashboard",
         "--period=week",
@@ -359,7 +359,7 @@ def test_daemon(base: Path) -> None:
     try:
         res = control.daemon("alpha", "stop")
         assert res == {"ok": True, "message": "🛑 sai デーモンを停止しました (PID: 123)"}, res
-        assert cli.calls[-1]["args"] == [settings.sai_link_bin, "daemon", "stop"], cli.calls[-1]
+        assert cli.calls[-1]["args"] == [settings.agent_link_bin, "daemon", "stop"], cli.calls[-1]
         assert cli.calls[-1]["cwd"] == root, cli.calls[-1]
         assert cli.calls[-1]["env"]["AGENT_LINK_PROJECT_ROOT"] == root, cli.calls[-1]
 
@@ -367,7 +367,7 @@ def test_daemon(base: Path) -> None:
         cli.stdout = ""
         res = control.daemon("alpha", "start")
         assert res == {"ok": True, "message": "Start requested."}, res
-        assert cli.calls[-1]["args"] == [settings.sai_link_bin, "daemon", "start"], cli.calls[-1]
+        assert cli.calls[-1]["args"] == [settings.agent_link_bin, "daemon", "start"], cli.calls[-1]
 
         # 失敗は 502 に stderr の最後の行（CLI の約束どおりの読み替え）
         cli.returncode = 1

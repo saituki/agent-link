@@ -165,11 +165,32 @@ doctor_cmd() {
     row NG registry "$reg is broken (not a JSON array)"
   fi
   total=0
+  owned=0
   for r in $(registry_roots); do
     total=$((total + 1))
     [ -d "$r" ] || row warn projects "root does not exist: $r"
+    if [ -e "$r/.sai" ]; then
+      owned=$((owned + 1))
+      row warn ownership "$r has both .agent-link and .sai (see docs/separation.md)"
+    fi
   done
   [ "$total" -gt 0 ] || row ok projects "none registered"
+  [ "$owned" -gt 0 ] || row ok ownership "no project has .sai"
+  # 拡張の宣言の誤り（ext list --json の errors）と、入っている数。読むだけ。agent-link が無ければ何も出さない
+  if command -v agent-link >/dev/null 2>&1 && [ -x "$VENV_PY" ]; then
+    ext=$(perl -e 'alarm 20; exec @ARGV' agent-link ext list --json </dev/null 2>/dev/null)
+    if out=$(printf '%s' "$ext" | "$VENV_PY" -c '
+import json, sys
+d = json.load(sys.stdin)
+for e in d["errors"]:
+    print("warn %s: %s" % (e["path"], e["error"]))
+if not d["errors"]:
+    print("ok %d installed" % len(d["extensions"]))' 2>/dev/null); then
+      printf '%s\n' "$out" | while read -r st txt; do row "$st" extensions "$txt"; done
+    else
+      row warn extensions "could not run agent-link ext list"
+    fi
+  fi
   url=$(cfg AGENT_LINK_WEB_URL "")
   [ -n "$url" ] || url="http://127.0.0.1:$(cfg AGENT_LINK_WEB_PORT 8400)"
   if command -v curl >/dev/null 2>&1 && curl -s -m 3 "$url/api/health" 2>/dev/null | grep -q '"ok": *true'; then

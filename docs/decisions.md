@@ -95,3 +95,22 @@
 | 2026-10-17 | `sai-progress`（標準エラーの進み具合の行）を契約から消した | 出す側は 2026-10-15 に消えている。公開する前に片付ける | 有効 | 見直し |
 | 2026-10-17 | 利用者の設定を `settings.json` の `config` にも書けるようにした。書ける名前は `README.md` の環境変数の表にある。`AGENT_LINK_HOME` は書けない | 配布の段で設定ファイルにする。`AGENT_LINK_HOME` は `settings.json` の場所を決める名前なので書けない | 有効 | 見直し（U08） |
 | 2026-10-17 | 次を持たない: TUI・MCP の道具・合言葉・Docker 化・多人数・crates.io 公開・Linux 向けの配布（agent-link 本体を Linux に置く） | 不変条件 I1〜I6 と、実装を 2 つにしないため（`design.md` §4） | 有効 | 見直し |
+
+## 6. 拡張の仕組み（run 108・2026-10-18）
+
+2026-10-18 の決定。要件定義書（`docs/plan/requirements-extension.md`）の K1〜K4（利用者の決定）と、§2.4 の P1〜P8（実装の前に決めた物）を、日付・理由・状態つきで置く。拡張の作者向けの契約の全文は [`crates/agent-link-engine/assets/template/ext-contract.md`](../crates/agent-link-engine/assets/template/ext-contract.md) にある（ここには要点だけ）。
+
+| 日付 | 決定 | 理由 | 状態 | 出典 |
+|---|---|---|---|---|
+| 2026-10-18 | K1: 拡張の UI はサイドバーのタブ（拡張ごとに 1 つ）。開くとプロジェクトを選び、その下に拡張の画面（`#/ext/<name>/<project>`） | 利用者の決定 | 採用 | 拡張 K1 |
+| 2026-10-18 | K2: `ext install` は既定で複製し、`--link` で symlink にする | 利用者の決定。拡張は別のリポジトリで開発するため | 採用 | 拡張 K2 |
+| 2026-10-18 | K3: extensions リポジトリ（`~/workdir/Sai/agent-link-extensions`）の作成は最後の kantoku が行う。カードは作るだけ | 利用者の決定 | 採用 | 拡張 K3 |
+| 2026-10-18 | K4: 第 1 部（sai-tree との分離）は、コードの部分（改名・doctor）と手順書（`docs/separation.md`）を今回に含める。環境の片付けは利用者が行う | 利用者の決定。エージェントは利用者の環境（`~/.zshrc`・`~/.local/bin`・`~/.agent-link`・`~/.sai`・登録簿）を変えない | 採用 | 拡張 K4 |
+| 2026-10-18 | P1: 「Tool」は拡張の CLI のこと。MCP・hook・skill は配らない | I4（エージェントの道具は CLI 1 本）に反するため | 採用 | 拡張 P1 |
+| 2026-10-18 | P2: 拡張の block と template は、enable のときに `install_one` の規則で写す | block の探し方が 3 通りあり、そこに手を入れないため | 採用 | 拡張 P2 |
+| 2026-10-18 | P3: 有効の記録はプロジェクトの `.agent-link/settings.json` の `extensions`。`$AGENT_LINK_HOME/settings.json` の `extensions` は読まない | 記録を 1 か所にするため | 採用 | 拡張 P3 |
+| 2026-10-18 | P4: service は拡張の種類ではなく能力。`service.url_env` の値（環境変数 → `config`）が `http://` か `https://` で始まれば ready | 有効・無効の規則を 1 つにするため | 採用 | 拡張 P4 |
+| 2026-10-18 | P5: Web から拡張の CLI を呼ぶのは `agent-link ext run` を通してだけ。呼べるのは `cli.web` のサブ命令だけ。外から来る値は CLI の前で検査する | Web は agent-link の CLI だけを呼ぶ（B4） | 採用 | 拡張 P5 |
+| 2026-10-18 | P6: 拡張の JS は同じオリジンで動き、サンドボックスは無い | 個人ローカル専用（I5・I6） | 採用 | 拡張 P6 |
+| 2026-10-18 | P7: 改名は `sai_link_exe` → `agent_link_exe`（Rust）と `sai_link_bin` → `agent_link_bin`（Python）だけ。画面の頭 `sai*` と `sai_home` は残す | `sai*` は画面の決まり（P-8・2026-10-17）で、他の App の名前ではないため | 採用 | 拡張 P7 |
+| 2026-10-18 | P8: 下書きの C6「`sai-engine` のコメントが残る」は、HEAD（`crates/`・`apps/`・`scripts/`）では 0 件。事実として訂正する | 下書きの実測と現在のコードが食い違った。コードを正とする | 採用 | 拡張 P8 |

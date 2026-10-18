@@ -27,6 +27,7 @@ mod cmd_card;
 mod cmd_common;
 mod cmd_def;
 mod cmd_doc;
+mod cmd_ext;
 mod cmd_project;
 mod cmd_remote;
 mod cmd_run;
@@ -40,7 +41,7 @@ mod views;
 
 use clap::error::ErrorKind;
 use clap::Parser;
-use cli::{Cli, Cmd, DaemonCmd, UsageCmd, WaggleCmd};
+use cli::{Cli, Cmd, DaemonCmd, ExtCmd, UsageCmd, WaggleCmd};
 
 fn main() {
     // clap の使い方の誤りも、最後の行を日本語 1 行にする（CLI 共通の約束 2）
@@ -50,13 +51,16 @@ fn main() {
     };
 
     // プロジェクトを要る命令は、見つからなければ終了コード 2 で止める（`.agent-link/` を勝手に作らない）。
-    // 要らないのは `init`・`schema`・`remote`・`remote-gate`。cc のフック（`cc-*`）は、
-    // 失敗すると cc の操作を止めるので、今のまま検査せずに動かす。
+    // 要らないのは `init`・`schema`・`remote`・`remote-gate`・置き場だけを使う `ext list`/`install`/`uninstall`。
+    // cc のフック（`cc-*`）は、失敗すると cc の操作を止めるので、今のまま検査せずに動かす。
     let needs_project = !matches!(
         &cli.cmd,
         Cmd::Init { .. }
             | Cmd::Schema { .. }
             | Cmd::Remote { .. }
+            | Cmd::Ext {
+                cmd: ExtCmd::List { .. } | ExtCmd::Install { .. } | ExtCmd::Uninstall { .. },
+            }
             | Cmd::RemoteGate
             | Cmd::CcPromptHook
             | Cmd::CcStateHook { .. }
@@ -79,6 +83,7 @@ fn main() {
         Cmd::Def { cmd } => run_new(cmd_def::run(cmd)),
         Cmd::Remote { cmd } => run_new(cmd_remote::run(cmd)),
         Cmd::RemoteGate => std::process::exit(agent_link_engine::remote::run_gate()),
+        Cmd::Ext { cmd } => run_new(cmd_ext::run(cmd)),
         Cmd::Project { cmd } => run_new(cmd_project::run(cmd)),
         Cmd::Session { cmd } => run_new(cmd_project::run_session(cmd)),
         Cmd::Workflow { json: _, subtasks } => run_new(cmd_run::run_workflow(subtasks)),

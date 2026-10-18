@@ -1,7 +1,7 @@
 //! `agent-link init` がプロジェクトへ配る基盤のエージェント部品（block と template）。
 //!
-//! ここに置くのは、どのプロジェクトでも使う block 10 本と、それらが `templates:` で読む
-//! template 12 本である。中身は実行ファイルに `include_str!` で埋め込み、`init` が
+//! ここに置くのは、どのプロジェクトでも使う block 11 本と、それらが `templates:` で読む
+//! template 13 本である。中身は実行ファイルに `include_str!` で埋め込み、`init` が
 //! `<root>/.agent-link/blocks/`・`<root>/.agent-link/template/` へ配る。
 //!
 //! 配り方は共通の取り決めに従う（`init.rs` の [`install_assets`] を参照）。
@@ -14,10 +14,11 @@ use std::path::{Path, PathBuf};
 
 use crate::init::{backup_path, InitError, InitReport};
 
-/// `.agent-link/blocks/` に配る基盤の block 10 本（ファイル名, 中身）。
+/// `.agent-link/blocks/` に配る基盤の block 11 本（ファイル名, 中身）。
 pub const BASE_BLOCKS: &[(&str, &str)] = &[
     ("bugfix.md", include_str!("../assets/blocks/bugfix.md")),
     ("explore.md", include_str!("../assets/blocks/explore.md")),
+    ("extension-plan.md", include_str!("../assets/blocks/extension-plan.md")),
     ("kantoku.md", include_str!("../assets/blocks/kantoku.md")),
     ("main.md", include_str!("../assets/blocks/main.md")),
     ("plan-kantoku.md", include_str!("../assets/blocks/plan-kantoku.md")),
@@ -28,7 +29,7 @@ pub const BASE_BLOCKS: &[(&str, &str)] = &[
     ("worker.md", include_str!("../assets/blocks/worker.md")),
 ];
 
-/// `.agent-link/template/` に配る基盤の template 12 本（ファイル名, 中身）。
+/// `.agent-link/template/` に配る基盤の template 13 本（ファイル名, 中身）。
 pub const BASE_TEMPLATES: &[(&str, &str)] = &[
     ("link-base.md", include_str!("../assets/template/link-base.md")),
     ("link-user.md", include_str!("../assets/template/link-user.md")),
@@ -39,6 +40,7 @@ pub const BASE_TEMPLATES: &[(&str, &str)] = &[
     ("doc-unit.md", include_str!("../assets/template/doc-unit.md")),
     ("doc-guide.md", include_str!("../assets/template/doc-guide.md")),
     ("doc-completion.md", include_str!("../assets/template/doc-completion.md")),
+    ("ext-contract.md", include_str!("../assets/template/ext-contract.md")),
     ("mcp-serena.md", include_str!("../assets/template/mcp-serena.md")),
     ("mcp-chrome-devtools.md", include_str!("../assets/template/mcp-chrome-devtools.md")),
     ("mcp-donsetch.md", include_str!("../assets/template/mcp-donsetch.md")),
@@ -88,7 +90,7 @@ pub(crate) fn install_assets(
 }
 
 /// 1 つの部品を配る（上の [`install_assets`] の取り決めを 1 ファイルに適用する）。
-fn install_one(
+pub(crate) fn install_one(
     path: &Path,
     new_content: &str,
     update: bool,
@@ -121,6 +123,21 @@ fn install_one(
     std::fs::rename(path, &backup)?;
     std::fs::write(path, &desired)?;
     Ok(AssetOutcome::Updated { backup })
+}
+
+/// `path` の今の中身が、`new_content` を配ったときの中身と同じなら true（無ければ false）。
+///
+/// [`install_one`] の「そのまま」と同じ比べ方をする（拡張を無効にするとき、利用者が直していない物を選ぶ）。
+pub(crate) fn same_as_installed(path: &Path, new_content: &str, preserve_frontmatter: bool) -> bool {
+    let Ok(old) = std::fs::read_to_string(path) else {
+        return false;
+    };
+    let desired = if preserve_frontmatter {
+        merge_block_content(new_content, &old)
+    } else {
+        new_content.to_string()
+    };
+    desired == old
 }
 
 /// 新しい block の frontmatter のうち、[`PRESERVED_BLOCK_KEYS`] の項目を

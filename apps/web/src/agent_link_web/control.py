@@ -171,7 +171,7 @@ def export_runs(project: dict) -> None:
     _last_export[export_key] = now
     try:
         run_cli(
-            [settings.sai_link_bin, "run", "export"],
+            [settings.agent_link_bin, "run", "export"],
             app="agent-link",
             cwd=root,
             env=_cli_env(root),
@@ -223,7 +223,7 @@ def daemon(name: str, action: str) -> dict:
         raise HTTPException(status_code=404, detail="Project folder not found.")
     root = project["root"]
     proc = run_cli(
-        [settings.sai_link_bin, "daemon", action],
+        [settings.agent_link_bin, "daemon", action],
         app="agent-link",
         cwd=root,
         env=_cli_env(root),
@@ -268,7 +268,7 @@ def _cli_json(
     `run_cli`（差し替え可能な名前）を渡す。
     """
     return run_json(
-        [settings.sai_link_bin, *args],
+        [settings.agent_link_bin, *args],
         app="agent-link",
         cwd=root,
         env=_cli_env(root),

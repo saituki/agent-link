@@ -3,7 +3,7 @@
 **この文書は、Web の HTTP の住所と画面の住所の契約の正である。** 一覧は `apps/web/tests/test_surface.py` の一覧と一致させる。この文書とコードが食い違ったら、コードに合わせて直す。
 CLI と Web の間の契約（終了コード・JSON の項目・終了コードから HTTP への読み替え・`AGENT_LINK_HOME` の規則）は [`for-developers.md`](./for-developers.md)、環境変数の表は [`../README.md`](../README.md)、全体の考え方は [`../ARCHITECTURE.md`](../ARCHITECTURE.md)、言葉の意味は [`../CONCEPT.md`](../CONCEPT.md)。
 
-この文書の API の数は、`main.py` の `@app.get`・`post`・`put`・`delete`・`api_route` を数えた **46 本**（`/manifest.json` を含む。2026-10-17 時点）。これに FastAPI の既定の `GET /openapi.json`・`GET /docs`・`GET /docs/oauth2-redirect`・`GET /redoc` と、静的ファイルの `app.mount("/")` が加わる（`apps/web/tests/test_surface.py` の一覧と同じ）。
+この文書の API の数は、`main.py` の `@app.get`・`post`・`put`・`delete`・`api_route` を数えた **53 本**（`/manifest.json` と拡張の 5 本を含む。2026-10-18 時点）。これに FastAPI の既定の `GET /openapi.json`・`GET /docs`・`GET /docs/oauth2-redirect`・`GET /redoc` と、静的ファイルの `app.mount("/")` が加わる（`apps/web/tests/test_surface.py` の一覧と同じ）。
 
 ---
 
@@ -172,6 +172,19 @@ iPhone / PC のブラウザ
 | `GET /api/usage` | Claude（cc）の使用量。`{"cc": {"limits": <5 時間枠・7 日枠または null>, "cost": {"today", "month", "sessions"}}, "saved_at": <epoch 秒>}` |
 | `GET /manifest.json` | PWA の設定（`name`・`short_name` は `agent-link`） |
 
+### 4.6 拡張（`agent-link ext` 経由・U06 と U07）
+
+| メソッド・パス | 中身 | 呼ぶ CLI |
+|---|---|---|
+| `GET /api/ext` | 拡張の一覧（`{"extensions": [{"name", "title", "icon", "ui", "service", "ready", "web", "enabled_in"}]}`）。10 秒覚える | `agent-link ext list --json` |
+| `GET /ext/{name}/{path}` | 拡張の `ui/` の中のファイル（画面の JS・CSS・アイコン）。`ui` を持つ拡張だけ。`..`・空の区切り・先頭の `/` や `\` を含む道、`ui/` の外へ出る道は 404 | —（ファイルを返す） |
+| `POST /api/projects/{name}/ext/{ext_name}/cli` | 拡張の CLI を呼ぶ（body `{"args": [...]}`。そのプロジェクトで有効で、`args[0]` が `cli.web` にあること。通らなければ 400・403・404） | `agent-link ext run <ext_name> -- <args…>` |
+| `GET /api/ext/{ext_name}/svc/{path}` / `POST /api/ext/{ext_name}/svc/{path}` | 拡張の service へ中継する（宛先は `service.url_env` の値）。POST は `service.post` にある道だけ（先頭の `/` なしで書く。無ければ 403）。宛先が未設定なら 404 | —（HTTP で中継） |
+| `GET /` / `GET /index.html` | 画面の HTML。拡張の目印（`<!-- ext:styles -->`・`<!-- ext:tabs -->`・`<!-- ext:scripts -->`）を、画面に出す拡張の物に差し替える（拡張が 0 個なら目印を消すだけ） | — |
+
+- 拡張の作者向けの約束（`AgentLinkExt.register`・`ctx`・住所）の正は [`crates/agent-link-engine/assets/template/ext-contract.md`](../crates/agent-link-engine/assets/template/ext-contract.md)。この文書には住所だけを書く。
+- 画面の JS は `static/ext.js`（`AgentLinkExt.register` で `window.SaiRoutes` に登録する）。拡張のタブは `data-tab="ext-<name>"`・`data-first="#/ext/<name>"`。
+
 > **登録順の決まり**: FastAPI は登録した順に照合する。固定の住所は、変数の住所（`{run_id:int}` など）より**前**に登録する。静的ファイルの `app.mount("/")` は最後に置く。
 
 ---
@@ -211,6 +224,8 @@ Web のすべての HTTP API を、コマンド 1 本から使える（接続先
 | `#/newchat?project=<名前>&block=<block>` | 新しいチャットのシート（`project`・`block` は省略できる） | Chats | 表示 |
 | `#/run/<project>/<run_id>` | メッセージ | Chats | 隠す |
 | `#/run/<project>/<run_id>/stats` | 統計 | Chats | 隠す |
+| `#/ext/<name>` | 拡張の画面。最後に選んだプロジェクト（無ければ `enabled_in` の先頭）の `#/ext/<name>/<project>` へ置き換える。無ければ案内 | 拡張のタブ（`ext-<name>`） | 表示 |
+| `#/ext/<name>/<project>[/<path>]` | 拡張の画面。上にプロジェクトを選ぶ欄（`enabled_in` だけ）、その下に拡張の `mount`。`<path>` は拡張が読む | 拡張のタブ（`ext-<name>`） | 表示 |
 
 - List のサイドバーの一番上の「実行［＋］［↻］」の行で、**＋** は task.md 作成フォーム、**↻** はツリーの読み直し。書きかけは `localStorage`（プロジェクトごと）。
 - Projects の 4 画面（Dashboard / Workflow / List / 設定）の見出しは同じ形（`‹`・プロジェクト名・`Dashboard|Workflow|List|設定`）。`‹` は 4 画面ともプロジェクト一覧（`#/projects`）へ戻る。

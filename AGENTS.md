@@ -31,6 +31,8 @@
 | `CONCEPT.md` | 概念と用語・画面に出す専門用語の一覧 |
 | `docs/remote.md` | 遠隔の機械で子の claude を動かす手順書（利用者が行う） |
 | `docs/switch-over.md` | sai-moon と agent-link を並べて使う手順書（利用者が行う） |
+| `docs/separation.md` | sai-tree と agent-link を同じ Mac で分けて使う片付けの手順書（利用者が行う。点検・決めること・片付け・戻し方） |
+| `crates/agent-link-engine/assets/template/ext-contract.md` | 拡張（extension）の契約の正（宣言・置き場・CLI の作法・Web の住所・画面の約束）。拡張の作者向け |
 
 `agent-link` などは PATH に無いことがある。`README.md` の「入れ方」の PATH の足し方を見ること。
 
@@ -60,21 +62,21 @@
 ```bash
 cd ~/workdir/Sai/agent-link
 
-# Rust（846 件。--no-fail-fast は最初の失敗で止めず、全部の本数を数えるため）
+# Rust（864 件。--no-fail-fast は最初の失敗で止めず、全部の本数を数えるため）
 perl -e 'alarm 1800; exec @ARGV' cargo test --workspace --no-fail-fast
 
-# Web（JS 23 本）
+# Web（JS 24 本）
 for f in apps/web/tests/test_*.js; do node "$f" || exit 1; done
 
-# Web（Python 22 本）
+# Web（Python 23 本）
 for f in apps/web/tests/test_*.py; do PYTHONPATH=apps/web/src apps/web/.venv/bin/python "$f" || exit 1; done
 ```
 
 | 対象 | 本数 | CI のジョブ |
 |---|---|---|
-| Rust（`cargo test --workspace --no-fail-fast`） | 846 件（ほかに ignored 3 件） | Rust（ubuntu） |
-| Web の JS | 23 本 | Web（ubuntu） |
-| Web の Python | 22 本 | Web（ubuntu） |
+| Rust（`cargo test --workspace --no-fail-fast`） | 864 件（ほかに ignored 3 件） | Rust（ubuntu） |
+| Web の JS | 24 本 | Web（ubuntu） |
+| Web の Python | 23 本 | Web（ubuntu） |
 
 - 環境変数の名前は `AGENT_LINK_*` だけである。sai-moon が入れる環境変数は名前が違うので混ざらず、`env -u` で外す必要は無い。
 - CI の Linux（ubuntu-latest）で同じ命令が通る。リポジトリ直下に `tests/` は無い。テストはクレート・アプリの中にある。
@@ -92,7 +94,7 @@ for f in apps/web/tests/test_*.py; do PYTHONPATH=apps/web/src apps/web/.venv/bin
 
 ### 実行しないこと
 
-- 本物のプロジェクトでの `agent-link init`（`--update` を含む）。ただし、利用者が頼んだときに限り、agent-link 自身のルート（`~/workdir/Sai/agent-link`）で `agent-link init --update` を実行してよい（`.agent-link/cc-settings.json` のフックを release のバイナリに合わせるため。run を始めるたびにも合わせ直す）。sai-tree などほかのプロジェクトでは実行しない。確かめるときは一時フォルダをプロジェクトにし（`AGENT_LINK_PROJECT_ROOT`）、`AGENT_LINK_HOME` にも別の一時フォルダを入れ、最後に消す。
+- 本物のプロジェクトでの `agent-link init`（`--update` を含む）。ただし、利用者が頼んだときに限り、agent-link 自身のルート（`~/workdir/Sai/agent-link`）で `agent-link init --update` を実行してよい（`.agent-link/cc-settings.json` のフックを release のバイナリに合わせるため。run を始めるたびにも合わせ直す）。sai-tree などほかのプロジェクトでは実行しない。ただし例外が 1 つある: extensions リポジトリ（`~/workdir/Sai/agent-link-extensions`）は、agent-link のプロジェクトとして `agent-link init` してよい（2026-10-18 利用者の決定。拡張はそこで作る）。確かめるときは一時フォルダをプロジェクトにし（`AGENT_LINK_PROJECT_ROOT`）、`AGENT_LINK_HOME` にも別の一時フォルダを入れ、最後に消す。
 - 利用者の環境（`~/.agent-link`・シェルの設定・`~/.local/bin`）を変える操作。文書に書くだけにする。`scripts/agent-link-setup install`・`uninstall` を利用者の環境で実行しない（`doctor` は読むだけなので実行してよい）。確かめるときは、一時フォルダを `HOME`・`AGENT_LINK_HOME`・`--bin-dir` に向けて行い、最後に消す。
 - `agent-link remote setup`（Mac の `~/.ssh/authorized_keys` と遠隔の機械を書き換える）。実機での確認は利用者が行う（`docs/remote.md`）。
 - 本物の `.agent-link/blocks/*.md`・`~/.agent-link/` の中身を、確かめのために変えること。書き込みの確認は一時フォルダで行い、最後に消す。

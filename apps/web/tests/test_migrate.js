@@ -60,19 +60,19 @@ const fn = swSrc.match(/^function swIsOldCache\(name, current\) \{[\s\S]*?^\}/m)
 assert.ok(fn, "sw.js に swIsOldCache が見つかりません");
 // eslint-disable-next-line no-new-func
 const swIsOldCache = new Function(`${fn[0]}; return swIsOldCache;`)();
-assert.strictEqual(swIsOldCache("sai-web-v132", "agent-link-web-v140"), true, "sai-moon の画面の倉庫");
-assert.strictEqual(swIsOldCache("agent-link-web-v139", "agent-link-web-v140"), true, "古い画面の倉庫（1つ前）");
-assert.strictEqual(swIsOldCache("agent-link-web-v140", "agent-link-web-v140"), false, "今の画面の倉庫");
-assert.strictEqual(swIsOldCache("sai-phone-v84", "agent-link-web-v140"), true, "旧名の画面の倉庫");
-assert.strictEqual(swIsOldCache("sai-phone-radio-audio", "agent-link-web-v140"), true, "旧名の音声の倉庫");
-assert.strictEqual(swIsOldCache("agent-link-web-radio-audio", "agent-link-web-v140"), false, "音声の倉庫は消さない");
-assert.strictEqual(swIsOldCache("agent-link-web-open", "agent-link-web-v140"), false, "通知の飛び先は消さない");
+assert.strictEqual(swIsOldCache("sai-web-v132", "agent-link-web-v142"), true, "sai-moon の画面の倉庫");
+assert.strictEqual(swIsOldCache("agent-link-web-v141", "agent-link-web-v142"), true, "古い画面の倉庫（1つ前）");
+assert.strictEqual(swIsOldCache("agent-link-web-v142", "agent-link-web-v142"), false, "今の画面の倉庫");
+assert.strictEqual(swIsOldCache("sai-phone-v84", "agent-link-web-v142"), true, "旧名の画面の倉庫");
+assert.strictEqual(swIsOldCache("sai-phone-radio-audio", "agent-link-web-v142"), true, "旧名の音声の倉庫");
+assert.strictEqual(swIsOldCache("agent-link-web-radio-audio", "agent-link-web-v142"), false, "音声の倉庫は消さない");
+assert.strictEqual(swIsOldCache("agent-link-web-open", "agent-link-web-v142"), false, "通知の飛び先は消さない");
 
 // --- 5) 画面の版がそろっている（CACHE と ?v=）
-assert.match(swSrc, /const CACHE = "agent-link-web-v140";/, "CACHE が agent-link-web-v140 ではありません");
+assert.match(swSrc, /const CACHE = "agent-link-web-v142";/, "CACHE が agent-link-web-v142 ではありません");
 const html = fs.readFileSync(path.join(staticDir, "index.html"), "utf8");
-assert.ok(html.includes("?v=140"), "index.html の ?v= が140 ではありません");
-assert.ok(!/\?v=(?!140)\d+/.test(html), "index.html に 140 以外の ?v= が残っています");
+assert.ok(html.includes("?v=142"), "index.html の ?v= が142 ではありません");
+assert.ok(!/\?v=(?!142)\d+/.test(html), "index.html に 142 以外の ?v= が残っています");
 
 // --- 6) sw.js の ASSETS の全部のファイルが static/ にある（欠けると install が失敗する）
 const assetsLine = swSrc.match(/^const ASSETS = (\[.*\]);/m);

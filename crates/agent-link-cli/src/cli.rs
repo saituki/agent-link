@@ -101,6 +101,11 @@ pub enum Cmd {
     /// 遠隔の中継から来た命令を Mac で通す門番（内部用。`authorized_keys` の強制コマンド）
     #[command(hide = true, name = "remote-gate")]
     RemoteGate,
+    /// Manage extensions (install, enable per project, run their CLI)
+    Ext {
+        #[command(subcommand)]
+        cmd: ExtCmd,
+    },
     /// 実行（run）の参照・操作（新しい木）
     Run {
         #[command(subcommand)]
@@ -195,6 +200,59 @@ pub enum RemoteCmd {
         /// 遠隔の ssh の host 名
         host: String,
         /// JSON で出力する
+        #[arg(long, default_value_t = false)]
+        json: bool,
+    },
+}
+
+/// `ext` のサブコマンド。処理は `agent_link_engine::ext`。
+#[derive(Subcommand)]
+pub enum ExtCmd {
+    /// List installed extensions and where they are enabled
+    List {
+        #[arg(long, default_value_t = false)]
+        json: bool,
+    },
+    /// Install an extension folder into the extensions folder
+    Install {
+        /// The extension folder (its name is the extension name)
+        dir: PathBuf,
+        /// Link the folder instead of copying it
+        #[arg(long, default_value_t = false)]
+        link: bool,
+        #[arg(long, default_value_t = false)]
+        json: bool,
+    },
+    /// Uninstall an extension (its link only, if linked)
+    Uninstall {
+        name: String,
+        #[arg(long, default_value_t = false)]
+        json: bool,
+    },
+    /// Enable an extension in this project (copies blocks and templates, runs init)
+    Enable {
+        name: String,
+        #[arg(long, default_value_t = false)]
+        json: bool,
+    },
+    /// Disable an extension in this project (removes the copies it made)
+    Disable {
+        name: String,
+        #[arg(long, default_value_t = false)]
+        json: bool,
+    },
+    /// Update enabled extensions in this project (all, or the one named)
+    Update {
+        name: Option<String>,
+        #[arg(long, default_value_t = false)]
+        json: bool,
+    },
+    /// Run an extension's CLI (its stdout is passed through as is)
+    Run {
+        name: String,
+        /// Arguments for the extension CLI (after `--`)
+        #[arg(last = true)]
+        args: Vec<String>,
         #[arg(long, default_value_t = false)]
         json: bool,
     },

@@ -360,7 +360,7 @@ pub fn mcp_config_json() -> serde_json::Value {
 /// agent-link 自身の絶対パス（cc の PATH やシェルに依存せずに agent-link を呼ぶため）。
 ///
 /// `std::env::current_exe()` が存在すればその絶対パス、無ければ `agent-link`（PATH 検索）。
-pub fn sai_link_exe() -> String {
+pub fn agent_link_exe() -> String {
     std::env::current_exe()
         .ok()
         .filter(|p| p.exists())
@@ -415,7 +415,7 @@ pub fn ensure_cc_settings(root: &Path) -> std::io::Result<PathBuf> {
 /// - `statusLine`: `agent-link cc-statusline`（費用を `cc-cost` へ書き、画面下に金額を出す）
 /// - `hooks`: 状態・承認・質問・セッション登録のフック（[`cc_hooks_json`]）
 pub fn cc_settings_json() -> serde_json::Value {
-    let exe = sai_link_exe();
+    let exe = agent_link_exe();
     settings_with(
         &shell_escape_single_quotes(&exe),
         cc_hooks_json(&exe, web_hooks_dir().as_deref()),
@@ -1178,7 +1178,7 @@ mod tests {
     #[test]
     fn mac_cc_settings_unchanged_by_remote_split() {
         let v = cc_settings_json();
-        let exe = sai_link_exe();
+        let exe = agent_link_exe();
         assert_eq!(
             v["statusLine"]["command"],
             format!("{} cc-statusline", shell_escape_single_quotes(&exe))

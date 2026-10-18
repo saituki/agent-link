@@ -1,0 +1,9 @@
+{
+  "name": "hello",
+  "title": "Hello",
+  "version": "0.1.0",
+  "description": "Sample extension for tests and the kantoku check.",
+  "cli": { "bin": "bin/hello", "web": ["greet"] },
+  "init": ["init"],
+  "ui": { "icon": "icon.svg", "scripts": ["hello.js"], "styles": ["hello.css"] }
+}
