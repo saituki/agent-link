@@ -396,11 +396,19 @@ fn set_state(dir: &Path, value: &str) -> std::io::Result<()> {
     headless::write_state(dir, &state)
 }
 
+/// `~/.claude.json` の読み書きを、このプロセス内で直列にする。
+///
+/// daemon は複数のワーカーで同時に起動するため、読む → 整える → 書くの全体を 1 つずつ行う。
+// ponytail: process-local lock only; a second agent-link process could still race. Add a file lock if that happens.
+static CLAUDE_JSON_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 /// `$HOME/.claude.json` を [`seed_claude_json`] で整える。読めない JSON は触らない。
+/// 整えた結果が元と同じなら書かない。
 fn seed_home_claude_json(dirs: &[&str]) -> std::io::Result<()> {
     let Some(home) = std::env::var_os("HOME") else {
         return Ok(());
     };
+    let _guard = CLAUDE_JSON_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let path = PathBuf::from(home).join(".claude.json");
     let current = match std::fs::read_to_string(&path) {
         Ok(text) => match serde_json::from_str::<Value>(&text) {
@@ -411,10 +419,22 @@ fn seed_home_claude_json(dirs: &[&str]) -> std::io::Result<()> {
         Err(e) => return Err(e),
     };
     let key = std::env::var("ANTHROPIC_API_KEY").ok();
-    let seeded = seed_claude_json(current, dirs, key.as_deref());
+    let seeded = seed_claude_json(current.clone(), dirs, key.as_deref());
+    if seeded == current {
+        return Ok(());
+    }
     let text = serde_json::to_string_pretty(&seeded)
         .map_err(|e| std::io::Error::other(format!("JSON serialization failed: {}", e)))?;
-    let tmp = path.with_file_name(".claude.json.agent-link.tmp");
+    // 一時ファイル名に pid と時刻（ナノ秒）を入れ、別プロセスの書きかけと衝突しないようにする。
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let tmp = path.with_file_name(format!(
+        ".claude.json.agent-link.{}.{}.tmp",
+        std::process::id(),
+        nonce
+    ));
     std::fs::write(&tmp, text)?;
     std::fs::rename(&tmp, &path)
 }

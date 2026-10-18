@@ -1648,6 +1648,27 @@ pub fn resolve_worktree_branch(
     }
 }
 
+/// ブランチ名として使ってよい名前か（共有契約 C-WT）。
+///
+/// `^[A-Za-z0-9][A-Za-z0-9._/-]{0,99}$` に合い、`..`・`//` を含まず、末尾が `/`・`.`・`.lock` でない。
+/// 先頭が英数字なので、`git` のオプションや絶対パスとして読まれない。
+pub fn is_valid_branch_name(s: &str) -> bool {
+    let mut chars = s.chars();
+    chars.next().is_some_and(|c| c.is_ascii_alphanumeric())
+        && s.len() <= 100
+        && s.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '/' | '-'))
+        && !s.contains("..")
+        && !s.contains("//")
+        && !s.ends_with(['/', '.'])
+        && !s.ends_with(".lock")
+}
+
+/// `task create` の `worktree` の値として使ってよいか（共有契約 C-WT）。
+/// 空・`none`・`isolation`、またはブランチ名。
+pub fn is_valid_worktree_value(s: &str) -> bool {
+    matches!(s, "" | "none" | "isolation") || is_valid_branch_name(s)
+}
+
 /// git リポジトリのルートを解決する（`git rev-parse --show-toplevel`）。
 fn git_toplevel() -> Result<PathBuf, OrchestratorError> {
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
@@ -1682,10 +1703,27 @@ pub fn git_toplevel_at(dir: &Path) -> Result<PathBuf, OrchestratorError> {
 /// 既に worktree が存在する場合は再利用する。
 /// 作成した worktree のパスをエージェント起動時の cwd として使用する。
 pub fn apply_worktree_at(repo_root: &Path, branch: &str) -> Result<PathBuf, OrchestratorError> {
+    if !is_valid_branch_name(branch) {
+        return Err(OrchestratorError::CommandError(format!(
+            "Invalid worktree branch name: {}",
+            branch
+        )));
+    }
     let worktrees_dir = repo_root.join(".worktrees");
     std::fs::create_dir_all(&worktrees_dir)?;
 
     let worktree_path = worktrees_dir.join(branch);
+    // 名前の検査で防いでいるが、フォルダの外へ出ないことをここでも確かめる。
+    let rel = worktree_path.strip_prefix(&worktrees_dir).unwrap_or(&worktree_path);
+    if rel.is_absolute()
+        || rel.as_os_str().is_empty()
+        || rel.components().any(|c| !matches!(c, std::path::Component::Normal(_)))
+    {
+        return Err(OrchestratorError::CommandError(format!(
+            "Invalid worktree branch name: {}",
+            branch
+        )));
+    }
     if worktree_path.exists() {
         // 既存 worktree を再利用
         return Ok(worktree_path);
@@ -1982,15 +2020,17 @@ fn remote_target_of(overrides: &ExecutionOverrides) -> Option<RemoteTarget> {
 /// - `host` あり: 作業用コピーは作らず（ブロック定義の `worktree:` も無視）、`cwd` は Mac の
 ///   プロジェクトルート。遠隔のフォルダは `RemoteTarget.cwd` に入れる。
 /// - `host` なし: 親が指定した作業フォルダ（無ければプロジェクトルート）。`worktree` 指定時は
-///   その中の作業用コピーへ変える。作業用コピーを作れなければ指定フォルダで続行する。
+///   その中の作業用コピーへ変える。
+///   - 指定フォルダが git の作業ツリーの外なら、作業用コピーは作らず指定フォルダで続ける。
+///   - git の中なのに作業用コピーを作れない（名前が不正を含む）なら `Err`。run を失敗にする。
 fn resolve_pipeline_cwd(
     overrides: &ExecutionOverrides,
     worktree: Option<&str>,
     block_id: &str,
     run_id: i64,
-) -> (PathBuf, Option<RemoteTarget>) {
+) -> Result<(PathBuf, Option<RemoteTarget>), String> {
     if let Some(remote) = remote_target_of(overrides) {
-        return (crate::project::project_root(), Some(remote));
+        return Ok((crate::project::project_root(), Some(remote)));
     }
     let requested_cwd: PathBuf = overrides
         .cwd
@@ -1999,25 +2039,29 @@ fn resolve_pipeline_cwd(
         .filter(|s| !s.is_empty())
         .map(PathBuf::from)
         .unwrap_or_else(crate::project::project_root);
-    let cwd = if let Some(worktree_val) = worktree {
-        match resolve_worktree_branch(worktree_val, block_id, run_id) {
-            Some(branch) => match apply_worktree_for_cwd(&requested_cwd, &branch) {
-                Ok(path) => path,
-                Err(e) => {
-                    eprintln!(
-                        "[agent-link] 作業用コピーを作成できないため指定フォルダで実行します ({}): {}",
-                        requested_cwd.display(),
-                        e
-                    );
-                    requested_cwd.clone()
-                }
-            },
-            None => requested_cwd.clone(),
-        }
-    } else {
-        requested_cwd.clone()
+    let Some(worktree_val) = worktree else {
+        return Ok((requested_cwd, None));
     };
-    (cwd, None)
+    let Some(branch) = resolve_worktree_branch(worktree_val, block_id, run_id) else {
+        return Ok((requested_cwd, None));
+    };
+    // git の外（作業ツリーでない）なら作業用コピーの対象が無い。指定フォルダで続ける。
+    if git_toplevel_at(&requested_cwd).is_err() {
+        eprintln!(
+            "[agent-link] Not inside a git repository; running in the requested folder without a worktree: {}",
+            requested_cwd.display()
+        );
+        return Ok((requested_cwd, None));
+    }
+    match apply_worktree_for_cwd(&requested_cwd, &branch) {
+        Ok(path) => Ok((path, None)),
+        Err(e) => Err(format!(
+            "Failed to create the worktree for {} in {}: {}",
+            branch,
+            requested_cwd.display(),
+            e
+        )),
+    }
 }
 
 /// 共通実行パイプラインの完全版（予約 run_id 付き・R302）。
@@ -2115,7 +2159,15 @@ pub fn execute_block_pipeline_full(
     //    親が指定した作業フォルダ（overrides.cwd）を作業用コピーの基準にする。
     //    未指定ならプロジェクトルート。worktree は「指定された cwd を含む
     //    リポジトリ」に作る（親が別プロジェクトの cwd を指定できる）。
-    let (cwd, remote) = resolve_pipeline_cwd(&overrides, worktree.as_deref(), &resolved.config.block_id(), run_id);
+    let (cwd, remote) = match resolve_pipeline_cwd(&overrides, worktree.as_deref(), &resolved.config.block_id(), run_id) {
+        Ok(v) => v,
+        Err(e) => {
+            // 作業用コピーを作れない run は、ここで失敗として確定する（pane はまだ無い）。
+            eprintln!("[agent-link] 実行失敗 (run_id={}): {}", run_id, e);
+            let _ = store.update_execution_error(run_id, &e, 1);
+            return Err(OrchestratorError::CommandError(e));
+        }
+    };
 
     // 4. 完了監視チャネルの登録（デーモン連携時）
     //    ※ この時点で cc は未起動のため、自分の run_id の file_written 通知が
@@ -2799,7 +2851,18 @@ fn is_subblock_allowed(
     }
 }
 
+/// block の ID として使ってよいか（共有契約 C-BLOCK）。
+///
+/// `^[A-Za-z0-9][A-Za-z0-9_:.-]*$` に合い、`..` を含まない。
+pub fn is_valid_block_id(s: &str) -> bool {
+    s.chars().next().is_some_and(|c| c.is_ascii_alphanumeric())
+        && s.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | ':' | '.' | '-'))
+        && !s.contains("..")
+}
+
 /// ブロック定義名からファイルパスを解決する。
+///
+/// 不正な ID（[`is_valid_block_id`]）は空のパスを返す。
 ///
 /// 検索順序:
 /// 1. `.agent-link/blocks/<block_type>.md`
@@ -2807,6 +2870,10 @@ fn is_subblock_allowed(
 /// 3. `lib/herdrs/blocks/<block_type>.md`（旧配置）
 /// 4. `~/.agent-link/blocks/<block_type>.md`（グローバル・全プロジェクトで使用可能）
 pub fn resolve_block_path(block_type: &str) -> std::path::PathBuf {
+    // ID の形でないもの（`../x`・絶対パスなど）は探さない。空のパスは存在しない扱いになる。
+    if !is_valid_block_id(block_type) {
+        return std::path::PathBuf::new();
+    }
     // まず .agent-link/blocks/ ディレクトリを検索（プロジェクトルート基準）
     let path0 = crate::project::sai_path(".agent-link/blocks").join(format!("{}.md", block_type));
     if path0.exists() {
@@ -2928,6 +2995,8 @@ fn execute_pipeline_background(
     };
     if let Err(e) = pane_client.run_in_pane(&pane_info.pane_id, &launch_command) {
         let msg = format!("Failed to start the agent: {}", e);
+        // 起動できなかった run の pane は残さない（submit 失敗時と同じ扱い）。
+        close_execution_pane(&pane_info.pane_id);
         *progress.lock().unwrap() = PipelineProgress::Failed { error: msg };
         return;
     }
@@ -2967,6 +3036,7 @@ fn execute_pipeline_background(
             return;
         }
         Err(e) => {
+            close_execution_pane(&pane_info.pane_id);
             *progress.lock().unwrap() = PipelineProgress::Failed {
                 error: e.to_string(),
             };
@@ -3879,33 +3949,6 @@ fn git_commit_hash_in(dir: &Path) -> Option<String> {
 }
 
 // ============================================================================
-// 内部ヘルパー: 中断可能スリープ
-// ============================================================================
-
-/// キャンセル可能なスリープ（秒単位）。
-///
-/// 1秒ごとにキャンセルフラグをチェックし、中断要求があれば即座に戻ります。
-/// 待機中は `progress` に `Waiting` 状態を書き込みます。
-fn interruptible_sleep(
-    total_secs: u64,
-    step_name: &str,
-    progress: &Arc<Mutex<PipelineProgress>>,
-    cancel_flag: &Arc<AtomicBool>,
-) {
-    let step = step_name.to_string();
-    for i in 0..total_secs {
-        if cancel_flag.load(Ordering::SeqCst) {
-            return;
-        }
-        *progress.lock().unwrap() = PipelineProgress::Waiting {
-            step: step.clone(),
-            elapsed_secs: i,
-        };
-        std::thread::sleep(Duration::from_secs(1));
-    }
-}
-
-// ============================================================================
 // 内部ヘルパー: プロンプト送信（送信確認 + 再送、F6）
 // ============================================================================
 
@@ -4434,7 +4477,7 @@ mod tests {
             cwd: Some("~/work/sai-tree".into()),
             ..Default::default()
         };
-        let (cwd, remote) = resolve_pipeline_cwd(&o, Some("isolation"), "worker", 1);
+        let (cwd, remote) = resolve_pipeline_cwd(&o, Some("isolation"), "worker", 1).unwrap();
         assert_eq!(cwd, crate::project::project_root());
         assert_eq!(
             remote,
@@ -4444,9 +4487,40 @@ mod tests {
 
         // host なしは今まで通り（指定 cwd・remote なし）
         let local = ExecutionOverrides { cwd: Some("/tmp".into()), ..Default::default() };
-        let (cwd, remote) = resolve_pipeline_cwd(&local, None, "worker", 1);
+        let (cwd, remote) = resolve_pipeline_cwd(&local, None, "worker", 1).unwrap();
         assert_eq!(cwd, PathBuf::from("/tmp"));
         assert_eq!(remote, None);
+    }
+
+    /// git の外のフォルダでは、worktree 指定でも指定フォルダで続ける（Ok）。
+    #[test]
+    fn resolve_pipeline_cwd_outside_git_keeps_requested_folder() {
+        let dir = std::env::temp_dir().join(format!("agent-link-u04-nogit-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let o = ExecutionOverrides { cwd: Some(dir.to_string_lossy().to_string()), ..Default::default() };
+        let (cwd, remote) = resolve_pipeline_cwd(&o, Some("isolation"), "worker", 1).unwrap();
+        assert_eq!(cwd, dir);
+        assert_eq!(remote, None);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// git の中で名前が不正なら Err（run を失敗にする）。フォルダの外へは出ない。
+    #[test]
+    fn resolve_pipeline_cwd_invalid_worktree_name_is_err() {
+        let dir = std::env::temp_dir().join(format!("agent-link-u04-git-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let init = Command::new("git").arg("-C").arg(&dir).args(["init", "-q"]).status().unwrap();
+        assert!(init.success());
+        let commit = Command::new("git")
+            .arg("-C")
+            .arg(&dir)
+            .args(["-c", "user.name=t", "-c", "user.email=t@example.invalid", "commit", "-q", "--allow-empty", "-m", "init"])
+            .status()
+            .unwrap();
+        assert!(commit.success());
+        let o = ExecutionOverrides { cwd: Some(dir.to_string_lossy().to_string()), ..Default::default() };
+        assert!(resolve_pipeline_cwd(&o, Some("../x"), "worker", 1).is_err());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     // ---- PipelineConfig ----
@@ -5054,62 +5128,6 @@ mod tests {
         assert!(msg.contains("file not found"));
     }
 
-    // ---- interruptible_sleep のキャンセル動作 ----
-
-    #[test]
-    fn test_interruptible_sleep_cancelled() {
-        let progress = Arc::new(Mutex::new(PipelineProgress::Pending));
-        let cancel_flag = Arc::new(AtomicBool::new(true)); // 最初からキャンセル済み
-
-        let start = Instant::now();
-        interruptible_sleep(10, "テスト", &progress, &cancel_flag);
-        let elapsed = start.elapsed();
-
-        // 即座に戻ること（1秒も待たない）
-        assert!(elapsed < Duration::from_secs(1));
-        // progress は更新されない（最初のイテレーションでキャンセルされて return するため）
-    }
-
-    #[test]
-    fn test_interruptible_sleep_updates_progress() {
-        let progress = Arc::new(Mutex::new(PipelineProgress::Pending));
-        let cancel_flag = Arc::new(AtomicBool::new(false));
-
-        // 1秒だけスリープ
-        interruptible_sleep(1, "テスト待機", &progress, &cancel_flag);
-
-        // progress が Waiting に更新されていること
-        let p = progress.lock().unwrap().clone();
-        assert!(matches!(
-            p,
-            PipelineProgress::Waiting { ref step, .. } if step == "テスト待機"
-        ));
-    }
-
-    // ---- キャンセルフラグの同時実行テスト ----
-
-    #[test]
-    fn test_cancel_flag_shared_between_threads() {
-        let progress = Arc::new(Mutex::new(PipelineProgress::Pending));
-        let cancel_flag = Arc::new(AtomicBool::new(false));
-
-        let cf = Arc::clone(&cancel_flag);
-
-        // 別スレッドでスリープ開始
-        let handle = std::thread::spawn(move || {
-            interruptible_sleep(60, "長期待機", &progress, &cf);
-        });
-
-        // 100ms 後にキャンセル
-        std::thread::sleep(Duration::from_millis(100));
-        cancel_flag.store(true, Ordering::SeqCst);
-
-        // スレッドが1秒以内に終了すること
-        let start = Instant::now();
-        handle.join().unwrap();
-        assert!(start.elapsed() < Duration::from_secs(2));
-    }
-
     // ---- resolve_worktree_branch（§7.1.6・Phase 7）----
 
     #[test]
@@ -5123,6 +5141,29 @@ mod tests {
     fn test_resolve_worktree_branch_none() {
         assert_eq!(resolve_worktree_branch("none", "sai-test-main", 1), None);
         assert_eq!(resolve_worktree_branch("", "sai-test-main", 1), None);
+    }
+
+    /// worktree の値の規則（C-WT）。空・none・isolation・ブランチ名だけ通す。
+    #[test]
+    fn worktree_value_rules() {
+        for ok in ["", "none", "isolation", "feature/sai-test", "a.b_c-1"] {
+            assert!(is_valid_worktree_value(ok), "{ok}");
+        }
+        for ng in ["../x", "/abs", "-x", "a..b", "a//b", "a/", "a.", "a.lock", "a b", ".x"] {
+            assert!(!is_valid_worktree_value(ng), "{ng}");
+        }
+        assert!(!is_valid_worktree_value(&"a".repeat(101)));
+    }
+
+    /// `apply_worktree_at` は不正な名前を git に渡す前に断る（フォルダの外へ出ない）。
+    #[test]
+    fn apply_worktree_rejects_invalid_branch_name() {
+        let root = std::env::temp_dir().join(format!("agent-link-u04-wt-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let err = apply_worktree_at(&root, "../x").unwrap_err();
+        assert!(format!("{}", err).ends_with("Invalid worktree branch name: ../x"));
+        assert!(!root.join("x").exists());
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]
