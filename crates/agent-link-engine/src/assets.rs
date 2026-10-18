@@ -88,7 +88,7 @@ pub(crate) fn install_assets(
 }
 
 /// 1 つの部品を配る（上の [`install_assets`] の取り決めを 1 ファイルに適用する）。
-fn install_one(
+pub(crate) fn install_one(
     path: &Path,
     new_content: &str,
     update: bool,
@@ -121,6 +121,21 @@ fn install_one(
     std::fs::rename(path, &backup)?;
     std::fs::write(path, &desired)?;
     Ok(AssetOutcome::Updated { backup })
+}
+
+/// `path` の今の中身が、`new_content` を配ったときの中身と同じなら true（無ければ false）。
+///
+/// [`install_one`] の「そのまま」と同じ比べ方をする（拡張を無効にするとき、利用者が直していない物を選ぶ）。
+pub(crate) fn same_as_installed(path: &Path, new_content: &str, preserve_frontmatter: bool) -> bool {
+    let Ok(old) = std::fs::read_to_string(path) else {
+        return false;
+    };
+    let desired = if preserve_frontmatter {
+        merge_block_content(new_content, &old)
+    } else {
+        new_content.to_string()
+    };
+    desired == old
 }
 
 /// 新しい block の frontmatter のうち、[`PRESERVED_BLOCK_KEYS`] の項目を
