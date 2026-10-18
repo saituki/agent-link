@@ -43,13 +43,12 @@ pub fn load_block_choices() -> Vec<(String, String)> {
 
 /// block_id からブロック定義ファイルのパスを解決する。
 ///
-/// 1. そのままパスとして存在するか
-/// 2. `.agent-link/blocks/<id>.md` が存在するか
-/// 3. 全ブロック定義を走査して `id:` が一致するもの
+/// 形が不正な ID（パス・`..` など）は `None`。ファイルのパスは受け付けない。
+/// 1. `.agent-link/blocks/<id>.md` が存在するか
+/// 2. 全ブロック定義を走査して `id:` が一致するもの
 pub fn resolve_block_path(block_id: &str) -> Option<PathBuf> {
-    let direct = PathBuf::from(block_id);
-    if direct.exists() {
-        return Some(direct);
+    if !agent_link_engine::orchestrator::is_valid_block_id(block_id) {
+        return None;
     }
     let candidate =
         agent_link_engine::project::sai_path(".agent-link/blocks").join(format!("{}.md", block_id));
@@ -152,6 +151,10 @@ pub fn validate_card_spec(spec: &CardSpec) -> Result<(), String> {
         let ids: Vec<String> = load_block_choices().into_iter().map(|(_, id)| id).collect();
         return Err(format!("block is required. Choose one of: {}", ids.join(", ")));
     }
+    // Invalid を文に入れると CLI の終了コードが 2 になる（入力の誤り）。
+    if !agent_link_engine::orchestrator::is_valid_block_id(block) {
+        return Err(format!("Invalid block: {}. Use a block id such as worker.", block));
+    }
     let model = spec.model.trim();
     if !model.is_empty() && agent_link_engine::cc_command::normalize_model(model).is_none() {
         return Err(format!(
@@ -241,5 +244,31 @@ mod tests {
         assert_eq!(validate_card_spec(&spec).unwrap_err(), "Block not found: x");
         spec.thinking = String::new();
         assert_eq!(validate_card_spec(&spec).unwrap_err(), "Block not found: x");
+    }
+
+    /// block の ID は形だけで決まる。パス・`..`・先頭が記号のものは通さない。
+    #[test]
+    fn block_id_shape_is_checked() {
+        use agent_link_engine::orchestrator::is_valid_block_id;
+        assert!(is_valid_block_id("worker"));
+        assert!(is_valid_block_id("plan-kantoku"));
+        assert!(is_valid_block_id("a.b"));
+        assert!(!is_valid_block_id("../x"));
+        assert!(!is_valid_block_id("/abs/x.md"));
+        assert!(!is_valid_block_id("-x"));
+        assert!(!is_valid_block_id("a..b"));
+        assert!(!is_valid_block_id(""));
+    }
+
+    /// `card create` に絶対パスの block を渡すと断る（ファイルのパスは受け付けない）。
+    #[test]
+    fn spec_rejects_absolute_path_block() {
+        let spec = CardSpec {
+            block: "/tmp/evil2.md".to_string(),
+            ..Default::default()
+        };
+        let err = validate_card_spec(&spec).unwrap_err();
+        assert_eq!(err, "Invalid block: /tmp/evil2.md. Use a block id such as worker.");
+        assert!(resolve_block_path("/tmp/evil2.md").is_none());
     }
 }

@@ -13,6 +13,7 @@
 use std::io::{Read, Write};
 use std::path::Path;
 use std::process::{Command, Output, Stdio};
+use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 use crate::common::shell_escape_single_quotes;
@@ -66,7 +67,19 @@ pub fn ssh_run(
     timeout: Duration,
 ) -> Result<Output, RemoteError> {
     let mut child = Command::new(ssh_bin())
-        .args(["-o", "BatchMode=yes", "-o", "ConnectTimeout=10", host, script])
+        .args([
+            "-o",
+            "BatchMode=yes",
+            "-o",
+            "ConnectTimeout=10",
+            // 多重化の親プロセスが出力の口を握り続けないよう、常に単独の接続で行う。
+            "-o",
+            "ControlMaster=no",
+            "-o",
+            "ControlPath=none",
+            host,
+            script,
+        ])
         .stdin(if stdin.is_some() { Stdio::piped() } else { Stdio::null() })
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -80,16 +93,18 @@ pub fn ssh_run(
         });
     }
     let reader = |pipe: Option<Box<dyn Read + Send>>| {
+        let (tx, rx) = mpsc::channel::<Vec<u8>>();
         std::thread::spawn(move || {
             let mut buf = Vec::new();
             if let Some(mut p) = pipe {
                 let _ = p.read_to_end(&mut buf);
             }
-            buf
-        })
+            let _ = tx.send(buf);
+        });
+        rx
     };
-    let out_t = reader(child.stdout.take().map(|p| Box::new(p) as Box<dyn Read + Send>));
-    let err_t = reader(child.stderr.take().map(|p| Box::new(p) as Box<dyn Read + Send>));
+    let out_rx = reader(child.stdout.take().map(|p| Box::new(p) as Box<dyn Read + Send>));
+    let err_rx = reader(child.stderr.take().map(|p| Box::new(p) as Box<dyn Read + Send>));
     let start = Instant::now();
     let status = loop {
         match child.try_wait() {
@@ -107,10 +122,13 @@ pub fn ssh_run(
             Err(e) => return Err(RemoteError(format!("Failed to wait for ssh to {}: {}", host, e))),
         }
     };
+    // 読み取りは時間切れまで待つ（孫プロセスが口を握っても無期限に待たない）。
+    // 時間切れなら空として扱う。
+    let left = timeout.saturating_sub(start.elapsed()).max(Duration::from_secs(1));
     Ok(Output {
         status,
-        stdout: out_t.join().unwrap_or_default(),
-        stderr: err_t.join().unwrap_or_default(),
+        stdout: out_rx.recv_timeout(left).unwrap_or_default(),
+        stderr: err_rx.recv_timeout(left).unwrap_or_default(),
     })
 }
 
@@ -227,7 +245,8 @@ pub fn seed_remote_claude_json(host: &str, _home: &str, dirs: &[&str]) -> Result
     let seeded = crate::tmux::seed_claude_json(value, dirs, None);
     let body = serde_json::to_vec_pretty(&seeded)
         .map_err(|e| RemoteError(format!("Failed to serialize ~/.claude.json: {}", e)))?;
-    let script = "cat > \"$HOME/.claude.json.agent-link.tmp\" && mv \"$HOME/.claude.json.agent-link.tmp\" \"$HOME/.claude.json\"";
+    // 一時ファイル名は遠隔のシェルの pid で分ける（同じ名前の書きかけと衝突しない）。
+    let script = "t=\"$HOME/.claude.json.agent-link.$$.tmp\"; cat > \"$t\" && mv \"$t\" \"$HOME/.claude.json\"";
     ok_or_last_line(host, "Writing ~/.claude.json", ssh_run(host, script, Some(&body), SSH_SHORT)?)?;
     Ok(())
 }
