@@ -62,21 +62,21 @@
 ```bash
 cd ~/workdir/Sai/agent-link
 
-# Rust（846 件。--no-fail-fast は最初の失敗で止めず、全部の本数を数えるため）
+# Rust（864 件。--no-fail-fast は最初の失敗で止めず、全部の本数を数えるため）
 perl -e 'alarm 1800; exec @ARGV' cargo test --workspace --no-fail-fast
 
-# Web（JS 23 本）
+# Web（JS 24 本）
 for f in apps/web/tests/test_*.js; do node "$f" || exit 1; done
 
-# Web（Python 22 本）
+# Web（Python 23 本）
 for f in apps/web/tests/test_*.py; do PYTHONPATH=apps/web/src apps/web/.venv/bin/python "$f" || exit 1; done
 ```
 
 | 対象 | 本数 | CI のジョブ |
 |---|---|---|
-| Rust（`cargo test --workspace --no-fail-fast`） | 846 件（ほかに ignored 3 件） | Rust（ubuntu） |
-| Web の JS | 23 本 | Web（ubuntu） |
-| Web の Python | 22 本 | Web（ubuntu） |
+| Rust（`cargo test --workspace --no-fail-fast`） | 864 件（ほかに ignored 3 件） | Rust（ubuntu） |
+| Web の JS | 24 本 | Web（ubuntu） |
+| Web の Python | 23 本 | Web（ubuntu） |
 
 - 環境変数の名前は `AGENT_LINK_*` だけである。sai-moon が入れる環境変数は名前が違うので混ざらず、`env -u` で外す必要は無い。
 - CI の Linux（ubuntu-latest）で同じ命令が通る。リポジトリ直下に `tests/` は無い。テストはクレート・アプリの中にある。
