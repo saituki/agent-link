@@ -80,7 +80,7 @@ async def watch_loop() -> None:
     """サーバー起動中ずっと回る監視ループ．失敗しても止めない．"""
     while True:
         try:
-            watch_once()
+            await asyncio.to_thread(watch_once)
         except Exception as e:  # 監視の失敗でサーバーを落とさない
             logger.warning(f"監視ループでエラー: {e}")
         await asyncio.sleep(_POLL_SEC)

@@ -36,7 +36,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 from agent_link_web import control, notify, runs, store, usage  # noqa: E402
 from agent_link_web.main import app  # noqa: E402
 
-HOST = "testserver"
+HOST = "127.0.0.1"
 LOCAL = ("127.0.0.1", 40000)
 REMOTE = ("192.168.0.9", 40000)
 
@@ -109,7 +109,7 @@ def call(
 
 def question_body(session_id: str, tool_use_id: str) -> dict:
     return {
-        "agent": "pi",
+        "agent": "claude",
         "session_id": session_id,
         "pane_id": "pane-1",
         "tool_use_id": tool_use_id,

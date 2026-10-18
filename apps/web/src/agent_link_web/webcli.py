@@ -397,6 +397,11 @@ def cmd_serve(args: argparse.Namespace) -> object:
             raise UsageError(
                 f"AGENT_LINK_WEB_PORT is not a number: {registry.config_var('AGENT_LINK_WEB_PORT')}"
             ) from None
+    if args.host not in ("127.0.0.1", "localhost", "::1") and not args.allow_remote:
+        raise UsageError(
+            f"Refusing to listen on {args.host}: the API has no password. "
+            "Pass --allow-remote to do it anyway."
+        )
     os.execv(
         sys.executable,
         [
@@ -439,6 +444,7 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("serve", help="Start the Web server")
     p.add_argument("--host", default="127.0.0.1", help="Host to listen on (default 127.0.0.1)")
     p.add_argument("--port", type=int, default=None, help="Port to listen on (default AGENT_LINK_WEB_PORT)")
+    p.add_argument("--allow-remote", action="store_true", help="Allow a --host other than loopback (the API has no password)")
     _add_json(p)
     p.set_defaults(func=cmd_serve)
 

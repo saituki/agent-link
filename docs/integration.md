@@ -39,7 +39,11 @@ iPhone / PC のブラウザ
    - 機能は **CLI（`--json`）か HTTP API** だけを使う。
 2. **既にある物を使う。** 新しい依存ライブラリは入れない（FastAPI・標準ライブラリ・素の JS のみ）。
 3. **画面は素の JavaScript**（フレームワーク・ビルド無し）。グラフは SVG を手で描く。
-4. **合言葉は無い。** 入口は 127.0.0.1 の待ち受けと、内部用の住所の `require_internal`（Mac 自身だけ）で守る。エラーは英語（`{"detail": "<英語の 1 文>"}`）で画面にそのまま出す。
+4. **合言葉は無い。** 入口は次の 3 つで守る。エラーは英語（`{"detail": "<英語の 1 文>"}`）で画面にそのまま出す。
+   - **Host の検査**（`main.py` の `_host_guard`・全部の住所）: 許可するホストは `127.0.0.1`・`localhost`・`::1`・末尾 `.ts.net`、それに `AGENT_LINK_WEB_URL` のホスト名（空なら無し）。ポートは外し、大文字小文字は区別しない。許可外は 403 `{"detail": "Host not allowed."}`（DNS rebinding を止める）。
+   - **Origin の検査**（同じ関数）: GET・HEAD・OPTIONS 以外で `Origin` が付いていて、そのホストが許可外（`null` を含む）なら 403 `{"detail": "Cross-origin request refused."}`。`Origin` が無い要求（フック・`agent-link-web api`・curl）は通す。独自ヘッダは必須にしない。
+   - **内部用の住所の `require_internal`**（Mac 自身だけ）。
+   - **`serve --host`**（`webcli.py`）: 待ち受けの住所が `127.0.0.1`・`localhost`・`::1` 以外なら、標準エラーに `Refusing to listen on <host>: the API has no password. Pass --allow-remote to do it anyway.` と出して終了コード 2。`--allow-remote` を付けたときだけ通す。
 5. **外から来る値は CLI を呼ぶ前に検査する。** 通らない値では CLI を 1 度も呼ばない（400）。ファイルのパスは受け取らない。
 
 ---
@@ -68,8 +72,8 @@ iPhone / PC のブラウザ
 
 | メソッド・パス | 中身 | 呼ぶ CLI |
 |---|---|---|
-| `GET /api/projects` | プロジェクト一覧（`{"projects": [...]}`）。`running` と `last_executed_at` は 5 秒だけ覚える | `agent-link project summary`。あわせて 60 秒に 1 回 `agent-link run export`（書き出しの更新） |
-| `GET /api/projects/{name}/dashboard?period=week\|month\|all` | Dashboard（既定 week） | `agent-link project dashboard --period <期間>` |
+| `GET /api/projects` | プロジェクト一覧（`{"projects": [...]}`）。`running` と `last_executed_at` は 5 秒だけ覚える | `agent-link project summary` |
+| `GET /api/projects/{name}/dashboard?period=week\|month\|all` | Dashboard（既定 week）。開くとき、同じプロジェクトの書き出しを 60 秒に 1 回まで `agent-link run export` で更新する（書き出しは常駐の daemon も同じ周期で行う：`crates/agent-link-engine/src/daemon.rs` の `export_runs`） | `agent-link project dashboard --period <期間>`（前に `agent-link run export`） |
 | `POST /api/projects/{name}/daemon` `{"action":"start"\|"stop"}` | 常駐の起動・停止 | `agent-link daemon start\|stop`（文字出力） |
 
 ### 4.2 ホーム
@@ -142,7 +146,8 @@ iPhone / PC のブラウザ
 | `POST /api/projects/{name}/card` | カード（task.md）の作成。body は `block`・`model`・`thinking`・`description`・`task_text`（と `done_ids`。`done_ids` は受け取るが CLI は無視する。done はやめた）。Web は `executer` を渡さない（CLI の `card create` は `human` / `agent` を受ける） | `agent-link card create`（標準入力に JSON） |
 
 - 外から来る値は Web 自身が CLI を呼ぶ**前**に検査する（`run_id` は正の整数、`view` / `kind` は一覧の値だけ、`token` は英数字と `-_.:`・長さ 128 まで）→ 400。
-- 作成フォームも同じ（`block` は英数字と `-_.:`、`task_text` は 100KB まで、`thinking` は一覧の値（`none`・`low`・`medium`・`high`・`xhigh`・`max`）、`model` は英数字と `._:/@+-`、`description` は 200 文字までの 1 行、`done_ids` は 1 以上の整数の配列）→ 400。廃止した `runner`・`provider`・`tag`・`round`・`global_round` は、送られても検査せず、CLI にも渡さない（断らない）。
+- 型の誤り（整数でない `run_id`・`limit` など）は FastAPI が 422 で返す。`detail` は `Invalid request: <場所>: <英語の 1 文>`（`main.py` の `validation_error_handler`）。
+- 作成フォームも同じ（`block` は英数字と `-_.:`、`task_text` は 100KB まで、`thinking` は一覧の値（`none`・`low`・`medium`・`high`・`xhigh`・`max`）、`model` は一覧の値（`opus`・`sonnet`・`haiku`・空）、`description` は 200 文字までの 1 行、`done_ids` は 1 以上の整数の配列）→ 400。廃止した `runner`・`provider`・`tag`・`round`・`global_round` は、送られても検査せず、CLI にも渡さない（断らない）。
 - CLI の失敗は §7 の読み替え。404 は 2 種類で、md が無いとき（終了コード 3・stderr「Not available yet.」）と未実行カードが無いとき（終了コード 3）。
 - 呼び出しは cwd = プロジェクトの root、かつ `AGENT_LINK_PROJECT_ROOT` = 同じ root（常駐を起動した環境変数に引きずられない）。
 - 住所の `{token}` は FastAPI 上の変数名だけ `{waggle_token}`（URL の形は同じ）。
@@ -163,7 +168,7 @@ iPhone / PC のブラウザ
 | `GET /api/questions/{qid}` | 質問 1 件（**内部専用**。cc のフックが答えを取りに来る）。JSON は `answered_by`（答えた人。端末で答えたときは `terminal`）を持つ。`state` は `open`・`answered`・`resolved_elsewhere`・`expired`・`withdrawn`（取り下げ。`answer` は `{"text": "<送った文。空もある>"}`） |
 | `GET /api/questions/pending` / `GET /api/questions?session_id=` | 答え待ちの質問 |
 | `POST /api/questions/{qid}/answer` | 答える（記録するだけ。cc のフックが `GET /api/questions/{qid}` で取りに来る）。本文は `{"answers": [{choice_index \| choice_indices \| text}, …]}`。番号は **0 から**数え、範囲外（単一選択に 2 つ以上も）は 400（質問は `open` のまま） |
-| `GET /api/push/key` / `POST /api/push/subscribe` | プッシュ通知の鍵と購読 |
+| `GET /api/push/key` / `POST /api/push/subscribe` | プッシュ通知の鍵と購読。購読は `endpoint` が `https://` で 2048 字以内、ホストが `fcm.googleapis.com`・`*.push.apple.com`・`*.push.services.mozilla.com`・`*.notify.windows.com` のどれかで、`keys` に文字列の `p256dh` と `auth` が要る（通らなければ 400 `Invalid push subscription.`）。購読は 20 件まで（同じ endpoint の上書きは数えない。超えると 400 `Too many push subscriptions.`）。検査は保存の前に行う |
 | `GET /api/usage` | Claude（cc）の使用量。`{"cc": {"limits": <5 時間枠・7 日枠または null>, "cost": {"today", "month", "sessions"}}, "saved_at": <epoch 秒>}` |
 | `GET /manifest.json` | PWA の設定（`name`・`short_name` は `agent-link`） |
 
