@@ -69,7 +69,7 @@ def test_calls(cli: FakeCli) -> None:
     cli.calls.clear()
     cli.items = []
     assert control.cli_session_search("demo", word=" mlflow ") == {"items": [], "truncated": False}
-    assert cli.calls[-1] == ["agent-link", "session", "search", "-w", "mlflow", "--json"], cli.calls[-1]
+    assert cli.calls[-1] == ["agent-link", "session", "search", "-w=mlflow", "--json"], cli.calls[-1]
 
     control.cli_session_search(
         "demo",
@@ -82,10 +82,14 @@ def test_calls(cli: FakeCli) -> None:
     )
     assert cli.calls[-1] == [
         "agent-link", "session", "search",
-        "--id", "10-20", "--block", "worker",
-        "--date", "2026/09/01-2026/09/30", "--status", "todo,running",
-        "--type", "user,agent", "-w", "a,b", "--json",
+        "--id=10-20", "--block=worker",
+        "--date=2026/09/01-2026/09/30", "--status=todo,running",
+        "--type=user,agent", "-w=a,b", "--json",
     ], cli.calls[-1]
+
+    # 検索語が `-` で始まっても CLI の誤りにならない（`-w=` の 1 引数）
+    control.cli_session_search("demo", word="-x")
+    assert cli.calls[-1] == ["agent-link", "session", "search", "-w=-x", "--json"], cli.calls[-1]
 
 
 def test_truncate(cli: FakeCli) -> None:

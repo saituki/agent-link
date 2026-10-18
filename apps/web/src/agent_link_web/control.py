@@ -53,8 +53,15 @@ _PHONE_VIEWS = ("log", "stats", "history")
 _PHONE_MD_KINDS = ("task", "message", "report", "system")
 # 保存できる md（task は未実行の todo カードだけ。確かめるのは agent-link）
 _PHONE_MD_WRITABLE = ("task",)
-# waggle トークンとブロック ID に許す文字（英数字と -_.:・長さ上限付き）
-_PHONE_TOKEN_RE = re.compile(r"^[A-Za-z0-9._:-]{1,128}$")
+# waggle トークン（英数字で始まり、英数字と ._:-・128 文字まで）
+_PHONE_TOKEN_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}")
+# ブロック ID（英数字で始まり、英数字と _:.- ・64 文字まで）。`..` を含むものは `_is_block` で断る（C-BLOCK）
+_BLOCK_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_:.-]{0,63}")
+
+
+def _is_block(value: str) -> bool:
+    """block ID の形が通るか（`..` を含むものは通さない）。"""
+    return _BLOCK_RE.fullmatch(value) is not None and ".." not in value
 # History の呼び出しの番号（cc の tool_use.id・pi の toolCall.id の形。`/` は入れない）
 _PHONE_CALL_ID_RE = re.compile(r"[A-Za-z0-9_-]{1,80}")
 
@@ -184,7 +191,7 @@ def dashboard(name: str, period: str) -> dict:
     if not project.get("db_exists"):
         raise HTTPException(status_code=404, detail="This project has no run records yet.")
     export_runs(project)
-    data = _cli_json(["project", "dashboard", "--period", period], root=project["root"])
+    data = _cli_json(["project", "dashboard", f"--period={period}"], root=project["root"])
     # recent の各行に description と linkable を足す。
     # メッセージ画面は書き出しファイルが無いと開けないため。
     root = project.get("root") or ""
@@ -319,7 +326,7 @@ def cli_run_call(name: str, run_id: int, call_id: str) -> dict:
         raise HTTPException(status_code=400, detail="call_id must be at most 80 characters of letters, digits, - and _.")
     project = _cli_project(name)
     return _cli_json(
-        ["run", "history", str(run_id), "--call", call_id, "--json"], root=project["root"]
+        ["run", "history", str(run_id), f"--call={call_id}", "--json"], root=project["root"]
     )
 
 
@@ -332,7 +339,7 @@ def cli_md(name: str, run_id: int, kind: str) -> dict:
             detail="kind must be one of task, message, report, system.",
         )
     project = _cli_project(name)
-    return _cli_json(["run", "md", str(run_id), "--kind", kind], root=project["root"])
+    return _cli_json(["run", "md", str(run_id), f"--kind={kind}"], root=project["root"])
 
 
 def cli_md_save(name: str, run_id: int, kind: str, text) -> dict:
@@ -348,7 +355,7 @@ def cli_md_save(name: str, run_id: int, kind: str, text) -> dict:
         raise HTTPException(status_code=400, detail="The text must be a string of at most 100KB.")
     project = _cli_project(name)
     return _cli_json(
-        ["run", "md", str(run_id), "--kind", kind, "--write"],
+        ["run", "md", str(run_id), f"--kind={kind}", "--write"],
         root=project["root"],
         stdin_text=text,
     )
@@ -362,9 +369,10 @@ def cli_waggle(name: str, run_id: int, token: str | None = None) -> dict:
     """
     _check_run_id(run_id)
     if token is not None:
-        if not _PHONE_TOKEN_RE.match(token or ""):
+        if not _PHONE_TOKEN_RE.fullmatch(token or ""):
             raise HTTPException(status_code=400, detail="token is invalid.")
-        args = ["doc", "read", token, "--json"]
+        # `--` のあとは位置引数（英数字で始まる形だけ通すので、`-` 始まりは CLI に届かない）
+        args = ["doc", "read", "--json", "--", token]
     else:
         args = ["doc", "list", "--run", str(run_id), "--json"]
     project = _cli_project(name)
@@ -376,9 +384,7 @@ def cli_waggle(name: str, run_id: int, token: str | None = None) -> dict:
 _SEARCH_CATEGORIES = ("task", "message", "waggle")
 _SEARCH_WORD_MAX = 200
 _SEARCH_LIMIT_MAX = 100
-_SEARCH_DAY_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
-# block 名（`.agent-link/blocks/<名前>.md`）の形
-_SEARCH_BLOCK_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
+_SEARCH_DAY_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
 
 
 def _search_day(label: str, value: str | None) -> str | None:
@@ -387,7 +393,7 @@ def _search_day(label: str, value: str | None) -> str | None:
     if not v:
         return None
     try:
-        if not _SEARCH_DAY_RE.match(v):
+        if not _SEARCH_DAY_RE.fullmatch(v):
             raise ValueError(v)
         date.fromisoformat(v)
     except ValueError:
@@ -424,7 +430,7 @@ def cli_search(
     if since and until and since > until:
         raise HTTPException(status_code=400, detail="The start date must be before the end date.")
     block = (block or "").strip() or None
-    if block is not None and not _SEARCH_BLOCK_RE.match(block):
+    if block is not None and not _is_block(block):
         raise HTTPException(status_code=400, detail="block is invalid.")
     for label, n in (("The run_id lower bound", from_id), ("The run_id upper bound", to_id)):
         if n is not None and (isinstance(n, bool) or not isinstance(n, int) or n <= 0):
@@ -434,7 +440,8 @@ def cli_search(
     if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= _SEARCH_LIMIT_MAX:
         raise HTTPException(status_code=400, detail=f"The limit must be between 1 and {_SEARCH_LIMIT_MAX}.")
 
-    args = ["doc", "search", "--word", word, "--category", ",".join(cats), "--limit", str(limit)]
+    # 値は `--name=<値>` の 1 引数にする（C-ARGS。`-` で始まる検索語を CLI の誤りにしない）
+    args = ["doc", "search", f"--word={word}", f"--category={','.join(cats)}", f"--limit={limit}"]
     for flag, value in (
         ("--since", since),
         ("--until", until),
@@ -443,7 +450,7 @@ def cli_search(
         ("--to-id", to_id),
     ):
         if value is not None:
-            args += [flag, str(value)]
+            args.append(f"{flag}={value}")
     project = _cli_project(name)
     return _cli_json(args, root=project["root"], timeout=60.0)
 
@@ -451,11 +458,9 @@ def cli_search(
 # --- 会話の検索（`agent-link session search`・会話の検索の口） ---
 
 # run の番号は N または N-M
-_SESSION_RANGE_RE = re.compile(r"^\d+(-\d+)?$")
-# ブロック名の部分一致（`.agent-link/blocks/<名前>.md` の形）
-_SESSION_BLOCK_RE = re.compile(r"^[A-Za-z0-9._:-]{1,64}$")
+_SESSION_RANGE_RE = re.compile(r"\d+(-\d+)?")
 # 実行日 YYYY/MM/DD または YYYY/MM/DD-YYYY/MM/DD
-_SESSION_DATE_RE = re.compile(r"^\d{4}/\d{2}/\d{2}(-\d{4}/\d{2}/\d{2})?$")
+_SESSION_DATE_RE = re.compile(r"\d{4}/\d{2}/\d{2}(-\d{4}/\d{2}/\d{2})?")
 _SESSION_STATUSES = ("todo", "pending", "running", "completed", "failed", "cancelled")
 _SESSION_TYPES = ("user", "agent", "thinking", "tool_call", "tool_name", "tool_result", "tool")
 # 検索語の全体の長さ（カンマ区切りを含む）
@@ -509,16 +514,17 @@ def cli_session_search(
         if len(word) > _SESSION_WORD_MAX:
             raise HTTPException(status_code=400, detail=f"The search word must be at most {_SESSION_WORD_MAX} characters.")
     for label, value in (("The run number", run_id),):
-        if value is not None and not _SESSION_RANGE_RE.match(value):
+        if value is not None and not _SESSION_RANGE_RE.fullmatch(value):
             raise HTTPException(status_code=400, detail=f"{label} must be in N or N-M format.")
-    if block is not None and not _SESSION_BLOCK_RE.match(block):
+    if block is not None and not _is_block(block):
         raise HTTPException(status_code=400, detail="block is invalid.")
-    if on_date is not None and not _SESSION_DATE_RE.match(on_date):
+    if on_date is not None and not _SESSION_DATE_RE.fullmatch(on_date):
         raise HTTPException(status_code=400, detail="The date must be in YYYY/MM/DD or YYYY/MM/DD-YYYY/MM/DD format.")
     status = _session_subset("Status", status, _SESSION_STATUSES)
     sess_type = _session_subset("Type", sess_type, _SESSION_TYPES)
 
     args = ["session", "search"]
+    # 値は `--name=<値>` の 1 引数にする（C-ARGS。`-w=-x` も clap が値として受ける）
     for flag, value in (
         ("--id", run_id),
         ("--block", block),
@@ -528,7 +534,7 @@ def cli_session_search(
         ("-w", word),
     ):
         if value is not None:
-            args += [flag, value]
+            args.append(f"{flag}={value}")
     args.append("--json")
     project = _cli_project(name)
     data = _cli_json(args, root=project["root"], timeout=60.0)
@@ -589,7 +595,7 @@ def _validate_card_payload(payload: dict) -> dict:
     block = text("block")
     if not block:
         raise HTTPException(status_code=400, detail="block is required.")
-    if not _PHONE_TOKEN_RE.match(block):
+    if not _is_block(block):
         raise HTTPException(status_code=400, detail="block is invalid.")
 
     thinking = text("thinking")
@@ -736,7 +742,7 @@ def cli_card_docs(name: str) -> dict:
 
 
 # 実行予定時刻（`YYYY-MM-DD HH:MM`。ブラウザの datetime-local の `T` 区切りも受ける）
-_SCHEDULE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}$")
+_SCHEDULE_RE = re.compile(r"\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}")
 
 
 def cli_card_schedule(name: str, run_id: int, at: str) -> dict:
@@ -748,9 +754,9 @@ def cli_card_schedule(name: str, run_id: int, at: str) -> dict:
     at = (at or "").strip()
     args = ["card", "schedule", str(run_id)]
     if at:
-        if not _SCHEDULE_RE.match(at):
+        if not _SCHEDULE_RE.fullmatch(at):
             raise HTTPException(status_code=400, detail="The time format is invalid.")
-        args += ["--at", at.replace("T", " ")]
+        args.append(f"--at={at.replace('T', ' ')}")
     project = _cli_project(name)
     return _cli_json(args, root=project["root"])
 
@@ -765,7 +771,7 @@ _DEF_KINDS = ("block", "template", "settings")
 # 定義の置き場（そのプロジェクト / 全体で共通の `~/.agent-link/`）
 _DEF_SCOPES = ("project", "global")
 # block / template の名前（英数字から始まり、英数字と - _ ・64 文字まで・拡張子 .md は付けない）
-_DEF_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
+_DEF_NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}")
 # settings の名前は `settings` だけ
 _DEF_SETTINGS_NAME = "settings"
 # 定義の本文の上限（256KB・UTF-8 のバイト数で数える）
@@ -781,25 +787,6 @@ def _cli_def_project(name: str) -> dict:
     if not project.get("root_exists"):
         raise HTTPException(status_code=404, detail="Project folder not found.")
     return project
-
-
-def _cli_def_json(args: list[str], *, root: str, stdin_text: str | None = None):
-    """`agent-link def …`（cwd = プロジェクトの root）を呼んで JSON を返す。
-
-    読み替えは Web が CLI を呼ぶ約束と同じ（`cli.run_json` の 1 か所）。
-    - 終了コード 0: 標準出力の JSON をそのまま返す。
-    - 2: 400（検査に通らない中身の誤り）・3: 404・4: 409・1 とそのほか: 502。
-    - `stdin_text` は本文を標準入力へ渡す（`write`）。
-    """
-    return run_json(
-        [settings.sai_link_bin, "def", *args],
-        app="agent-link",
-        cwd=root,
-        env=_cli_env(root),
-        timeout=20.0,
-        input_text=stdin_text,
-        runner=run_cli,
-    )
 
 
 def _validate_def(kind, scope, def_name) -> None:
@@ -818,7 +805,7 @@ def _validate_def(kind, scope, def_name) -> None:
                 status_code=400, detail="The name for settings must be settings."
             )
         return
-    if not isinstance(def_name, str) or not _DEF_NAME_RE.match(def_name):
+    if not isinstance(def_name, str) or not _DEF_NAME_RE.fullmatch(def_name):
         raise HTTPException(
             status_code=400, detail="The name must be at most 64 characters of letters, digits, - and _."
         )
@@ -846,16 +833,17 @@ def cli_workflow(name: str, subtasks: bool = False) -> dict:
 def cli_def_list(name: str) -> dict:
     """定義の一覧（`agent-link def list`）。"""
     project = _cli_def_project(name)
-    return _cli_def_json(["list"], root=project["root"])
+    return _cli_json(["def", "list"], root=project["root"], timeout=20.0)
 
 
 def cli_def_show(name: str, kind: str, scope: str, def_name: str) -> dict:
     """定義 1 件の中身（`agent-link def show`）。"""
     _validate_def(kind, scope, def_name)
     project = _cli_def_project(name)
-    return _cli_def_json(
-        ["show", "--kind", kind, "--scope", scope, "--name", def_name],
+    return _cli_json(
+        ["def", "show", f"--kind={kind}", f"--scope={scope}", f"--name={def_name}"],
         root=project["root"],
+        timeout=20.0,
     )
 
 
@@ -872,11 +860,11 @@ def cli_def_write(
     body = _validate_def_text(text)
     if create is not None and not isinstance(create, bool):
         raise HTTPException(status_code=400, detail="create must be a boolean.")
-    args = ["write", "--kind", kind, "--scope", scope, "--name", def_name]
+    args = ["def", "write", f"--kind={kind}", f"--scope={scope}", f"--name={def_name}"]
     if create:
         args.append("--create")
     project = _cli_def_project(name)
-    return _cli_def_json(args, root=project["root"], stdin_text=body)
+    return _cli_json(args, root=project["root"], timeout=20.0, stdin_text=body)
 
 
 def cli_def_delete(name: str, kind: str, scope: str, def_name: str) -> dict:
@@ -885,8 +873,9 @@ def cli_def_delete(name: str, kind: str, scope: str, def_name: str) -> dict:
     if kind == "settings":
         raise HTTPException(status_code=400, detail="settings cannot be deleted.")
     project = _cli_def_project(name)
-    return _cli_def_json(
-        ["delete", "--kind", kind, "--scope", scope, "--name", def_name],
+    return _cli_json(
+        ["def", "delete", f"--kind={kind}", f"--scope={scope}", f"--name={def_name}"],
         root=project["root"],
+        timeout=20.0,
     )
 

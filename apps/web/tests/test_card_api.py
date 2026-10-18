@@ -257,7 +257,7 @@ def test_md_kind_check_accepts_report_and_rejects_others(cli: FakeCli) -> None:
 
     out = control.cli_md("demo", 7, "report")
     assert out["name"] == "finalize-report.md", out
-    assert cli.last["args"] == ["agent-link", "run", "md", "7", "--kind", "report"], cli.last["args"]
+    assert cli.last["args"] == ["agent-link", "run", "md", "7", "--kind=report"], cli.last["args"]
 
     e = expect(400, lambda: control.cli_md("demo", 7, "review"))
     assert "task, message, report" in str(e.detail), e.detail

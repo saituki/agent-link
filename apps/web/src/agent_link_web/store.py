@@ -101,13 +101,6 @@ def get_registration(session_id: str) -> dict | None:
     return dict(row) if row else None
 
 
-def list_registrations() -> list[dict]:
-    with _connect() as conn:
-        conn.row_factory = sqlite3.Row
-        rows = conn.execute("SELECT * FROM registrations").fetchall()
-    return [dict(r) for r in rows]
-
-
 def _row_to_question(row: sqlite3.Row) -> dict:
     d = dict(row)
     try:
@@ -259,17 +252,6 @@ def expire_stale_questions(agent: str, older_than_sec: float, now: float | None 
             "UPDATE questions SET state = 'expired' "
             "WHERE agent = ? AND state = 'open' AND created_at < ?",
             (agent, base - older_than_sec),
-        )
-        return cur.rowcount
-
-
-def mark_resolved_elsewhere(session_id: str) -> int:
-    """そのセッションの未解決質問を「端末側で解決済み」にする．件数を返す．"""
-    with _connect() as conn:
-        cur = conn.execute(
-            "UPDATE questions SET state = 'resolved_elsewhere' "
-            "WHERE session_id = ? AND state = 'open'",
-            (session_id,),
         )
         return cur.rowcount
 

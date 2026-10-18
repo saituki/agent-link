@@ -96,7 +96,8 @@ def run_cli(
         return subprocess.run(
             args,
             capture_output=True,
-            text=True,
+            encoding="utf-8",
+            errors="replace",
             cwd=cwd,
             env=env,
             timeout=timeout,
@@ -108,6 +109,9 @@ def run_cli(
             status_code=503,
             detail=f"{app} not found. Check the configured path.",
         )
+    except OSError:
+        # 実行権が無い・形式が違うなど、起動できないその他の理由
+        raise HTTPException(status_code=503, detail=f"Could not start {app}.")
     except subprocess.TimeoutExpired:
         raise HTTPException(
             status_code=504,

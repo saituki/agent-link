@@ -69,8 +69,12 @@ def test_calls(cli: FakeCli) -> None:
     assert control.cli_search("demo", " mlflow  run ") == {"items": [], "truncated": False}
     assert cli.calls[-1] == [
         "agent-link", "doc", "search",
-        "--word", "mlflow  run", "--category", "task,message,waggle", "--limit", "50",
+        "--word=mlflow  run", "--category=task,message,waggle", "--limit=50",
     ], cli.calls[-1]
+
+    # 検索語が `-` で始まっても CLI の誤りにならない（値は `--word=` の 1 引数）
+    control.cli_search("demo", "-foo")
+    assert cli.calls[-1][3] == "--word=-foo", cli.calls[-1]
 
     control.cli_search(
         "demo",
@@ -85,9 +89,9 @@ def test_calls(cli: FakeCli) -> None:
     )
     assert cli.calls[-1] == [
         "agent-link", "doc", "search",
-        "--word", "x", "--category", "task,waggle", "--limit", "5",
-        "--since", "2026-09-01", "--until", "2026-09-30", "--block", "worker",
-        "--from-id", "10", "--to-id", "99",
+        "--word=x", "--category=task,waggle", "--limit=5",
+        "--since=2026-09-01", "--until=2026-09-30", "--block=worker",
+        "--from-id=10", "--to-id=99",
     ], cli.calls[-1]
 
 

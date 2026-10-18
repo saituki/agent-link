@@ -26,10 +26,6 @@ DB_PATH = DATA_DIR / "agent_link_web.db"
 
 @dataclass(frozen=True)
 class Settings:
-    # cc の記録置き場
-    claude_sessions_dir: Path = Path(
-        registry.config_var("CLAUDE_SESSIONS_DIR", str(Path.home() / ".claude" / "projects"))
-    )
     # agent-link が実行ごとに書き出す JSON の置き場。
     # 手元確認では AGENT_LINK_WEB_RUNS_DIR で一時フォルダに差し替えられる。
     runs_dir: Path = Path(

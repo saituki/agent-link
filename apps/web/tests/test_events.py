@@ -330,28 +330,6 @@ def test_mcp_detail_cc() -> None:
     assert tool["detail"] == _MCP_DETAIL, tool["detail"]
 
 
-def test_mcp_detail_pi() -> None:
-    """pi の MCP ツールも cc と同じ detail になる．引数なしなら戻り値の節だけ．"""
-    name = "mcp__donsetch__web_search"
-    call = {"type": "message", "id": "p1", "timestamp": "2026-09-23T05:00:00Z",
-            "message": {"role": "assistant", "content": [
-                {"type": "toolCall", "id": "c1", "name": name, "arguments": _MCP_ARGS},
-                {"type": "toolCall", "id": "c2", "name": name, "arguments": {}}]}}
-    res1 = {"type": "message", "id": "p2", "timestamp": "2026-09-23T05:01:00Z",
-            "message": {"role": "toolResult", "toolCallId": "c1",
-                        "content": [{"type": "text", "text": _MCP_RESULT}]}}
-    res2 = {"type": "message", "id": "p3", "timestamp": "2026-09-23T05:01:00Z",
-            "message": {"role": "toolResult", "toolCallId": "c2",
-                        "content": [{"type": "text", "text": "ただの文"}]}}
-    items: list[dict] = []
-    pending: dict[str, dict] = {}
-    for row in (call, res1, res2):
-        sessions._convert_pi_row(row, items, pending)
-    tools = [i for i in items if i["kind"] == "tool"]
-    assert tools[0]["detail"] == _MCP_DETAIL, tools[0]["detail"]
-    assert tools[1]["detail"] == "Result\nただの文", tools[1]["detail"]
-
-
 # agent-link の CLI を Bash で呼んだときの見出し
 _CLI_ARGV_CC = "agent-link doc write --filename a.md <<'EOF'\n本文\nEOF"
 _CLI_DETAIL_CC = "Arguments\n--filename a.md <<EOF\n本文\nEOF"
@@ -375,21 +353,6 @@ def test_cli_call_cc() -> None:
     assert tool["cli"] == "agent-link"
     assert tool["label"] == "agent-link doc write"
     assert tool["detail"] == _CLI_DETAIL_CC + "\n---\nResult\nOK", tool["detail"]
-
-
-def test_cli_call_pi() -> None:
-    """pi の bash でも同じ見出し・cli になる．"""
-    call = {"type": "message", "id": "p1", "timestamp": "2026-10-01T00:00:00Z",
-            "message": {"role": "assistant", "content": [
-                {"type": "toolCall", "id": "c1", "name": "bash",
-                 "arguments": {"command": "env -u X agent-link-web home --json"}}]}}
-    items: list[dict] = []
-    pending: dict[str, dict] = {}
-    sessions._convert_pi_row(call, items, pending)
-    tool = next(i for i in items if i["kind"] == "tool")
-    assert tool["cli"] == "agent-link-web"
-    assert tool["label"] == "agent-link-web home"
-    assert tool["detail"] == "Arguments\n--json"
 
 
 def test_cli_call_rules() -> None:
@@ -480,10 +443,8 @@ def main() -> None:
     test_tool_result_tags_cleaned()
     test_tool_label_mcp()
     test_mcp_detail_cc()
-    test_mcp_detail_pi()
     test_cli_call_rules()
     test_cli_call_cc()
-    test_cli_call_pi()
     test_non_mcp_detail_unchanged()
     test_time_required_for_all_items()
     print("test_events: すべて通りました")
