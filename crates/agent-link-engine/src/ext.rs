@@ -56,7 +56,13 @@ pub struct Manifest {
     pub service: Option<ServiceSpec>,
     #[serde(default)]
     pub hooks: Option<HooksSpec>,
+    /// 拡張が読む設定値の名前（`agent-link ext config` で読む。値は `config_var` の規則）。
+    #[serde(default)]
+    pub config: Vec<String>,
 }
+
+/// `config` の名前の最大数。
+const CONFIG_MAX_NAMES: usize = 32;
 
 /// `hooks`: base が決まった時点で呼ぶ命令（`cli.bin` に渡す引数）。
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -338,8 +344,30 @@ fn listed_json(l: &Listed) -> Value {
             "write_check": h.write_check,
             "question": h.question,
         })),
+        "config": m.config.iter()
+            .map(|n| json!({"name": n, "set": config_var(n).is_some()}))
+            .collect::<Vec<_>>(),
         "enabled_in": l.enabled_in,
     })
+}
+
+/// 拡張が宣言した設定値を宣言の順に読む（環境変数 → `settings.json` の `config` → 無し）。
+///
+/// 宣言していない名前は読めない。置き場に無ければ `NotFound`。
+pub fn config_values(
+    ext_dir: &Path,
+    name: &str,
+) -> Result<Vec<(String, Option<String>)>, ExtError> {
+    let inst = load_installed(ext_dir, name)?;
+    Ok(inst
+        .manifest
+        .config
+        .into_iter()
+        .map(|n| {
+            let v = config_var(&n);
+            (n, v)
+        })
+        .collect())
 }
 
 /// 宛先の環境変数（`config_var`）が `http://` か `https://` で始まれば ready。
@@ -838,6 +866,16 @@ fn check_manifest(m: &Manifest, dir: &Path) -> Result<(), String> {
         }
         for s in &ui.styles {
             check_ui_file(dir, "ui.styles", s, "css")?;
+        }
+    }
+
+    if m.config.len() > CONFIG_MAX_NAMES {
+        return bad(format!("config must have at most {CONFIG_MAX_NAMES} names"));
+    }
+    for (i, n) in m.config.iter().enumerate() {
+        check_env_name(n)?;
+        if m.config[..i].contains(n) {
+            return bad(format!("config '{n}' is listed twice"));
         }
     }
 

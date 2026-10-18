@@ -579,6 +579,88 @@ fn list_json_has_hooks() {
     assert!(hello["hooks"].is_null());
 }
 
+// ---- config ----
+
+#[test]
+fn config_declaration_is_checked() {
+    let tmp = tempfile::tempdir().unwrap();
+    let names33 = (0..33)
+        .map(|i| format!("\"AGENT_LINK_EXT_K{i}\""))
+        .collect::<Vec<_>>()
+        .join(",");
+    let names32 = (0..32)
+        .map(|i| format!("\"AGENT_LINK_EXT_K{i}\""))
+        .collect::<Vec<_>>()
+        .join(",");
+    let cases = [
+        (r#"{"name": "x", "title": "T", "config": ["AGENT_LINK_EXT_X_KEY", "AGENT_LINK_EXT_X_DIR"]}"#.to_string(), None),
+        (r#"{"name": "x", "title": "T", "config": []}"#.to_string(), None),
+        (format!(r#"{{"name": "x", "title": "T", "config": [{names32}]}}"#), None),
+        (r#"{"name": "x", "title": "T", "config": ["X_KEY"]}"#.to_string(), Some("must be AGENT_LINK_EXT_")),
+        (r#"{"name": "x", "title": "T", "config": ["AGENT_LINK_EXT_lower"]}"#.to_string(), Some("must be AGENT_LINK_EXT_")),
+        (r#"{"name": "x", "title": "T", "config": ["AGENT_LINK_EXT_"]}"#.to_string(), Some("must be AGENT_LINK_EXT_")),
+        (
+            r#"{"name": "x", "title": "T", "config": ["AGENT_LINK_EXT_A", "AGENT_LINK_EXT_A"]}"#.to_string(),
+            Some("config 'AGENT_LINK_EXT_A' is listed twice"),
+        ),
+        (
+            format!(r#"{{"name": "x", "title": "T", "config": [{names33}]}}"#),
+            Some("config must have at most 32 names"),
+        ),
+    ];
+    for (i, (manifest, want)) in cases.iter().enumerate() {
+        let dir = tmp.path().join(format!("c{i}/x"));
+        make_ext(&dir, manifest, &[]);
+        match (load(&dir), want) {
+            (Ok(_), None) => {}
+            (Err(e), Some(w)) => assert!(e.starts_with("extension.json: ") && e.contains(w), "{e}"),
+            (got, want) => panic!("case {i}: {got:?} vs {want:?}"),
+        }
+    }
+}
+
+#[test]
+fn list_json_has_config_names_without_values() {
+    let e = env();
+    make_ext(
+        &e.ext_dir.join("cfg"),
+        r#"{"name": "cfg", "title": "T", "config": ["AGENT_LINK_EXT_CFGTEST_UNSET_ZZ"]}"#,
+        &[],
+    );
+    install_in(&e.ext_dir, &hello_src(), false).unwrap();
+    let json = list_in(&e.ext_dir, None).to_json(&e.ext_dir);
+    let items = json["extensions"].as_array().unwrap();
+    let cfg = items.iter().find(|i| i["name"] == "cfg").unwrap();
+    assert_eq!(
+        cfg["config"],
+        serde_json::json!([{"name": "AGENT_LINK_EXT_CFGTEST_UNSET_ZZ", "set": false}])
+    );
+    let hello = items.iter().find(|i| i["name"] == "hello").unwrap();
+    assert_eq!(hello["config"], serde_json::json!([]));
+}
+
+#[test]
+fn config_values_follow_declaration_order_and_missing_is_not_found() {
+    let e = env();
+    make_ext(
+        &e.ext_dir.join("cfg"),
+        r#"{"name": "cfg", "title": "T", "config": ["AGENT_LINK_EXT_CFGTEST_B_ZZ", "AGENT_LINK_EXT_CFGTEST_A_ZZ"]}"#,
+        &[],
+    );
+    let values = agent_link_engine::ext::config_values(&e.ext_dir, "cfg").unwrap();
+    assert_eq!(
+        values,
+        vec![
+            ("AGENT_LINK_EXT_CFGTEST_B_ZZ".to_string(), None),
+            ("AGENT_LINK_EXT_CFGTEST_A_ZZ".to_string(), None),
+        ]
+    );
+    assert!(matches!(
+        agent_link_engine::ext::config_values(&e.ext_dir, "nosuch"),
+        Err(ExtError::NotFound(_))
+    ));
+}
+
 #[test]
 fn hook_owner_selection() {
     let e = env();

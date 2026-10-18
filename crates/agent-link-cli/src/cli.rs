@@ -265,6 +265,14 @@ pub enum ExtCmd {
         #[arg(long, default_value_t = false)]
         json: bool,
     },
+    /// Read the config values an extension declared (env var, then settings.json `config`)
+    ///
+    /// Without --json, only "set" or "not set" is printed, never the value.
+    Config {
+        name: String,
+        #[arg(long, default_value_t = false)]
+        json: bool,
+    },
 }
 
 /// サブタスク操作のサブコマンド（新しい木）。

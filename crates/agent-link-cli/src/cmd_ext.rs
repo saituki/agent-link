@@ -102,6 +102,19 @@ pub(crate) fn run(cmd: ExtCmd) -> Result<(), CmdError> {
             let input = if stdin { Some(read_stdin()?) } else { None };
             run_cli(&ext_dir, &name, &args, &exe, input.as_deref())
         }
+        ExtCmd::Config { name, json } => {
+            let values = ext::config_values(&ext_dir, &name)?;
+            if json {
+                let map: serde_json::Map<String, serde_json::Value> =
+                    values.into_iter().map(|(n, v)| (n, json!(v))).collect();
+                return print_json(&json!({"name": name, "values": map}));
+            }
+            // 値は出さない（端末や記録に秘密を残さないため）
+            for (n, v) in &values {
+                println!("{n}: {}", if v.is_some() { "set" } else { "not set" });
+            }
+            Ok(())
+        }
         ExtCmd::Hook { .. } => unreachable!("handled before the extensions folder is resolved"),
     }
 }
