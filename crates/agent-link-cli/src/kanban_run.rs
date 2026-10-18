@@ -1,9 +1,7 @@
-//! # Kanban 統一実行モジュール
+//! # カードの実行要求
 //!
-//! `agent-link block run --kanban` のフローを実装します（実行方式の統一先）。
-//! `todo` の未実行カード一覧を dialoguer Select で提示 → 選択 →
-//! ブロック選択（2段階）→ task.md の `# task_text` を入力にし、
-//! 実行要求をデーモンへ送る。
+//! `card run` の本体。カードファイル（`task.md`）の `# task_text` を入力にし、
+//! ブロック定義と合わせて実行要求をデーモンへ送る。
 //!
 //! ## カード v2（汎用コンテナ）
 //!
@@ -23,62 +21,8 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use dialoguer::Select;
-
-/// `--kanban` 実行のエントリポイント。
+/// カードパスを直接指定して実行要求を送る（`card run` の入口。非対話のみ）。
 ///
-/// 対話的にカード選択 → ブロック選択を行い、実行要求をデーモンへ送る。
-/// `--block/--field/--yes` 指定時は非対話で実行する（エージェントの自動化用）。
-#[allow(clippy::too_many_arguments)]
-pub fn kanban_block_run(
-    block: Option<&str>,
-    fields: &[String],
-    think: Option<String>,
-    model: Option<String>,
-    block_timeout: Option<u32>,
-    yes: bool,
-    card: Option<&str>,
-) -> Result<(), Box<dyn std::error::Error>> {
-    // task 駆動・非対話のみ。入力フォーム（対話プロンプト）は廃止。
-    // 全て task.md に事前記載し、未記載は block.md のデフォルトで補う。
-    let _ = yes;
-    let cards = list_reserved_cards();
-    if cards.is_empty() {
-        println!("todo に未実行カードがありません（`card create` で作成してください）");
-        return Ok(());
-    }
-
-    // カード選択：`--card` 指定または先頭カード（1件のみ時）
-    let card_path: PathBuf = match card {
-        Some(c) => resolve_card_file(&cards, c)?,
-        None => {
-            if cards.len() == 1 {
-                cards[0].clone()
-            } else {
-                return Err(format!(
-                    "There are {} unstarted cards. Specify one with --card <filename>.",
-                    cards.len()
-                )
-                .into());
-            }
-        }
-    };
-
-    let display_name = run_card_request(
-        &card_path,
-        block,
-        fields,
-        think,
-        model,
-        block_timeout,
-    )?;
-    print_sent(&display_name, &card_path);
-    Ok(())
-}
-
-/// カードパスを直接指定して実行要求を送る（非対話・`card run` もこの入口を使う）。
-///
-/// `kanban_block_run` のカード解決以降の本体で、二重実装しない。
 /// 送信メッセージは出さない（呼び出し側が自分で出す）。戻り値はブロック表示名。
 #[allow(clippy::too_many_arguments)]
 pub fn run_card_request(
@@ -127,7 +71,7 @@ pub fn run_card_request(
     let field_overrides = parse_field_args(fields);
 
     // task.md の `# task_text` を実行時の入力にする
-    let mut user_inputs = resolve_card_inputs(&card, &field_overrides)?;
+    let user_inputs = resolve_card_inputs(&card, &field_overrides)?;
 
     // outputs 統一：予約 run_id を要求に添付する（R302・新カードのみ）。
     // task.md の run_id が数値なら予約行の使い回し、旧カード（`-`）なら従来どおり新規発行。
@@ -177,19 +121,6 @@ pub fn resolve_card_inputs(
     agent_link_engine::kanban::resolve_card_inputs(card, field_overrides).map_err(|e| e.into())
 }
 
-/// `serde_yaml::Value` の default 値を文字列化する。
-fn yaml_value_to_string(v: &Option<serde_yaml::Value>) -> Option<String> {
-    match v {
-        None => None,
-        Some(serde_yaml::Value::String(s)) => Some(s.clone()),
-        Some(serde_yaml::Value::Bool(b)) => Some(b.to_string()),
-        Some(serde_yaml::Value::Number(n)) => Some(n.to_string()),
-        Some(other) => serde_yaml::to_string(other)
-            .ok()
-            .map(|s| s.trim().to_string()),
-    }
-}
-
 /// `--field id=value` 引数をパースする。
 fn parse_field_args(fields: &[String]) -> HashMap<String, String> {
     let mut map = HashMap::new();
@@ -207,64 +138,6 @@ fn parse_field_args(fields: &[String]) -> HashMap<String, String> {
         }
     }
     map
-}
-
-/// 予約カード一覧（`outputs/todo/<run_id>/task.md`＋旧 `.agent-link/todo/*.md`）。
-///
-/// 新方式では `task.md` の `run_id` が確定済み。旧カード（`run_id: -`）も移行期のみ併読する。
-fn list_reserved_cards() -> Vec<PathBuf> {
-    let mut out: Vec<PathBuf> = Vec::new();
-    // 新：outputs/todo/<run_id>/task.md
-    let root = agent_link_engine::project::sai_path(agent_link_engine::run_dir::OUTPUTS_DIR);
-    let todo_root = root.join(agent_link_engine::run_dir::TODO_OWNER);
-    if let Ok(entries) = std::fs::read_dir(&todo_root) {
-        for entry in entries.flatten() {
-            let task = entry.path().join(agent_link_engine::run_dir::TASK_FILE);
-            if task.is_file() {
-                out.push(task);
-            }
-        }
-    }
-    // 旧：.agent-link/todo/*.md（移行期のみ）
-    let todo_dir = agent_link_engine::project::sai_path(agent_link_engine::kanban::TODO_DIR);
-    out.extend(agent_link_engine::kanban::list_todo_cards(&todo_dir));
-    out.sort();
-    out
-}
-
-/// カード一覧から `--card` 指定のカードを探す（ファイル名・部分一致）。
-fn resolve_card_file(
-    cards: &[PathBuf],
-    selector: &str,
-) -> Result<PathBuf, Box<dyn std::error::Error>> {
-    // ファイル名の完全一致を優先
-    for p in cards {
-        if let Some(name) = p.file_name().map(|n| n.to_string_lossy().to_string()) {
-            if name == selector {
-                return Ok(p.clone());
-            }
-        }
-    }
-    // 部分一致（1件のみ）
-    let matches: Vec<&PathBuf> = cards
-        .iter()
-        .filter(|p| {
-            p.file_name()
-                .map(|n| n.to_string_lossy().contains(selector))
-                .unwrap_or(false)
-        })
-        .collect();
-    if matches.len() == 1 {
-        return Ok(matches[0].clone());
-    }
-    if matches.len() > 1 {
-        return Err(format!(
-            "Card '{}' is ambiguous. Specify it by filename.",
-            selector
-        )
-        .into());
-    }
-    Err(format!("Card '{}' is not in todo.", selector).into())
 }
 
 /// カードの `execution_date` を要求時刻で更新する（Q6-A・一段階目）。
@@ -292,158 +165,8 @@ fn card_relative_path(card_path: &PathBuf) -> Option<String> {
         .map(|p| p.to_string_lossy().to_string())
 }
 
-/// 送信完了メッセージを表示する。
-fn print_sent(block_display_name: &str, card_path: &PathBuf) {
-    println!(
-        "📨 kanban 実行要求を送信しました: {} (card={})",
-        block_display_name,
-        card_path
-            .file_name()
-            .map(|n| n.to_string_lossy().to_string())
-            .unwrap_or_else(|| card_path.display().to_string())
-    );
-}
-
-/// ブロック選択（2段階目の対話）。
-fn select_block() -> Result<String, Box<dyn std::error::Error>> {
-    let blocks_dir = agent_link_engine::project::sai_path(".agent-link/blocks");
-    let mut names: Vec<String> = Vec::new();
-    if let Ok(entries) = std::fs::read_dir(&blocks_dir) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.extension().and_then(|e| e.to_str()) != Some("md") {
-                continue;
-            }
-            if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
-                names.push(stem.to_string());
-            }
-        }
-    }
-    names.sort();
-    if names.is_empty() {
-        return Err("No block definition in `.agent-link/blocks`.".into());
-    }
-    let idx = Select::new()
-        .with_prompt("実行ブロックを選択")
-        .items(&names)
-        .default(0)
-        .interact()?;
-    Ok(names[idx].clone())
-}
-
-/// ブロック名またはパスから定義ファイルを解決する。
+/// ブロック名またはパスから定義ファイルを解決する（判定は `card_wizard::resolve_block_path`）。
 fn resolve_block_file(selector: &str) -> Result<PathBuf, Box<dyn std::error::Error>> {
-    let p = PathBuf::from(selector);
-    if p.exists() {
-        return Ok(p);
-    }
-    let candidate =
-        agent_link_engine::project::sai_path(".agent-link/blocks").join(format!("{}.md", selector));
-    if candidate.exists() {
-        return Ok(candidate);
-    }
-    Err(format!("Block definition {} not found.", selector).into())
-}
-
-/// 数値入力を求める（必須。空欄や数値以外は再入力させる）。
-///
-/// `default` 指定時は空欄 Enter でその値を使う（Round の frontmatter フォールバック用）。
-fn prompt_number(prompt: &str, default: Option<i64>) -> Result<i64, Box<dyn std::error::Error>> {
-    use std::io::{BufRead, Write};
-    loop {
-        let suffix = match default {
-            Some(v) => format!("（デフォルト: {}）", v),
-            None => "（必須）".to_string(),
-        };
-        print!("{} {}: ", prompt, suffix);
-        std::io::stdout().flush()?;
-        let mut line = String::new();
-        std::io::stdin().lock().read_line(&mut line)?;
-        let trimmed = line.trim();
-        if trimmed.is_empty() {
-            if let Some(v) = default {
-                return Ok(v);
-            }
-            println!("⚠ 必須です。整数で入力してください。");
-            continue;
-        }
-        match trimmed.parse::<i64>() {
-            Ok(v) => return Ok(v),
-            Err(_) => println!("⚠ 無効な数値です。整数で入力してください。"),
-        }
-    }
-}
-
-/// Thinking budget 選択（6値。`validation.rs` と一致・R123）。
-fn prompt_think(default_think: Option<&str>) -> Result<Option<String>, Box<dyn std::error::Error>> {
-    let options = &["none", "low", "medium", "high", "xhigh", "max"];
-    prompt_select("Thinking budget", options, default_think)
-}
-
-/// 選択肢から1つ選ぶ（dialoguer Select。デフォルトは frontmatter 値）。
-fn prompt_select(
-    prompt: &str,
-    options: &[&str],
-    default: Option<&str>,
-) -> Result<Option<String>, Box<dyn std::error::Error>> {
-    let default_idx = default
-        .and_then(|d| options.iter().position(|o| *o == d))
-        .unwrap_or(0);
-    let idx = Select::new()
-        .with_prompt(format!(
-            "{}（デフォルト: {}）",
-            prompt, options[default_idx]
-        ))
-        .items(options)
-        .default(default_idx)
-        .interact()?;
-    Ok(Some(options[idx].to_string()))
-}
-
-/// 任意文字列の入力を求める（デフォルト付き。空欄はデフォルト採用）。
-fn prompt_optional_with_default(
-    prompt: &str,
-    default: Option<&str>,
-) -> Result<Option<String>, Box<dyn std::error::Error>> {
-    use std::io::{BufRead, Write};
-    let suffix = match default {
-        Some(v) => format!("（デフォルト: {}）", v),
-        None => "（空欄可。そのまま Enter でなし）".to_string(),
-    };
-    print!("{} {}: ", prompt, suffix);
-    std::io::stdout().flush()?;
-    let mut line = String::new();
-    std::io::stdin().lock().read_line(&mut line)?;
-    let trimmed = line.trim().to_string();
-    if trimmed.is_empty() {
-        Ok(default.map(|v| v.to_string()))
-    } else {
-        Ok(Some(trimmed))
-    }
-}
-
-/// u32 数値の入力を求める（デフォルト付き。空欄はデフォルト採用）。
-fn prompt_number_u32(
-    prompt: &str,
-    default: Option<u32>,
-) -> Result<Option<u32>, Box<dyn std::error::Error>> {
-    use std::io::{BufRead, Write};
-    loop {
-        let suffix = match default {
-            Some(v) => format!("（デフォルト: {}）", v),
-            None => "（空欄可。そのまま Enter でなし）".to_string(),
-        };
-        print!("{} {}: ", prompt, suffix);
-        std::io::stdout().flush()?;
-        let mut line = String::new();
-        std::io::stdin().lock().read_line(&mut line)?;
-        let trimmed = line.trim();
-        if trimmed.is_empty() {
-            return Ok(default);
-        }
-        match trimmed.parse::<u32>() {
-            Ok(v) => return Ok(Some(v)),
-            Err(_) => println!("⚠ 無効な数値です。整数で入力してください。"),
-        }
-    }
+    agent_link_view::card_wizard::resolve_block_path(selector)
+        .ok_or_else(|| format!("Block definition {} not found.", selector).into())
 }

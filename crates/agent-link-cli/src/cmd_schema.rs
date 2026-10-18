@@ -167,7 +167,7 @@ fn value_type(arg: &clap::Arg) -> String {
 fn stdin_kind(path: &[String]) -> &'static str {
     match path.join(" ").as_str() {
         "card create" | "task create" => "json",
-        "doc write" | "def write" | "task report" | "run md" => "text",
+        "doc write" | "def write" | "task report" | "run md" | "run send" => "text",
         _ => "none",
     }
 }

@@ -47,6 +47,29 @@ $ agent-link task list                   → 終了コード 2（run の外。`A
 $ agent-link init --name 'bad/name'      → 終了コード 2・「Invalid project name: …」（何も作らない）
 ```
 
+### 1.1 命令ごとの終了コード（契約と違った物を直した後の値）
+
+| 命令 | 終了コード | 標準エラーの最後の行・備考 |
+|---|---|---|
+| `run export --run <id>`（`--dry-run` を含む） | 無い run は 3 | `Run <id> not found.` |
+| `run export --run <id> --dry-run`（書き出し対象外の run。`todo`・`pending`） | 0 | 標準出力に `{"exported": false, "reason": "<英語の理由>"}` を 1 つ出す |
+| `run show <id>`（DB の問い合わせが失敗） | 1 | `DB error: <文>.` |
+| `run finalize <id>`（実行中でない） | 4 | `Run <id> is not running (status: <状態>).` |
+| `daemon stop`（作業中。`--force` なし） | 4 | `The daemon was not stopped because work is in progress.` |
+| `daemon recover`（デーモンが稼働中） | 4 | `Did not recover because the daemon is running.` |
+| `waggle resolve <token>`（無いトークン） | 3 | `Manifest for token <token> not found.`。読めない（ファイルも Blob も無い）は 1 |
+| `task show` / `task execute` / `task wait` の無い ID | 3 | 見つからない文 |
+| `task wait`（run の外） | 2 | `AGENT_LINK_PARENT_RUN_ID is not set. This command works only inside a run.` |
+| `task execute`（`--batch` と `--task` の片方を必ず指定） | 2 | clap の `Invalid arguments: …` |
+| `task list --status <値>`・`--sort <値>`（一覧に無い値） | 2 | clap の `Invalid arguments: …`。`--status` の値は `all`・`pending`・`approved`・`rejected`・`queued`・`waiting_dependency`・`waiting_pane`・`in_progress`・`completed`・`failed`・`deleted`。`--sort` は `id`・`recent`・`oldest` |
+| `doc write`（無い run） | 3 | 見つからない文 |
+| `doc write --filename`（不正な名前） | 2 | 入力の誤りの文 |
+| `session search`（書式の誤り） | 2 | 検索の文をそのまま出す（末尾に「.」を足さない） |
+| `run list`（0 件） | 0 | 標準出力に `No runs yet. Create a card with 'agent-link card create'.` |
+| プロジェクトの外で、プロジェクトを要る命令（`daemon status` など） | 2 | `Project not found. Run "agent-link init".`。`.agent-link/` は作らない |
+
+プロジェクトを要らない命令は `init`・`schema`・`remote`・`remote-gate` と、cc のフック（`cc-prompt-hook`・`cc-state-hook`・`cc-permission-hook`・`cc-statusline`）。フックは cc の操作を止めないよう、検査せずに動く。
+
 ### `schema --json` の形
 
 ```json
@@ -125,7 +148,7 @@ cwd は **そのプロジェクトの root**。
 | `control.py` | `run export`（60 秒に 1 回）・`project summary`・`project dashboard --period`・`run tree`・`run log\|stats\|history <id>`・`run md <id> --kind …`（保存は `--write`）・`run finalize\|advance <id>`・`run rm <id> --yes`・`run send\|interrupt <id>`・`doc list --run <id>`・`doc read <token>`・`doc search …`・`card options\|docs\|create\|run\|schedule`・`workflow [--subtasks]`・`def list\|show\|write\|delete`・`session search …`・`daemon start\|stop` | 10 秒（export）・20 秒（既定）・30 秒（daemon・workflow）・60 秒（検索） |
 
 - どの呼び出しも**シェルを使わず**、引数は配列で渡される。
-- 検索語や文のように `-` で始まりうる値は、最後に `--` を置いて渡される。
+- - **C-ARGS**: `-` で始まりうる外から来た文字列（検索語・文など）を CLI に渡すとき、オプションの値は `--name=<値>` の 1 引数にする。位置引数は `--` のあとに置くか、英数字で始まる値だけを通す。`apps/web` が検査してから渡す（U02 が実装）。
 - **`target/release/` の実行ファイルを作り直す**（`cargo build --release`）。直しても作り直さないと Web は古いまま。
 
 ### 2.2 `agent-link` が出す JSON
@@ -244,7 +267,7 @@ Web が `recent[]` に**追加で足す**項目: `description`（文字列）・
 
 #### `run list [--limit N] --json` → `{"runs": [...]}`
 
-既定 20 件（`--limit 0` で全部）。`runs[]` の項目は `run_id`・`block`・`description`・`status`・`lane`（`todo`・`running`・`review`・`workflow`）・`parent_run_id`（数値 \| null）・`created_at`（UTC）・`started_at`・`finished_at`（null あり）・`dir`（run フォルダのパス）。`round` 系の項目は無い。Web は呼ばない。
+既定 20 件（`--limit 0` で全部）。`runs[]` の項目は `run_id`・`block`・`description`・`status`・`lane`（`todo`・`running`・`review`・日付フォルダの名前 `yymmdd`。run フォルダが無ければ null）・`parent_run_id`（数値 \| null）・`created_at`（UTC）・`started_at`・`finished_at`（null あり）・`dir`（run フォルダのパス）。`round` 系の項目は無い。Web は呼ばない。
 
 #### `run show <run_id> [--json]`
 
@@ -278,8 +301,8 @@ Web が `recent[]` に**追加で足す**項目: `description`（文字列）・
 
 | 命令 | 返り値 | Web が読む項目 |
 |---|---|---|
-| `doc list --run <id> --json` | `{"count", "items": [...]}` | `items[].token`・`label`・`description`・`status`・`ref`（task_text に貼れる `waggle:<token>:path:…`） |
-| `doc read <token> --json` | `{"token", "label", "text"}` | `token`・`label`・`text` |
+| `doc list --run <id> --json` | `{"count", "items": [...]}` | `items[].token`・`label`・`description`・`status`・`ref`（task_text に貼れる `waggle:<token>:path:…`）・`run_id`・`block` |
+| `doc read <token> --json` | `{"token", "label", "block_name", "description", "text"}` | `token`・`label`・`block_name`・`description`・`text` |
 | `doc search --word … [--category task,message,waggle] [--since …] [--until …] [--block …] [--from-id N] [--to-id N] [--limit N]` | `{"items": [...], "truncated": 真偽値}` | `items[].run_id`・`category`・`file`・`token`（waggle のとき）・`block`・`date`・`snippet`。新しい run から `--limit` 件で打ち切り。message.md は run フォルダにあるものだけ |
 
 #### `card options` / `card docs` / `card create` / `card run|schedule`
@@ -310,7 +333,7 @@ Web が `recent[]` に**追加で足す**項目: `description`（文字列）・
 
 #### `workflow [--subtasks]` → オブジェクト
 
-実行の記録（DB）が要る。実行が 0 件でも、空の配列で成功する。DB が開けないときは終了コード 4。配置（座標）は `agent-link` が計算する（Web で計算し直さない）。`--subtasks` を付けないと親の札だけ、付けると `task create` で作った子の札も載せる（Web は `?subtasks=1`）。
+実行の記録（DB）が要る。実行が 0 件でも、空の配列で成功する。DB が開けないときは終了コード 1。配置（座標）は `agent-link` が計算する（Web で計算し直さない）。`--subtasks` を付けないと親の札だけ、付けると `task create` で作った子の札も載せる（Web は `?subtasks=1`）。
 
 | 項目 | 型 | 内容 |
 |---|---|---|
@@ -352,7 +375,7 @@ Web が `recent[]` に**追加で足す**項目: `description`（文字列）・
 |---|---|---|
 | `def list [--parent <名前>]` | `{"global_root", "project_root", "items": [...]}` | `items[]` は `kind`・`name`・`scope`・`title`・`description`・`exists`・`shadowed`・`used_by`・`templates`・`error` |
 | `def show --kind block\|template\|settings --scope project\|global --name <名前>` | `{"kind", "scope", "name", "path", "exists", "text", "used_by", "warnings", "error"}` | `--scope` を省くと解決済みの定義 |
-| `def write --kind … --scope … --name … [--create]`（本文は標準入力） | JSON | 壊れた定義は保存せず**終了コード 2**で理由を出す。`--create` で同じ名前があるときも今は 2「同じ名前の定義があります」（Web が 409 に読み替える） |
+| `def write --kind … --scope … --name … [--create]`（本文は標準入力） | JSON | 壊れた定義は保存せず**終了コード 2**で理由を出す。`--create` で同じ名前の定義があるときは終了コード 4・「A definition with the same name already exists.」（Web が 409 に読み替える） |
 | `def delete --kind … --scope … --name …` | JSON | settings は消せない |
 
 `scope=global` の置き場は `$AGENT_LINK_HOME`。定義の編集は DB が無くてもできる。
@@ -567,7 +590,7 @@ settings は 2 か所で書ける。**後者（`$AGENT_LINK_HOME`）が前者（
 
 - `--report` を付けない `run finalize` は**保存済みの報告に一切触らない**。
 - Web の run の画面は `run md --kind report` で読む（帯は「報告」）。親の `agent-link task wait` は完了の `report` にこの本文を返す。
-- 文書の保存は `agent-link doc write --filename <名前> [--description <文>]`（本文は標準入力。`write_check` を通る）。
+- 文書の保存は `agent-link doc write --filename <名前> [--description <文>]`（本文は標準入力。`write_check` を通る）。`--json` の返り値には、`settings.json` の読めなかった項目があるときだけ `warnings`（文字列の配列）が載る。
 
 ### 3.5 質問の通知
 
