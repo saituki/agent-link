@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import logging
 import time
+from urllib.parse import urlsplit
 
 from fastapi import Body, Depends, FastAPI, HTTPException, Query, Request
 from fastapi.exceptions import RequestValidationError
@@ -210,7 +211,7 @@ def api_run_items(
 class RegisterRequest(BaseModel):
     """エージェント自身からの登録（どのセッションがどの pane か）．"""
 
-    agent: str  # 'claude' か 'pi'
+    agent: str  # 'claude'
     session_id: str
     transcript_path: str
     cwd: str
@@ -221,8 +222,8 @@ class RegisterRequest(BaseModel):
 def api_register(req: RegisterRequest, request: Request) -> dict:
     # 内部登録は内部専用（Mac 自身だけ）．
     require_internal(request)
-    if req.agent not in ("claude", "pi"):
-        raise HTTPException(status_code=400, detail="agent must be claude or pi.")
+    if req.agent != "claude":
+        raise HTTPException(status_code=400, detail="agent must be claude.")
     store.save_registration(
         req.agent, req.session_id, req.transcript_path, req.cwd, req.pane_id
     )
@@ -243,8 +244,8 @@ class QuestionRegisterRequest(BaseModel):
 def api_register_question(req: QuestionRegisterRequest, request: Request) -> dict:
     # 内部登録は内部専用（Mac 自身だけ）
     require_internal(request)
-    if req.agent not in ("claude", "pi"):
-        raise HTTPException(status_code=400, detail="agent must be claude or pi.")
+    if req.agent != "claude":
+        raise HTTPException(status_code=400, detail="agent must be claude.")
     q = questions.register_question(
         req.agent, req.session_id, req.pane_id, req.tool_use_id, req.questions
     )
@@ -260,14 +261,8 @@ def api_pending_questions() -> dict:
     return {"questions": store.list_open_questions()}
 
 
-class QuestionResolvedRequest(BaseModel):
-    """pi の拡張から「PC で答えた」の知らせ．空でよい．"""
-
-
 @app.post("/api/questions/{qid}/resolved")
-def api_question_resolved(
-    qid: str, req: QuestionResolvedRequest, request: Request
-) -> dict:
+def api_question_resolved(qid: str, request: Request) -> dict:
     # 内部専用（Mac 自身だけ）。
     require_internal(request)
     if not questions.resolve_on_terminal(qid):
@@ -292,8 +287,40 @@ class PushSubscription(BaseModel):
     keys: dict
 
 
+# push 購読の endpoint に許すホスト（SSRF を防ぐ。各社の push サービスだけ）
+_PUSH_HOSTS = (
+    "fcm.googleapis.com",
+    ".push.apple.com",
+    ".push.services.mozilla.com",
+    ".notify.windows.com",
+)
+_PUSH_MAX_SUBSCRIPTIONS = 20
+
+
+def _push_endpoint_ok(endpoint: str) -> bool:
+    if not endpoint.startswith("https://") or len(endpoint) > 2048:
+        return False
+    try:
+        host = (urlsplit(endpoint).hostname or "").lower()
+    except ValueError:
+        return False
+    return any(
+        host == h or (h.startswith(".") and host.endswith(h)) for h in _PUSH_HOSTS
+    )
+
+
 @app.post("/api/push/subscribe")
 def api_push_subscribe(sub: PushSubscription) -> dict:
+    keys = sub.keys
+    if not (
+        _push_endpoint_ok(sub.endpoint)
+        and isinstance(keys.get("p256dh"), str)
+        and isinstance(keys.get("auth"), str)
+    ):
+        raise HTTPException(status_code=400, detail="Invalid push subscription.")
+    existing = {s["endpoint"] for s in store.list_subscriptions()}
+    if sub.endpoint not in existing and len(existing) >= _PUSH_MAX_SUBSCRIPTIONS:
+        raise HTTPException(status_code=400, detail="Too many push subscriptions.")
     info = {"endpoint": sub.endpoint, "keys": sub.keys}
     store.save_subscription(sub.endpoint, info)
     # 登録できたらその場で 1 通送る（届くかどうかを iPhone ですぐ確かめられるように）
@@ -709,7 +736,7 @@ def api_project_def_write(
 ) -> dict:
     """定義の保存（body は `{"text": …, "create": false}`・`create` が真なら `--create`）。"""
     return control.cli_def_write(
-        name, kind, scope, def_name, payload.get("text"), bool(payload.get("create"))
+        name, kind, scope, def_name, payload.get("text"), payload.get("create", False)
     )
 
 
@@ -778,3 +805,42 @@ async def _frame_guard(request: Request, call_next):
     response.headers.setdefault("X-Frame-Options", "DENY")
     response.headers.setdefault("Content-Security-Policy", "frame-ancestors 'none'")
     return response
+
+
+# 入口の守り（Host と Origin）。最後に登録するので最も外側で動く。
+# 合言葉が無いので、他のサイトからの書き込みと DNS rebinding をここで止める。
+_LOCAL_HOSTS = ("127.0.0.1", "localhost", "::1")
+
+
+def _hostname(value: str) -> str:
+    """`Host` / `Origin` の値からホスト名だけを小文字で取り出す（`[::1]:8400` → `::1`）。"""
+    if "://" not in value:
+        value = "//" + value
+    try:
+        return (urlsplit(value).hostname or "").lower()
+    except ValueError:
+        return ""
+
+
+def _host_allowed(host: str) -> bool:
+    if host in _LOCAL_HOSTS or host.endswith(".ts.net"):
+        return True
+    web_url = registry.config_var("AGENT_LINK_WEB_URL", "") or ""
+    return bool(web_url) and host == _hostname(web_url)
+
+
+@app.middleware("http")
+async def _host_guard(request: Request, call_next):
+    """許可外の `Host` は 403。書き込み系で `Origin` が許可外（`null` を含む）なら 403。"""
+    if not _host_allowed(_hostname(request.headers.get("host", ""))):
+        return JSONResponse(status_code=403, content={"detail": "Host not allowed."})
+    origin = request.headers.get("origin")
+    if (
+        origin is not None
+        and request.method not in ("GET", "HEAD", "OPTIONS")
+        and not _host_allowed(_hostname(origin))
+    ):
+        return JSONResponse(
+            status_code=403, content={"detail": "Cross-origin request refused."}
+        )
+    return await call_next(request)

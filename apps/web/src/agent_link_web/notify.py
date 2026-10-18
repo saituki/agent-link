@@ -94,6 +94,7 @@ def send_to(subscription: dict, title: str, body: str, url: str) -> str:
             data=json.dumps({"title": title, "body": body, "url": url}),
             vapid_private_key=vapid,
             vapid_claims={"sub": _VAPID_SUB},
+            timeout=10,
         )
         return "ok"
     except WebPushException as e:
