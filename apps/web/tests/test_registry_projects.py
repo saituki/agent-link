@@ -295,8 +295,7 @@ def test_dashboard(base: Path) -> None:
         settings.sai_link_bin,
         "project",
         "dashboard",
-        "--period",
-        "week",
+        "--period=week",
     ], dash[0]["args"]
     assert dash[0]["cwd"] == root, dash[0]
     assert dash[0]["env"]["AGENT_LINK_PROJECT_ROOT"] == root, dash[0]

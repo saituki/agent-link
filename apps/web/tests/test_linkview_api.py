@@ -124,12 +124,16 @@ def test_calls(cli: FakeCli) -> None:
     # 全文は --json を付けて呼ぶ（付けないと CLI は本文だけの文字を出す）
     control.cli_run_call("demo", 7, "toolu_01-x_Y")
     assert cli.last["args"] == [
-        "agent-link", "run", "history", "7", "--call", "toolu_01-x_Y", "--json",
+        "agent-link", "run", "history", "7", "--call=toolu_01-x_Y", "--json",
     ], cli.last["args"]
     assert cli.last["cwd"] == "/tmp/demo-root", cli.last["cwd"]
 
+    # `-` で始まる呼び出しの番号も `--call=-x` の 1 引数なので CLI の誤りにならない
+    control.cli_run_call("demo", 7, "-x")
+    assert "--call=-x" in cli.last["args"], cli.last["args"]
+
     control.cli_md("demo", 7, "task")
-    assert cli.last["args"] == ["agent-link", "run", "md", "7", "--kind", "task"]
+    assert cli.last["args"] == ["agent-link", "run", "md", "7", "--kind=task"]
 
     control.cli_waggle("demo", 7)
     assert cli.last["args"] == [
@@ -138,8 +142,13 @@ def test_calls(cli: FakeCli) -> None:
 
     control.cli_waggle("demo", 7, "abc-123_x.y")
     assert cli.last["args"] == [
-        "agent-link", "doc", "read", "abc-123_x.y", "--json",
+        "agent-link", "doc", "read", "--json", "--", "abc-123_x.y",
     ], cli.last["args"]
+
+    # `doc read --help` は CLI を呼ばず 400（502 にならない）
+    n = len(cli.calls)
+    expect(400, lambda: control.cli_waggle("demo", 7, "--help"))
+    assert len(cli.calls) == n, "検査前に CLI が呼ばれた"
 
 
 def test_missing_404(cli: FakeCli) -> None:
@@ -214,7 +223,7 @@ def test_md_save(cli: FakeCli) -> None:
     cli.stderr = ""
     assert control.cli_md_save("demo", 7, "task", "本文")["text"] == "本文"
     assert cli.last["args"] == [
-        "agent-link", "run", "md", "7", "--kind", "task", "--write",
+        "agent-link", "run", "md", "7", "--kind=task", "--write",
     ], cli.last["args"]
     assert cli.last["input_text"] == "本文"
     # 実行済み・送信済みの task は 404（未実行のカードが見つかりません）

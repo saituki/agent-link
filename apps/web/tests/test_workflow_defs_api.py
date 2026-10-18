@@ -2,8 +2,8 @@
 
 確かめること:
 - Workflow: `agent-link workflow`（`?subtasks=1` なら `--subtasks` 付き）を cwd = プロジェクトの root・`AGENT_LINK_PROJECT_ROOT` = 同じ root で呼ぶ
-- 定義の一覧・読み出し・保存・削除の引数（`--kind` / `--scope` / `--name` / `--create`）と本文は標準入力
-- `_cli_def_json` の終了コードの分け方（0 / 2 / 3 / 4（同じ名前の定義があります）/ その他）
+- 定義の一覧・読み出し・保存・削除の引数（`--kind=` / `--scope=` / `--name=` / `--create`）と本文は標準入力
+- `agent-link def` の終了コードの分け方（0 / 2 / 3 / 4（同じ名前の定義があります）/ その他）
 - 検査に通らない値（kind / scope / 名前 / 256KB 超 / settings の削除）は 400 で、CLI を 1 回も呼ばない
 - 実行の記録（DB）が無いプロジェクトでも定義を編集できる（root が無いときだけ 404）
 - 新しい住所が登録済みで、`/papers/…` の固定の住所が `{paper_id:int}` に取られない
@@ -201,12 +201,9 @@ def test_def_show(cli: FakeCli) -> None:
         "agent-link",
         "def",
         "show",
-        "--kind",
-        "block",
-        "--scope",
-        "project",
-        "--name",
-        "kantoku",
+        "--kind=block",
+        "--scope=project",
+        "--name=kantoku",
     ], cli.last["args"]
     assert cli.last["input_text"] is None, "読み出しは標準入力を使わない"
 
@@ -224,12 +221,9 @@ def test_def_write(cli: FakeCli) -> None:
         "agent-link",
         "def",
         "write",
-        "--kind",
-        "block",
-        "--scope",
-        "project",
-        "--name",
-        "kantoku",
+        "--kind=block",
+        "--scope=project",
+        "--name=kantoku",
     ], call["args"]
     assert "--create" not in call["args"], call["args"]
     assert call["input_text"] == "hello", call["input_text"]
@@ -239,7 +233,7 @@ def test_def_write(cli: FakeCli) -> None:
     control.cli_def_write("demo", "template", "global", "sai-base", "本文", True)
     args = cli.last["args"]
     assert args[-1] == "--create", args
-    assert "sai-base" in args and "--scope" in args, args
+    assert "--name=sai-base" in args and "--scope=global" in args, args
 
     # settings は名前が settings だけ
     cli.calls.clear()
@@ -287,12 +281,9 @@ def test_def_delete(cli: FakeCli) -> None:
         "agent-link",
         "def",
         "delete",
-        "--kind",
-        "template",
-        "--scope",
-        "project",
-        "--name",
-        "sai-base",
+        "--kind=template",
+        "--scope=project",
+        "--name=sai-base",
     ], cli.last["args"]
     cli.calls.clear()
     e = expect(400, lambda: control.cli_def_delete("demo", "settings", "project", "settings"))
@@ -301,7 +292,7 @@ def test_def_delete(cli: FakeCli) -> None:
 
 
 def test_def_exit_codes(cli: FakeCli) -> None:
-    """`_cli_def_json` の終了コードの分け方（0 / 2 / 3 / 4 / その他）。
+    """`agent-link def` の終了コードの分け方（0 / 2 / 3 / 4 / その他）。
 
     `def write --create` は，同じ名前があるとき終了コード 4 で
     「同じ名前の定義があります」を出す（409 になる）。

@@ -153,16 +153,16 @@ def test_validation_error_detail_is_string() -> None:
     assert isinstance(body["detail"], str) and body["detail"].startswith("Invalid request: body.answers: "), body
 
 
-def test_pi_question_expires_after_10_minutes() -> None:
-    """pi の open な質問は10分経ったら expired．"""
+def test_cc_question_expires_after_24_hours() -> None:
+    """cc の open な質問は24時間経ったら expired．（pi の期限切れは無い）"""
     with tempfile.TemporaryDirectory() as tmp:
         fresh_db(tmp)
-        qid = make_question("pi")["id"]
-        # 登録時刻を11分前に遅らせる
+        qid = make_question("claude")["id"]
+        # 登録時刻を25時間前に遅らせる
         with store._connect() as conn:  # noqa: SLF001
             conn.execute(
                 "UPDATE questions SET created_at = ? WHERE id = ?",
-                (time.time() - 11 * 60, qid),
+                (time.time() - 25 * 60 * 60, qid),
             )
         assert questions.expire_stale_questions() == 1
         assert state_of(qid) == "expired"
@@ -299,7 +299,7 @@ def main() -> None:
     test_answer_requires_all_questions()
     test_answer_rejects_out_of_range_choice()
     test_validation_error_detail_is_string()
-    test_pi_question_expires_after_10_minutes()
+    test_cc_question_expires_after_24_hours()
     test_cc_question_expires_after_24_hours()
     test_resolve_on_terminal()
     test_answer_records_answered_by()

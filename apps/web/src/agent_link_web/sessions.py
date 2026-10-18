@@ -595,7 +595,6 @@ def read_conversation(
         with open(path, encoding="utf-8") as f:
             f.seek(start)
             while True:
-                line_start = f.tell()
                 line = f.readline()
                 if not line:
                     pos = f.tell()
@@ -608,11 +607,7 @@ def read_conversation(
                     row = json.loads(line)
                 except json.JSONDecodeError:
                     continue
-                if agent == "claude":
-                    _convert_claude_row(row, items, pending)
-                else:
-                    _convert_pi_row(row, items, pending)
-                _ = line_start
+                _convert_claude_row(row, items, pending)
     except OSError:
         return (items, _encode_cursor(path, start))
     # 見出しの中身が長すぎるものは切る（event カードの detail も含む）
@@ -723,59 +718,3 @@ def _convert_claude_row(row: dict, items: list[dict], pending: dict[str, dict]) 
                 target["ok"] = False
         # それ以外のブロックは表示しない
 
-
-def _convert_pi_row(row: dict, items: list[dict], pending: dict[str, dict]) -> None:
-    """pi の1行を items に足す．表示しない行は捨てる．"""
-    if row.get("type") != "message":
-        return
-    msg = row.get("message") or {}
-    role = msg.get("role")
-    content = msg.get("content")
-    uid = row.get("id") or ""
-    timestamp = row.get("timestamp") or ""
-    if role == "user":
-        text = _text_of(content)
-        if text.strip():
-            # pi の行も cc と同じ特殊メッセージ判定に通す
-            _append_text_items(text, uid, timestamp, items)
-        return
-    if role == "assistant":
-        if not isinstance(content, list):
-            return
-        for block in content:
-            if not isinstance(block, dict):
-                continue
-            btype = block.get("type")
-            if btype == "thinking":
-                continue
-            if btype == "text":
-                text = block.get("text") or ""
-                if text.strip():
-                    items.append({"id": uid, "kind": "agent", "time": timestamp, "text": text})
-            elif btype == "toolCall":
-                tool_id = block.get("id") or ""
-                name = block.get("name") or ""
-                args = block.get("arguments") if isinstance(block.get("arguments"), dict) else {}
-                item = _tool_item(tool_id or uid, timestamp, name, args)
-                items.append(item)
-                if tool_id:
-                    pending[tool_id] = item
-            # それ以外は表示しない
-        return
-    if role == "toolResult":
-        tool_id = row.get("toolCallId") or msg.get("toolCallId") or ""
-        target = pending.get(tool_id)
-        if target is None:
-            return
-        result_text = _text_of(content)
-        if result_text:
-            # タグがあれば整形して event に，残った本文だけを detail へ
-            plain, events = analyze_special(result_text)
-            _extend_events(events, tool_id or uid, timestamp, items)
-            if plain:
-                _join_result(target, plain)
-        details = msg.get("details") if isinstance(msg.get("details"), dict) else {}
-        if msg.get("isError") is True or details.get("isError") is True:
-            target["ok"] = False
-        return
-    # model_change 等はここに来ない（type が message ではないため）

@@ -21,8 +21,6 @@ from agent_link_web import store
 
 logger = logging.getLogger("agent_link_web")
 
-# pi の open な質問を期限切れにするまでの秒数（拡張は最大5分待つ）
-_PI_EXPIRE_SEC = 10 * 60
 # cc の open な質問を期限切れにするまでの秒数（フックは最長 24 時間待つ）
 _CC_EXPIRE_SEC = 24 * 60 * 60
 
@@ -95,12 +93,9 @@ def refresh_question_state(session_id: str, pane_id: str | None = None, agent: s
 def expire_stale_questions() -> int:
     """期限切れの質問を expired にする．件数を返す．
 
-    - pi は 10 分（`_PI_EXPIRE_SEC`）。
     - cc は 24 時間（`_CC_EXPIRE_SEC`・フックの待ち時間に合わせる）。
     """
-    return store.expire_stale_questions("pi", _PI_EXPIRE_SEC) + store.expire_stale_questions(
-        "claude", _CC_EXPIRE_SEC
-    )
+    return store.expire_stale_questions("claude", _CC_EXPIRE_SEC)
 
 
 def resolve_on_terminal(qid: str) -> bool:

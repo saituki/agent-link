@@ -402,10 +402,12 @@ class DefaultPortTest(unittest.TestCase):
             body = (repo / rel).read_text(encoding="utf-8")
             self.assertIn(text, body, rel)
             self.assertNotIn("8200", body.replace("8200 番（Tailscale 4444）", "").replace("8200〜8202", ""), rel)
-        with patch_env(AGENT_LINK_WEB_URL=None, AGENT_LINK_WEB_PORT=None):
-            self.assertEqual(webcli.base_url(), "http://127.0.0.1:8400")
-        with patch_env(AGENT_LINK_WEB_URL=None, AGENT_LINK_WEB_PORT="8297"):
-            self.assertEqual(webcli.base_url(), "http://127.0.0.1:8297")
+        # 利用者の settings.json（config の AGENT_LINK_WEB_PORT）に左右されないよう、置き場を一時フォルダにする
+        with tempfile.TemporaryDirectory() as home, patch_env(AGENT_LINK_HOME=home):
+            with patch_env(AGENT_LINK_WEB_URL=None, AGENT_LINK_WEB_PORT=None):
+                self.assertEqual(webcli.base_url(), "http://127.0.0.1:8400")
+            with patch_env(AGENT_LINK_WEB_URL=None, AGENT_LINK_WEB_PORT="8297"):
+                self.assertEqual(webcli.base_url(), "http://127.0.0.1:8297")
 
 
 @contextlib.contextmanager
