@@ -60,21 +60,21 @@
 ```bash
 cd ~/workdir/Sai/agent-link
 
-# Rust（834 件。--no-fail-fast は最初の失敗で止めず、全部の本数を数えるため）
+# Rust（846 件。--no-fail-fast は最初の失敗で止めず、全部の本数を数えるため）
 perl -e 'alarm 1800; exec @ARGV' cargo test --workspace --no-fail-fast
 
-# Web（JS 22 本）
+# Web（JS 23 本）
 for f in apps/web/tests/test_*.js; do node "$f" || exit 1; done
 
-# Web（Python 21 本）
+# Web（Python 22 本）
 for f in apps/web/tests/test_*.py; do PYTHONPATH=apps/web/src apps/web/.venv/bin/python "$f" || exit 1; done
 ```
 
 | 対象 | 本数 | CI のジョブ |
 |---|---|---|
-| Rust（`cargo test --workspace --no-fail-fast`） | 834 件（ほかに ignored 3 件） | Rust（ubuntu） |
-| Web の JS | 22 本 | Web（ubuntu） |
-| Web の Python | 21 本 | Web（ubuntu） |
+| Rust（`cargo test --workspace --no-fail-fast`） | 846 件（ほかに ignored 3 件） | Rust（ubuntu） |
+| Web の JS | 23 本 | Web（ubuntu） |
+| Web の Python | 22 本 | Web（ubuntu） |
 
 - 環境変数の名前は `AGENT_LINK_*` だけである。sai-moon が入れる環境変数は名前が違うので混ざらず、`env -u` で外す必要は無い。
 - CI の Linux（ubuntu-latest）で同じ命令が通る。リポジトリ直下に `tests/` は無い。テストはクレート・アプリの中にある。
@@ -98,3 +98,4 @@ for f in apps/web/tests/test_*.py; do PYTHONPATH=apps/web/src apps/web/.venv/bin
 - 本物の `.agent-link/blocks/*.md`・`~/.agent-link/` の中身を、確かめのために変えること。書き込みの確認は一時フォルダで行い、最後に消す。
 - sai-moon（`~/workdir/Sai/sai-moon`）と sai-tree（`~/workdir/Sai/sai-tree`）のリポジトリを直すこと。読み取り専用。
 - 動いている 8400 番の Web を止めること。
+- `pkill -f` のような広い止め方をしない。止めるのは自分で起こした PID だけ。
