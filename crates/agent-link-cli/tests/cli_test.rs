@@ -805,3 +805,107 @@ fn test_cli_project_root_env_without_agent_link_is_rejected() {
     assert!(!dir.join(".agent-link").exists(), "フォルダを作らない");
     cleanup_temp_dir(&dir);
 }
+
+/// 一時プロジェクトに todo のカードを 1 枚作り、`(run_id, task.md のパス)` を返す。
+fn create_todo_card(dir: &std::path::Path) -> (i64, PathBuf) {
+    write_card_block(dir);
+    let out = run_with_stdin(&["card", "create"], dir, br#"{"block":"t","task_text":"hello"}"#);
+    assert!(out.status.success(), "card create: {}", String::from_utf8_lossy(&out.stderr));
+    let value: serde_json::Value = serde_json::from_slice(&out.stdout).expect("JSON");
+    (value["run_id"].as_i64().unwrap(), PathBuf::from(value["path"].as_str().unwrap()))
+}
+
+/// `card wait` を実行する（標準入力は空）。
+fn run_card_wait(dir: &std::path::Path, args: &[&str]) -> std::process::Output {
+    let mut full = vec!["card", "wait"];
+    full.extend_from_slice(args);
+    run_with_stdin(&full, dir, b"")
+}
+
+/// `card wait` が frontmatter に `wait`・`wait_every`・`scheduled_at` を書き、`--clear` で消す。
+#[test]
+fn test_cli_card_wait_writes_and_clears() {
+    let dir = create_temp_project();
+    let (id, task) = create_todo_card(&dir);
+    let id_text = id.to_string();
+
+    let out = run_card_wait(&dir, &[&id_text, "--every", "15", "--json", "--", "agent-link", "ext", "run", "x", "--", "job-done", "J12"]);
+    assert!(out.status.success(), "card wait: {}", String::from_utf8_lossy(&out.stderr));
+    let value: serde_json::Value = serde_json::from_slice(&out.stdout).expect("JSON");
+    assert_eq!(value["run_id"], id);
+    assert_eq!(value["wait"], serde_json::json!(["agent-link", "ext", "run", "x", "--", "job-done", "J12"]));
+    assert_eq!(value["every"], 15);
+    let at = value["scheduled_at"].as_str().expect("scheduled_at");
+    let text = std::fs::read_to_string(&task).unwrap();
+    assert!(
+        text.contains(r#"wait: ["agent-link","ext","run","x","--","job-done","J12"]"#),
+        "{text}"
+    );
+    assert!(text.contains("wait_every: 15\n"), "{text}");
+    assert!(text.contains(&format!("scheduled_at: {at}\n")), "{text}");
+
+    // `--json` が無ければ英語の 1 行。間隔の既定は 10 分
+    let out = run_card_wait(&dir, &[&id_text, "--", "/usr/bin/true"]);
+    assert!(out.status.success());
+    assert_eq!(
+        String::from_utf8_lossy(&out.stdout).trim_end(),
+        format!("Card {id} waits for: /usr/bin/true (every 10 min).")
+    );
+    assert!(std::fs::read_to_string(&task).unwrap().contains("wait_every: 10\n"));
+
+    // `--clear` で 3 つとも消える
+    let out = run_card_wait(&dir, &[&id_text, "--clear", "--json"]);
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let value: serde_json::Value = serde_json::from_slice(&out.stdout).expect("JSON");
+    assert_eq!(
+        value,
+        serde_json::json!({"run_id": id, "wait": null, "every": null, "scheduled_at": null})
+    );
+    let text = std::fs::read_to_string(&task).unwrap();
+    for key in ["wait:", "wait_every:", "wait_note:", "scheduled_at:"] {
+        assert!(!text.contains(key), "{key} が消える: {text}");
+    }
+    cleanup_temp_dir(&dir);
+}
+
+/// `card wait` は無い run を 3、引数の誤りを 2 で断る。標準出力は空。
+#[test]
+fn test_cli_card_wait_rejects_bad_input() {
+    let dir = create_temp_project();
+    let (id, task) = create_todo_card(&dir);
+    let id_text = id.to_string();
+    let before = std::fs::read_to_string(&task).unwrap();
+    let long = "x".repeat(4001);
+    let cases: Vec<(Vec<&str>, i32)> = vec![
+        (vec!["99999", "--", "true"], 3),
+        (vec!["99999", "--clear"], 3),
+        (vec![&id_text], 2),
+        (vec![&id_text, "--clear", "--", "true"], 2),
+        (vec![&id_text, "--every", "0", "--", "true"], 2),
+        (vec![&id_text, "--every", "1441", "--", "true"], 2),
+        (vec![&id_text, "--every", "x", "--", "true"], 2),
+        (vec![&id_text, "--", "a\nb"], 2),
+        (vec![&id_text, "--", &long], 2),
+    ];
+    for (args, code) in cases {
+        let out = run_card_wait(&dir, &args);
+        assert_eq!(out.status.code(), Some(code), "{args:?}: {}", String::from_utf8_lossy(&out.stderr));
+        assert!(out.stdout.is_empty(), "{args:?}: 失敗時の標準出力は空");
+    }
+    assert_eq!(std::fs::read_to_string(&task).unwrap(), before, "失敗では task.md を変えない");
+    cleanup_temp_dir(&dir);
+}
+
+/// `card create` の `meta` に待ち条件のキーは書けない（終了コード 2）。
+#[test]
+fn test_cli_card_create_rejects_wait_meta() {
+    let dir = create_temp_project();
+    write_card_block(&dir);
+    for key in ["wait", "wait_every", "wait_note"] {
+        let input = format!(r#"{{"block":"t","task_text":"x","meta":{{"{key}":"1"}}}}"#);
+        let out = run_with_stdin(&["card", "create"], &dir, input.as_bytes());
+        assert_eq!(out.status.code(), Some(2), "{key}");
+        assert!(String::from_utf8_lossy(&out.stderr).contains("is reserved"), "{key}");
+    }
+    cleanup_temp_dir(&dir);
+}

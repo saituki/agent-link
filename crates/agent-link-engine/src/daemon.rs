@@ -176,6 +176,167 @@ fn card_run_args(run_id: i64) -> [String; 3] {
     ["card".to_string(), "run".to_string(), run_id.to_string()]
 }
 
+/// 待ち条件の命令を打ち切る時間。
+const WAIT_TIMEOUT: Duration = Duration::from_secs(60);
+
+/// `wait_every` が無い・読めないときの間隔（分）。
+const WAIT_EVERY_DEFAULT: i64 = 10;
+
+/// `wait_note` の理由の最大文字数。
+const WAIT_NOTE_MAX_CHARS: usize = 200;
+
+/// 待ち条件の命令の結果（終了コードの読み替え）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum WaitResult {
+    /// 終了コード 0: 待ち条件を満たした（カードを実行する）
+    Ready,
+    /// 終了コード 1: まだ（予定を後ろへずらして待つ）
+    NotYet,
+    /// それ以外・時間切れ・起動の失敗（理由 1 行。`wait_note` に書いて待ち続ける）
+    Failed(String),
+}
+
+/// `wait:` の値（命令の JSON 配列）を読む。文字列の配列でない・空なら `None`。
+fn parse_wait(raw: &str) -> Option<Vec<String>> {
+    let command: Vec<String> = serde_json::from_str(raw).ok()?;
+    (!command.is_empty()).then_some(command)
+}
+
+/// 見に行く間隔（分）。`wait_every` が 1〜1440 の整数でなければ既定の 10 分。
+fn wait_every_minutes(card: &crate::kanban::KanbanCard) -> i64 {
+    card.frontmatter
+        .meta
+        .get("wait_every")
+        .and_then(|v| v.trim().parse::<i64>().ok())
+        .filter(|n| (1..=1440).contains(n))
+        .unwrap_or(WAIT_EVERY_DEFAULT)
+}
+
+/// `YYYY-MM-DD HH:MM`（`scheduled_at`・`wait_note` の時刻の形）。
+fn minute_text(t: chrono::NaiveDateTime) -> String {
+    t.format("%Y-%m-%d %H:%M").to_string()
+}
+
+/// 予定を「今 + `wait_every` 分」へずらす。
+fn postpone_wait(card: &mut crate::kanban::KanbanCard, now: chrono::NaiveDateTime) {
+    let next = now + chrono::Duration::minutes(wait_every_minutes(card));
+    card.frontmatter
+        .set_meta("scheduled_at".to_string(), minute_text(next));
+}
+
+/// `wait_note` に「時刻 理由」を書く（理由は 1 行・200 文字まで）。
+fn note_wait(card: &mut crate::kanban::KanbanCard, now: chrono::NaiveDateTime, reason: &str) {
+    let reason: String = reason
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .chars()
+        .take(WAIT_NOTE_MAX_CHARS)
+        .collect();
+    card.frontmatter
+        .set_meta("wait_note".to_string(), format!("{} {}", minute_text(now), reason));
+}
+
+/// 壊れた `wait` を理由つきで止める（予定を消す）。
+fn break_wait(card: &mut crate::kanban::KanbanCard, now: chrono::NaiveDateTime) {
+    note_wait(card, now, "wait is not a JSON array of strings");
+    card.frontmatter.meta.remove("scheduled_at");
+}
+
+/// 命令の結果をカードに反映する。カードを実行すべきなら `true`。
+///
+/// 予定（`scheduled_at`）は見回りの前に既にずらしてある。ここでは触らない（`Ready` で消すときだけ除く）。
+fn apply_wait_result(
+    card: &mut crate::kanban::KanbanCard,
+    result: WaitResult,
+    now: chrono::NaiveDateTime,
+) -> bool {
+    match result {
+        WaitResult::Ready => {
+            for key in ["wait", "wait_every", "wait_note", "scheduled_at"] {
+                card.frontmatter.meta.remove(key);
+            }
+            true
+        }
+        WaitResult::NotYet => {
+            card.frontmatter.meta.remove("wait_note");
+            false
+        }
+        WaitResult::Failed(reason) => {
+            note_wait(card, now, &reason);
+            false
+        }
+    }
+}
+
+/// 命令の結果を task.md に反映する。カードを実行すべきなら `true`。
+///
+/// 読み直すので、その間にカードが消えた・待ち条件が外された（`card wait --clear`）ときは何もしない。
+/// 書き戻せなかったときは実行しない（待ち条件が残るので次の見回りでやり直す）。
+fn finish_wait(path: &Path, result: WaitResult, now: chrono::NaiveDateTime) -> bool {
+    let Ok(text) = std::fs::read_to_string(path) else {
+        return false;
+    };
+    let Some(mut card) = crate::kanban::parse_card(&text) else {
+        return false;
+    };
+    if !card.frontmatter.meta.contains_key("wait") {
+        return false;
+    }
+    let ready = apply_wait_result(&mut card, result, now);
+    std::fs::write(path, crate::kanban::render_card(&card)).is_ok() && ready
+}
+
+/// 待ち条件の命令を動かして結果を読み替える（シェルは通さない）。
+///
+/// 先頭が `agent-link` なら `exe`（この常駐の実行ファイル）に置き換える。
+fn run_wait_command(command: &[String], exe: &Path, root: &Path) -> WaitResult {
+    let exe_text = exe.to_string_lossy().into_owned();
+    let mut command = command.to_vec();
+    if command[0] == "agent-link" {
+        command[0] = exe_text.clone();
+    }
+    let envs = [("AGENT_LINK_BIN", exe_text)];
+    match crate::pre_run::run_child(&command, root, &envs, None, WAIT_TIMEOUT) {
+        Err(reason) => WaitResult::Failed(reason),
+        Ok((None, _, _)) => {
+            WaitResult::Failed(format!("Timed out after {} seconds.", WAIT_TIMEOUT.as_secs()))
+        }
+        Ok((Some(status), _, stderr)) => match status.code() {
+            Some(0) => WaitResult::Ready,
+            Some(1) => WaitResult::NotYet,
+            Some(code) => {
+                let stderr = String::from_utf8_lossy(&stderr);
+                let last = stderr.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("");
+                WaitResult::Failed(format!("Exit code {}: {}", code, last.trim()))
+            }
+            None => WaitResult::Failed("Terminated by a signal.".to_string()),
+        },
+    }
+}
+
+/// `agent-link card run <run_id>` を別プロセスで起こす（結果は待たない・失敗は記録だけ）。
+fn spawn_card_run(exe: &Path, run_id: i64) {
+    let root = crate::project::project_root();
+    let spawned = std::process::Command::new(exe)
+        .args(card_run_args(run_id))
+        .current_dir(&root)
+        .env("AGENT_LINK_PROJECT_ROOT", &root)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn();
+    match spawned {
+        // 終わりを待つだけの糸を立てる（ゾンビを残さない）
+        Ok(mut child) => {
+            std::thread::spawn(move || {
+                let _ = child.wait();
+            });
+        }
+        Err(e) => eprintln!("[agent-link] 予定の実行に失敗: run_id={}: {}", run_id, e),
+    }
+}
+
 /// agent-link デーモン。
 pub struct Daemon {
     /// データベースストア
@@ -448,11 +609,15 @@ impl Daemon {
         Ok(())
     }
 
-    /// 通知ファイルを processed/ に移動する（ベストエフォート）。
     /// 実行予定時刻（task.md の `scheduled_at:`）を過ぎた todo のカードを実行する。
     ///
-    /// 予定を先に消してから、`agent-link card run <run_id>`（Web の ▶ 実行と同じ流れ）を
-    /// 別プロセスで呼ぶ。失敗しても繰り返さない（予定は消えている）。
+    /// 待ち条件（`wait:`）の無いカードは、予定を先に消してから、
+    /// `agent-link card run <run_id>`（Web の ▶ 実行と同じ流れ）を別プロセスで呼ぶ。
+    /// 失敗しても繰り返さない（予定は消えている）。
+    ///
+    /// 待ち条件のあるカードは、予定を `wait_every` 分後へずらしてから、別の糸で命令を呼ぶ
+    /// （共有契約 C5）。0 で終われば待ち条件を消して `card run`、1 ならそのまま待ち、
+    /// それ以外は `wait_note` に書いて待ち続ける。
     fn run_scheduled_cards(&self) {
         let todo = crate::project::sai_path(crate::run_dir::OUTPUTS_DIR)
             .join(crate::run_dir::TODO_OWNER);
@@ -483,32 +648,39 @@ impl Daemon {
             if !due {
                 continue;
             }
+            if let Some(raw) = card.frontmatter.meta.get("wait").cloned() {
+                let Some(command) = parse_wait(&raw) else {
+                    // 壊れた条件で回り続けない（予定を消し、理由を残す）
+                    break_wait(&mut card, now);
+                    let _ = std::fs::write(&path, crate::kanban::render_card(&card));
+                    continue;
+                };
+                // 先に予定をずらす（同じカードを 2 回見に行かない）。書けなければ飛ばす
+                postpone_wait(&mut card, now);
+                if std::fs::write(&path, crate::kanban::render_card(&card)).is_err() {
+                    continue;
+                }
+                let exe = exe.clone();
+                std::thread::spawn(move || {
+                    let result = run_wait_command(&command, &exe, &crate::project::project_root());
+                    let ready = finish_wait(&path, result, chrono::Local::now().naive_local());
+                    if ready {
+                        eprintln!("[agent-link] 待ち条件を満たしたので実行します: run_id={}", run_id);
+                        spawn_card_run(&exe, run_id);
+                    }
+                });
+                continue;
+            }
             card.frontmatter.meta.remove("scheduled_at");
             if std::fs::write(&path, crate::kanban::render_card(&card)).is_err() {
                 continue;
             }
             eprintln!("[agent-link] 予定の時刻になったので実行します: run_id={}", run_id);
-            let root = crate::project::project_root();
-            let spawned = std::process::Command::new(&exe)
-                .args(card_run_args(run_id))
-                .current_dir(&root)
-                .env("AGENT_LINK_PROJECT_ROOT", &root)
-                .stdin(std::process::Stdio::null())
-                .stdout(std::process::Stdio::null())
-                .stderr(std::process::Stdio::null())
-                .spawn();
-            match spawned {
-                // 終わりを待つだけの糸を立てる（ゾンビを残さない）
-                Ok(mut child) => {
-                    std::thread::spawn(move || {
-                        let _ = child.wait();
-                    });
-                }
-                Err(e) => eprintln!("[agent-link] 予定の実行に失敗: run_id={}: {}", run_id, e),
-            }
+            spawn_card_run(&exe, run_id);
         }
     }
 
+    /// 通知ファイルを processed/ に移動する（ベストエフォート）。
     fn move_to_processed(
         &self,
         source: &Path,
@@ -1427,6 +1599,131 @@ mod tests {
             card_run_args(42),
             ["card".to_string(), "run".to_string(), "42".to_string()]
         );
+    }
+
+    // ---- 待ち条件付きカード（共有契約 C5） ----
+
+    fn at(s: &str) -> chrono::NaiveDateTime {
+        crate::kanban::parse_scheduled_at(s).unwrap()
+    }
+
+    fn wait_card(extra: &str) -> crate::kanban::KanbanCard {
+        let text = format!(
+            "---\ncreation_date: 2026/10/18 20:00:00\nexecution_date: -\nrun_id: 12\nblock: b\nthinking: \nmodel: \ndescription: \nscheduled_at: 2026-10-18 21:00\nwait: [\"x\",\"--\",\"J1\"]\nwait_every: 15\n{extra}---\n\n# task_text\nt\n"
+        );
+        crate::kanban::parse_card(&text).unwrap()
+    }
+
+    fn meta<'a>(card: &'a crate::kanban::KanbanCard, key: &str) -> Option<&'a str> {
+        card.frontmatter.meta.get(key).map(|s| s.as_str())
+    }
+
+    #[test]
+    fn parse_wait_reads_only_string_arrays() {
+        assert_eq!(
+            parse_wait(r#"["a","b c"]"#),
+            Some(vec!["a".to_string(), "b c".to_string()])
+        );
+        for bad in ["", "a b", "[]", "[1]", r#"{"a":1}"#, r#"["a",2]"#] {
+            assert_eq!(parse_wait(bad), None, "{bad}");
+        }
+    }
+
+    #[test]
+    fn postpone_wait_moves_schedule_by_wait_every() {
+        let mut card = wait_card("");
+        postpone_wait(&mut card, at("2026-10-18 21:00"));
+        assert_eq!(meta(&card, "scheduled_at"), Some("2026-10-18 21:15"));
+        // 読めない・範囲外の wait_every は 10 分
+        for bad in ["x", "0", "1441", ""] {
+            card.frontmatter.set_meta("wait_every".to_string(), bad.to_string());
+            postpone_wait(&mut card, at("2026-10-18 21:00"));
+            assert_eq!(meta(&card, "scheduled_at"), Some("2026-10-18 21:10"), "{bad}");
+        }
+    }
+
+    #[test]
+    fn apply_wait_result_exit_zero_clears_wait_and_runs() {
+        let mut card = wait_card("wait_note: 2026-10-18 20:50 old\n");
+        assert!(apply_wait_result(&mut card, WaitResult::Ready, at("2026-10-18 21:00")));
+        for key in ["wait", "wait_every", "wait_note", "scheduled_at"] {
+            assert_eq!(meta(&card, key), None, "{key}");
+        }
+    }
+
+    #[test]
+    fn apply_wait_result_exit_one_keeps_waiting_and_clears_note() {
+        let mut card = wait_card("wait_note: 2026-10-18 20:50 old\n");
+        assert!(!apply_wait_result(&mut card, WaitResult::NotYet, at("2026-10-18 21:00")));
+        assert_eq!(meta(&card, "wait_note"), None);
+        assert_eq!(meta(&card, "scheduled_at"), Some("2026-10-18 21:00"));
+        assert!(meta(&card, "wait").is_some());
+    }
+
+    #[test]
+    fn apply_wait_result_failure_writes_one_line_note_up_to_200_chars() {
+        let mut card = wait_card("");
+        let reason = format!("boom\nsecond line {}", "x".repeat(300));
+        assert!(!apply_wait_result(&mut card, WaitResult::Failed(reason), at("2026-10-18 21:00")));
+        let note = meta(&card, "wait_note").unwrap();
+        assert!(note.starts_with("2026-10-18 21:00 boom second line "), "{note}");
+        assert_eq!(note.chars().count(), "2026-10-18 21:00 ".len() + 200);
+        assert!(!note.contains('\n'));
+        assert!(meta(&card, "wait").is_some());
+    }
+
+    #[test]
+    fn break_wait_clears_schedule_and_notes_reason() {
+        let mut card = wait_card("");
+        break_wait(&mut card, at("2026-10-18 21:00"));
+        assert_eq!(meta(&card, "scheduled_at"), None);
+        assert_eq!(
+            meta(&card, "wait_note"),
+            Some("2026-10-18 21:00 wait is not a JSON array of strings")
+        );
+    }
+
+    #[test]
+    fn finish_wait_rewrites_task_md_and_skips_when_wait_is_gone() {
+        let dir = std::env::temp_dir().join(format!("agent-link-wait-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("task.md");
+        let now = at("2026-10-18 21:00");
+        let read = || crate::kanban::parse_card(&std::fs::read_to_string(&path).unwrap()).unwrap();
+
+        std::fs::write(&path, crate::kanban::render_card(&wait_card(""))).unwrap();
+        assert!(!finish_wait(&path, WaitResult::Failed("down".into()), now));
+        assert_eq!(meta(&read(), "wait_note"), Some("2026-10-18 21:00 down"));
+        assert!(finish_wait(&path, WaitResult::Ready, now));
+        assert_eq!(meta(&read(), "wait"), None);
+        // 待ち条件が外れたカードには何もしない（2 回目の 0 で 2 度実行しない）
+        assert!(!finish_wait(&path, WaitResult::Ready, now));
+        // カードが無ければ何もしない
+        std::fs::remove_file(&path).unwrap();
+        assert!(!finish_wait(&path, WaitResult::Ready, now));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn run_wait_command_maps_exit_codes() {
+        let exe = Path::new("/nonexistent/agent-link");
+        let root = std::env::temp_dir();
+        let sh = |script: &str| {
+            let c: Vec<String> = ["/bin/sh", "-c", script].iter().map(|s| s.to_string()).collect();
+            run_wait_command(&c, exe, &root)
+        };
+        assert_eq!(sh("exit 0"), WaitResult::Ready);
+        assert_eq!(sh("exit 1"), WaitResult::NotYet);
+        assert_eq!(
+            sh("echo oops >&2; exit 2"),
+            WaitResult::Failed("Exit code 2: oops".to_string())
+        );
+        // 環境変数と先頭の agent-link の置き換え
+        assert_eq!(sh(r#"test "$AGENT_LINK_BIN" = /nonexistent/agent-link"#), WaitResult::Ready);
+        let c = vec!["agent-link".to_string()];
+        assert!(matches!(run_wait_command(&c, exe, &root), WaitResult::Failed(r) if r.contains("/nonexistent/agent-link")));
+        let c = vec!["/nonexistent/prog".to_string()];
+        assert!(matches!(run_wait_command(&c, exe, &root), WaitResult::Failed(_)));
     }
 
     // ---- PID ファイル管理（実デーモンの PID ファイルに影響しないよう一時パスで実行）----

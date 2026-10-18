@@ -235,6 +235,7 @@ mod tests {
             "card options\tjson",
             "card run\tjson,run_id",
             "card schedule\tat,json,run_id",
+            "card wait\tclear,command,every,json,run_id",
             "cc-permission-hook\t",
             "cc-prompt-hook\t",
             "cc-state-hook\tstate",

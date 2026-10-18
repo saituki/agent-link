@@ -47,7 +47,18 @@ const FIXED_FM_KEYS: [&str; 8] = [
 /// - `source_doc`: 元実行の出力トークン列（R112 自動充填・`waggle:` トークン）
 /// - `scheduled_at`: todo のカードの実行予定時刻（`YYYY-MM-DD HH:MM`・Mac の時刻）。常駐が見回って実行する
 /// - `executer`: カードの起動者（`human` / `agent`）。既定は `human`
-const META_FM_KEYS: [&str; 3] = ["source_doc", "scheduled_at", "executer"];
+/// - `wait`: 待ち条件の命令（JSON 配列を 1 行・シェルは通さない）。書くのは `agent-link card wait` だけ。
+///   常駐が `scheduled_at` ごとに呼び、0 で終われば実行し、1 なら予定を後ろへずらす
+/// - `wait_every`: 待ち条件を見に行く間隔（分・1〜1440・既定 10）
+/// - `wait_note`: 待ち条件の最後の失敗の時刻と理由（`YYYY-MM-DD HH:MM 理由`）
+const META_FM_KEYS: [&str; 6] = [
+    "source_doc",
+    "scheduled_at",
+    "executer",
+    "wait",
+    "wait_every",
+    "wait_note",
+];
 
 /// 廃止したキー（旧カードに残っていても読み飛ばす・書き出さない）。
 const LEGACY_FM_KEYS: [&str; 9] = [
@@ -737,6 +748,25 @@ mod tests {
         // 知らない値は `None`
         assert_eq!(parse_executer("robot"), None);
         assert_eq!(parse_executer("unknown"), None);
+    }
+
+    /// 待ち条件のキー（`wait`・`wait_every`・`wait_note`）は描画しても保たれ、`extra` には入らない。
+    #[test]
+    fn wait_keys_survive_render() {
+        let mut card = parse_card(SAMPLE).unwrap();
+        let wait = r#"["agent-link","ext","run","x","--","job-done","J1"]"#;
+        for (k, v) in [
+            ("wait", wait),
+            ("wait_every", "15"),
+            ("wait_note", "2026-10-18 21:00 Exit code 2: down"),
+        ] {
+            card.frontmatter.set_meta(k.to_string(), v.to_string());
+        }
+        let rendered = render_card(&card);
+        assert!(rendered.contains(&format!("\nwait: {wait}\n")), "{rendered}");
+        let reparsed = parse_card(&rendered).expect("再パースできる");
+        assert_eq!(reparsed.frontmatter.meta, card.frontmatter.meta);
+        assert!(reparsed.frontmatter.extra.is_empty());
     }
 
     /// 起動者（`executer`）はメタ情報として読み書きできる（入力検査の対象外）。
