@@ -56,11 +56,9 @@ function extCtx(name, params) {
     go(path) {
       location.hash = `#/ext/${encodeURIComponent(name)}/${encodeURIComponent(project)}/${path}`;
     },
-    cli(args) {
-      return saiApi(`/api/projects/${encodeURIComponent(project)}/ext/${name}/cli`, {
-        method: "POST",
-        body: { args },
-      });
+    cli(args, { input } = {}) {
+      const body = input === undefined ? { args } : { args, input };
+      return saiApi(`/api/projects/${encodeURIComponent(project)}/ext/${name}/cli`, { method: "POST", body });
     },
     svc(path, { method = "GET", query, body } = {}) {
       let url = `/api/ext/${name}/svc/${path}`;
@@ -187,5 +185,5 @@ if (typeof window !== "undefined") {
 
 // --- node からの読み込み（tests/test_ext.js。DOM を使わない部分だけ） ---
 if (typeof module !== "undefined" && module.exports) {
-  module.exports = { extParseHash, extPickProject };
+  module.exports = { extParseHash, extPickProject, extCtx };
 }
