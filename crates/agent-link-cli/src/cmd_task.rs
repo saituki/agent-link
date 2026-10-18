@@ -59,6 +59,12 @@ pub(crate) fn run(cmd: TaskCmd) -> Result<(), CmdError> {
             timeout_ms,
             json: _,
         } => {
+            // `task list` と同じく、run の中でしか使えない（終了コード 2）
+            if std::env::var("AGENT_LINK_PARENT_RUN_ID").ok().and_then(|v| v.trim().parse::<i64>().ok()).is_none() {
+                return Err(CmdError::input(
+                    "AGENT_LINK_PARENT_RUN_ID is not set. This command works only inside a run.",
+                ));
+            }
             if task_ids.is_empty() {
                 return Err(CmdError::input(
                     "task wait needs at least one task ID.",

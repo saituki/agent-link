@@ -824,7 +824,7 @@ fn md_write(run_id: i64, kind: &str) -> ViewResult<Value> {
     let mut text = String::new();
     std::io::stdin()
         .read_to_string(&mut text)
-        .map_err(|e| ViewError::usage(format!("Cannot read standard input: {}.", e)))?;
+        .map_err(|e| ViewError::internal(format!("Cannot read standard input: {}.", e)))?;
     md_save(run_id, kind, &text)
 }
 
@@ -957,7 +957,7 @@ fn card_create() -> ViewResult<Value> {
     let mut input = String::new();
     std::io::stdin()
         .read_to_string(&mut input)
-        .map_err(|e| ViewError::usage(format!("Failed to read standard input: {}.", e)))?;
+        .map_err(|e| ViewError::internal(format!("Failed to read standard input: {}.", e)))?;
     let parsed: CardCreateInput = serde_json::from_str(&input)
         .map_err(|e| ViewError::usage(format!("Failed to parse JSON: {}.", e)))?;
     card_create_from(parsed)
@@ -1028,7 +1028,7 @@ fn card_create_from(parsed: CardCreateInput) -> ViewResult<Value> {
     };
 
     let path = card_wizard::create_card(&spec)
-        .map_err(|e| ViewError::usage(format!("Failed to create the card: {}.", e)))?;
+        .map_err(|e| ViewError::internal(format!("Failed to create the card: {}.", e)))?;
 
     // 作成済み task.md の frontmatter に起動者を足す（`executer` はメタ情報）。
     let text = std::fs::read_to_string(&path)
@@ -1180,7 +1180,7 @@ fn card_run(run_id: i64) -> ViewResult<Value> {
     crate::kanban_run::run_card_request(
         &target, None, &[], None, None, None,
     )
-    .map_err(|e| ViewError::usage(e.to_string()))?;
+    .map_err(|e| ViewError::internal(e.to_string()))?;
 
     Ok(json!({ "run_id": run_id, "message": "Run requested." }))
 }

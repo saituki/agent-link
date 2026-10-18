@@ -23,7 +23,7 @@ use agent_link_engine::db::SaiStore;
 use agent_link_engine::pane::SplitDirection;
 use agent_link_engine::orchestrator::{self, ExecutionOverrides, PipelineConfig};
 use agent_link_engine::parser::parse_block_file;
-use std::sync::Arc;
+use crate::cmd_common::{other_error, CmdError};
 
 // ============================================================================
 // 終了コードの分類（P18・5.7 の修正。定義は agent_link_engine::common に一元化）
@@ -225,9 +225,9 @@ pub enum TaskCmd {
 
     /// 承認済みタスクを実行キューへ送る
     Execute {
-        #[arg(long)]
+        #[arg(long, required_unless_present = "task", conflicts_with = "task")]
         batch: Option<String>,
-        #[arg(long, value_name = "N")]
+        #[arg(long, value_name = "N", required_unless_present = "batch", conflicts_with = "batch")]
         task: Option<i64>,
         #[arg(long)]
         run_id: Option<i64>,
@@ -249,10 +249,13 @@ pub enum TaskCmd {
 
     /// サブタスク一覧を表示する
     List {
-        #[arg(long)]
+        #[arg(long, value_parser = [
+            "all", "pending", "approved", "rejected", "queued", "waiting_dependency",
+            "waiting_pane", "in_progress", "completed", "failed", "deleted",
+        ])]
         status: Option<String>,
         /// ソート順: id | recent | oldest
-        #[arg(long)]
+        #[arg(long, value_parser = ["id", "recent", "oldest"])]
         sort: Option<String>,
         #[arg(long)]
         run_id: Option<i64>,
@@ -1048,172 +1051,11 @@ pub enum DefFileCmd {
 // ============================================================================
 // `handle_block_run` / `handle_block_run_non_interactive` は削除した。
 // 定義ファイル直指定の旧経路は `main.rs` で kanban 誘導メッセージ付きで終了する。
-// 非対話実行は `kanban_run::kanban_block_run` に一本化されている。
+// 非対話実行は `card run`（`kanban_run::run_card_request`）に一本化されている。
 
 /// 実行時の cc 起動コマンドをプレビュー表示する（実行はしない）。
 ///
 /// 実行時設定（オーバーライド）が反映された cc 起動コマンドを表示します。
-/// ユーザーが作成したドキュメントを user-block ブロックの実行として記録する（ユーザーブロック）。
-///
-/// 処理:
-/// 1. 入力ファイルを waggle トークン化（Blob 保存込み）
-/// 2. block_metadata（user-block）を取得/作成
-/// 3. execution_history に新規レコード（completed）を作成（入力/出力トークン付き）
-/// 4. 入力トークンがあれば、その出力元実行 → user-block 実行の waggle_token 接続（線図の入力辺）
-///
-/// 同一内容（既存の user-block 出力と同じ SHA-256）の場合は、その旨を出力し、
-/// トークン化・実行記録を行わない。
-pub fn handle_user_block_non_interactive(
-    input_tokens: &[String],
-    input_file: Option<&PathBuf>,
-    description: Option<&str>,
-) -> Result<(), Box<dyn std::error::Error>> {
-    // input-file は must（user-block の出力 = トークン化対象）
-    let input_file = input_file.ok_or_else(|| {
-        "user-block needs --input-file (-f) with the file to tokenize.".to_string()
-    })?;
-    handle_block_user_block(input_tokens, input_file, description)
-}
-
-/// 同一内容（既存の user-block 出力と同じ SHA-256）の場合は、その旨を出力し、
-/// トークン化・実行記録を行わない。
-pub fn handle_block_user_block(
-    input_tokens: &[String],
-    input_file: &Path,
-    description: Option<&str>,
-) -> Result<(), Box<dyn std::error::Error>> {
-    // user-block ブロック名（block_metadata / トークン化ラベルに使用）
-    const BLOCK_NAME: &str = "user-block";
-    if !input_file.exists() {
-        return Err(format!("Input file {} does not exist.", input_file.display()).into());
-    }
-
-    // DB と waggle インテグレーターを開く
-    let store = Arc::new(open_db()?);
-    let db_path = agent_link_engine::project::db_path();
-    let integrator = agent_link_engine::waggle_integration::WaggleIntegrator::open(&db_path)
-        .map_err(|e| format!("Failed to initialize the waggle DB: {}.", e))?;
-
-    // ── 1. 同一判定: 既存 user-block 出力の内容（SHA-256）と比較 ──
-    // トークンは非決定性（毎回ランダム）のため、トークン一致ではなく内容で判定する。
-    if let Ok(block) = store.get_block_by_name(BLOCK_NAME) {
-        if let Some(block_id) = block.id {
-            let executions = store.list_executions_by_block(block_id).unwrap_or_default();
-            let new_sha = sha256_hex(&std::fs::read(input_file)?);
-            let mut same = false;
-            'exec: for exec in &executions {
-                if exec.status != "completed" {
-                    continue;
-                }
-                let tokens: Vec<String> = exec
-                    .output_waggle_tokens
-                    .as_deref()
-                    .and_then(|j| serde_json::from_str(j).ok())
-                    .unwrap_or_default();
-                for token in &tokens {
-                    if let Ok(content) = integrator.resolve_content(token) {
-                        if sha256_hex(content.as_bytes()) == new_sha {
-                            same = true;
-                            break 'exec;
-                        }
-                    }
-                }
-            }
-            if same {
-                println!(
-                    "⚠ 同一の内容の出力が既に存在します: {}",
-                    input_file.display()
-                );
-                println!("  sha256: {}", new_sha);
-                println!("  waggle トークンを作成せず、実行も記録しませんでした。");
-                return Ok(());
-            }
-        }
-    }
-
-    // 説明が未指定ならファイル名から生成
-    let description = description.map(String::from).unwrap_or_else(|| {
-        input_file
-            .file_name()
-            .map(|n| n.to_string_lossy().to_string())
-            .unwrap_or_else(|| "user-block".to_string())
-    });
-    let description = description.as_str();
-
-    // ── 2. 入力ファイルをトークン化 ──
-    let tokenized = integrator
-        .tokenize_file(input_file, BLOCK_NAME, Some(description))
-        .map_err(|e| format!("Failed to tokenize {} as a waggle token: {}.", input_file.display(), e))?;
-    let output_tokens = vec![tokenized.token.as_str().to_string()];
-    println!(
-        "  tokenized: {} -> {}",
-        input_file.display(),
-        tokenized.token.as_str()
-    );
-
-    // ── 3. block_metadata（user-block）を取得/作成 ──
-    let block_id = match store.get_block_by_name(BLOCK_NAME) {
-        Ok(b) => b.id.ok_or("block_metadata has no id.")?,
-        Err(_) => {
-            let meta = agent_link_engine::db::models::BlockMetadata::new(
-                BLOCK_NAME.to_string(),
-                "ユーザーが作成したドキュメントを waggle トークン化するユーザーブロック"
-                    .to_string(),
-                "inherit".to_string(),
-                "off".to_string(),
-                "false".to_string(),
-                "false".to_string(),
-                None,
-                300,
-                "none".to_string(),
-                true,
-                format!("({})", BLOCK_NAME),
-                None,
-            );
-            store.insert_block(&meta)?
-        }
-    };
-
-    // ── 4. 実行レコードを作成（completed・入出力トークン・設定）──
-    // user_inputs_json に入力ファイルパスと説明（右SB の [Output] 表示用）を保存する。
-    let user_inputs_map = serde_json::json!({
-        "file_path": input_file.to_string_lossy().to_string(),
-        "description": description,
-    });
-    let exec_id = store.create_execution(block_id, Some(&user_inputs_map.to_string()))?;
-    store.update_execution_status(exec_id, "completed")?;
-    store.update_execution_output_type(exec_id, "document")?;
-    if !input_tokens.is_empty() {
-        store.update_execution_input_tokens(exec_id, input_tokens)?;
-    }
-    store.update_execution_waggle_tokens(exec_id, &output_tokens)?;
-
-    // ── 5. 入力辺の接続（線図: 入力トークンの出力元実行 → user-block 実行）──
-    // 入力トークンが指定された場合のみ入力辺が存在する。
-    agent_link_engine::orchestrator::insert_block_connections(
-        &store,
-        exec_id,
-        block_id,
-        input_tokens,
-    );
-
-    println!(
-        "✅ user-block 実行を記録しました: execution_id={}, block_id={}",
-        exec_id, block_id
-    );
-    println!("   入力トークン: {:?}", input_tokens);
-    println!("   出力トークン: {:?}", output_tokens);
-    Ok(())
-}
-
-/// 指定されたバイト列の SHA-256 ハッシュ（hex）を計算する。
-fn sha256_hex(data: &[u8]) -> String {
-    use sha2::{Digest, Sha256};
-    let mut hasher = Sha256::new();
-    hasher.update(data);
-    format!("{:x}", hasher.finalize())
-}
-
 pub fn handle_block_preview(
     definition_file: &Path,
     user_input: Option<&str>,
@@ -1310,116 +1152,6 @@ pub fn handle_block_preview(
 // （plan-03。出力形式は 1 文字も変えていない）。
 // ============================================================================
 
-use agent_link_engine::agent_api::{block_def_to_json, collect_block_definitions, BlockDefListJson};
-
-/// ブロック定義の一覧を表示する（block_discover 用）。
-///
-/// `--parent <親ブロック名>` を指定すると、親ブロック定義の `subblocks` 制限を
-/// 考慮して呼び出し可能なブロックのみに絞り込む。
-pub fn handle_block_def_list(
-    parent: Option<&str>,
-    json: bool,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let mut defs = collect_block_definitions();
-
-    // 親ブロックの subblocks 制限を適用（親ブロックは ID で解決）
-    if let Some(parent_name) = parent {
-        let parent_path = agent_link_engine::orchestrator::resolve_block_path(parent_name);
-        if parent_path.exists() {
-            if let Ok(parsed) = parse_block_file(&parent_path) {
-                match parsed.config.subblocks {
-                    // subblocks が定義されていない → 呼び出し可能なサブブロックは「なし」
-                    None => {
-                        defs.clear();
-                    }
-                    Some(allowed) => {
-                        defs.retain(|(_, c)| allowed.iter().any(|b| b == c.block_id()));
-                    }
-                }
-            }
-        }
-    }
-
-    if json {
-        let entries: Vec<BlockDefListJson> = defs
-            .iter()
-            .map(|(_, c)| BlockDefListJson {
-                id: c.block_id().to_string(),
-                name: c.display_name().to_string(),
-                description: c.description.clone(),
-            })
-            .collect();
-        println!("{}", serde_json::to_string_pretty(&entries)?);
-    } else {
-        if defs.is_empty() {
-            println!("ブロック定義が見つかりません。");
-            return Ok(());
-        }
-        println!("{:<20} {:<28} {}", "ID", "名前", "説明");
-        println!("{:-<20}-+-{:-<28}-+--", "", "");
-        for (_, c) in &defs {
-            println!(
-                "{:<20} {:<28} {}",
-                c.block_id(),
-                c.display_name(),
-                c.description.clone().unwrap_or_default()
-            );
-        }
-    }
-    Ok(())
-}
-
-/// ブロック定義の詳細を表示する（block_inspect 用）。
-///
-/// description / inputs（型・required・options・source_blocks）/ output / subblocks を返す。
-pub fn handle_block_def_show(name: &str, json: bool) -> Result<(), Box<dyn std::error::Error>> {
-    // ID で解決（表示名が指定された場合は表示名マッチでフォールバック）
-    let mut path = agent_link_engine::orchestrator::resolve_block_path(name);
-    if !path.exists() {
-        // 表示名（name）でのフォールバック検索
-        let fallback = collect_block_definitions()
-            .into_iter()
-            .find(|(_, c)| c.display_name() == name)
-            .map(|(p, _)| p);
-        if let Some(p) = fallback {
-            path = p;
-        }
-    }
-    if !path.exists() {
-        eprintln!(
-            "Block definition {} not found. Specify the ID or the display name.",
-            name
-        );
-        std::process::exit(EXIT_NOT_FOUND);
-    }
-
-    let parsed =
-        parse_block_file(&path).map_err(|e| format!("Failed to parse the block definition: {}.", e))?;
-
-    if json {
-        let entry = block_def_to_json(&parsed.config);
-        println!("{}", serde_json::to_string_pretty(&entry)?);
-    } else {
-        println!("ID: {}", parsed.config.block_id());
-        println!("名前: {}", parsed.config.display_name());
-        println!(
-            "説明: {}",
-            parsed.config.description.clone().unwrap_or_default()
-        );
-        if let Some(ref subblocks) = parsed.config.subblocks {
-            println!("呼び出し可能サブブロック: {}", subblocks.join(", "));
-        }
-        if let Some(ref worktree) = parsed.config.worktree {
-            println!("worktree: {}", worktree);
-        }
-        if let Some(ref templates) = parsed.config.templates {
-            if !templates.is_empty() {
-                println!("テンプレート: {}", templates.join(", "));
-            }
-        }
-    }
-    Ok(())
-}
 
 // ============================================================================
 // 履歴一覧ハンドラ
@@ -1440,7 +1172,7 @@ pub fn handle_block_list(limit: i64, json: bool) -> Result<(), Box<dyn std::erro
     if records.is_empty() {
         if !json {
             println!(
-                "実行履歴はありません。'agent-link block run <定義ファイル>' でブロックを実行してください。"
+                "No runs yet. Create a card with 'agent-link card create'."
             );
         } else {
             println!("[]");
@@ -1564,7 +1296,7 @@ pub fn handle_block_show(run_id: i64, json: bool) -> Result<(), Box<dyn std::err
         }
         Err(e) => {
             eprintln!("DB error: {}.", e);
-            std::process::exit(EXIT_DB);
+            std::process::exit(crate::cmd_common::EXIT_OTHER);
         }
     };
 
@@ -1745,19 +1477,22 @@ pub(crate) fn format_status(status: &str) -> &str {
 ///
 /// - `Some(45200)` → `"45.2s"`
 /// - `Some(90000)` → `"1m 30s"`
+/// - `Some(119600)` → `"2m 0s"`（秒を整数に丸めてから分と秒に分ける）
+/// - `Some(-5)` → `"0s"`
 /// - `None` → `"-"`
 pub(crate) fn format_elapsed(ms: Option<i64>) -> String {
     match ms {
         None => "-".to_string(),
+        Some(v) if v < 0 => "0s".to_string(),
         Some(v) if v < 1000 => format!("{}ms", v),
-        Some(v) if v < 60_000 => {
+        // 59.95 秒以上は分の表示にする（`{:.1}s` で `60.0s` と出さないため）
+        Some(v) if v < 59_950 => {
             let secs = v as f64 / 1000.0;
             format!("{:.1}s", secs)
         }
         Some(v) => {
-            let mins = v / 60_000;
-            let secs = (v % 60_000) as f64 / 1000.0;
-            format!("{}m {:.0}s", mins, secs)
+            let total = (v + 500) / 1000;
+            format!("{}m {}s", total / 60, total % 60)
         }
     }
 }
@@ -1824,27 +1559,6 @@ pub(crate) fn open_db() -> Result<SaiStore, Box<dyn std::error::Error>> {
 // サブタスク操作ハンドラ
 // ============================================================================
 
-/// タスクを操作する（task_manage 用・P4）。
-///
-/// `agent_api::task_manage` に委譲する（通知を書く処理を二重に持たない）。
-/// interrupt と作業中（in_progress）タスクへの send は、デーモンを経由せず
-/// MCP サーバが擬似 pane を直接操作する。
-pub fn handle_task_manage(
-    action: &str,
-    task_id: i64,
-    message: Option<&str>,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let v = agent_link_engine::agent_api::task_manage(action, task_id, message, None)
-        .map_err(|e| -> Box<dyn std::error::Error> { e.into() })?;
-    println!(
-        "{}",
-        v.get("message")
-            .and_then(|m| m.as_str())
-            .unwrap_or("(結果なし)")
-    );
-    Ok(())
-}
-
 /// waggle トークンを解決してファイル内容を標準出力に書き出す。
 /// 隠しコマンド。
 // ============================================================================
@@ -1856,42 +1570,49 @@ pub fn handle_task_manage(
 /// - 引数なし: 現在のプロジェクトの全実行を書き出す
 /// - `--run <id>`: 1 件だけ
 /// - `--dry-run`: 書かずに JSON を標準出力へ
-pub fn handle_run_export(
-    run: Option<i64>,
-    dry_run: bool,
-) -> Result<(), Box<dyn std::error::Error>> {
+pub fn handle_run_export(run: Option<i64>, dry_run: bool) -> Result<(), CmdError> {
     use agent_link_engine::run_export;
 
-    let store = open_db()?;
+    let store = open_db().map_err(other_error)?;
     let project_root = agent_link_engine::project::project_root();
+
+    // 無い run は書き出す前に止める（終了コード 3）
+    if let Some(run_id) = run {
+        store.get_execution_by_id(run_id).map_err(|e| match e {
+            DbError::NotFound(_) => CmdError::missing(format!("Run {} not found.", run_id)),
+            e => CmdError::other(format!("DB error: {}.", e)),
+        })?;
+    }
 
     if dry_run {
         // ファイルは書かず JSON を標準出力へ出す（確認・02 への引き渡し用）
         match run {
             Some(run_id) => {
-                let exec = store.get_execution_by_id(run_id)?;
+                let exec = store.get_execution_by_id(run_id).map_err(other_error)?;
                 if !run_export::should_export(&exec.status) {
-                    eprintln!(
-                        "Run {} is not exported (status={}).",
-                        run_id, exec.status
-                    );
+                    // 対象外は終了コード 0 のまま、理由を JSON で返す
+                    let doc = serde_json::json!({
+                        "exported": false,
+                        "reason": format!("Run {} is not exported (status={}).", run_id, exec.status),
+                    });
+                    println!("{}", serde_json::to_string_pretty(&doc).map_err(other_error)?);
                     return Ok(());
                 }
                 let name = agent_link_engine::registry::project_name_for(&project_root);
                 let doc = run_export::build_run_doc(&store, &exec, &project_root, &name);
-                println!("{}", serde_json::to_string_pretty(&doc)?);
+                println!("{}", serde_json::to_string_pretty(&doc).map_err(other_error)?);
             }
             None => {
-                let execs = store.list_all_executions()?;
+                let execs = store.list_all_executions().map_err(other_error)?;
                 let docs = run_export::build_docs(&store, &execs, &project_root);
-                println!("{}", serde_json::to_string_pretty(&docs)?);
+                println!("{}", serde_json::to_string_pretty(&docs).map_err(other_error)?);
             }
         }
         return Ok(());
     }
 
     match run {
-        Some(run_id) => match run_export::export_one(&store, run_id)? {
+        Some(run_id) => match run_export::export_one(&store, run_id).map_err(other_error)? {
             Some(true) => println!("run {} を書き出しました", run_id),
             Some(false) => println!("run {} は内容が同一のため省略しました", run_id),
             None => println!("run {} は書き出し対象外です（todo / pending / user）", run_id),
@@ -1962,32 +1683,27 @@ pub fn handle_cc_statusline() -> Result<(), Box<dyn std::error::Error>> {
 // waggle リゾルブ
 // ============================================================================
 
-pub fn handle_waggle_resolve(token: &str) -> Result<(), Box<dyn std::error::Error>> {
-    use agent_link_engine::waggle_integration::WaggleIntegrator;
+pub fn handle_waggle_resolve(token: &str) -> Result<(), CmdError> {
+    use agent_link_engine::waggle_integration::{WaggleIntegrationError, WaggleIntegrator};
 
     // プロジェクトルート基準（worktree 実行時は cc の cwd が worktree に変わるため）
     let db_path = agent_link_engine::project::db_path();
     if let Some(parent) = db_path.parent() {
-        std::fs::create_dir_all(parent)?;
+        std::fs::create_dir_all(parent).map_err(other_error)?;
     }
-    let integrator =
-        WaggleIntegrator::open(&db_path).map_err(|e| format!("Failed to initialize the waggle DB: {}.", e))?;
+    let integrator = WaggleIntegrator::open(&db_path)
+        .map_err(|e| CmdError::other(format!("Failed to initialize the waggle DB: {}.", e)))?;
 
     match integrator.resolve_content(token) {
         Ok(content) => {
             println!("{}", content);
             Ok(())
         }
-        Err(e) => {
-            eprintln!("{}", e);
-            std::process::exit(1);
-        }
+        Err(e @ WaggleIntegrationError::TokenNotFound(_)) => Err(CmdError::missing(e.to_string())),
+        Err(e) => Err(CmdError::other(e.to_string())),
     }
 }
 
-
-// 非対話実行は `kanban_run::kanban_block_run` に一本化されているため、
-// `handle_block_run_non_interactive`（後方互換ラッパー）は削除済み。
 
 // ============================================================================
 // プロジェクト初期化ハンドラ（`agent-link init`）
@@ -2167,7 +1883,7 @@ pub fn handle_daemon_run() -> Result<(), Box<dyn std::error::Error>> {
 /// ある場合は停止せず警告する（終了コード非ゼロ相当のエラーを返す）。
 /// `--force` でのみ SIGTERM を送り、デーモン側の確定終了（P0-2）が走る。
 /// 終了後はプロセス消滅を最大10秒待ってから PID ファイルを削除する（P1-4）。
-pub fn handle_daemon_stop(force: bool) -> Result<(), Box<dyn std::error::Error>> {
+pub fn handle_daemon_stop(force: bool) -> Result<(), CmdError> {
     match daemon::read_pid() {
         Some(pid) if daemon::process_alive(pid) => {
             if !force {
@@ -2178,13 +1894,14 @@ pub fn handle_daemon_stop(force: bool) -> Result<(), Box<dyn std::error::Error>>
                         busy.join(" / ")
                     );
                     eprintln!("Use `agent-link daemon stop --force` to stop it anyway.");
-                    return Err("The daemon was not stopped because work is in progress.".into());
+                    return Err(CmdError::conflict("The daemon was not stopped because work is in progress."));
                 }
             }
             // SIGTERM を送信（デーモン側で確定終了が走る）
             std::process::Command::new("kill")
                 .arg(pid.to_string())
-                .status()?;
+                .status()
+                .map_err(other_error)?;
             // 終了待ち（最大10秒ポーリング。P0-2の確定処理の猶予）
             for _ in 0..100 {
                 if !daemon::process_alive(pid) {
@@ -2322,12 +2039,12 @@ pub fn handle_daemon_status() -> Result<(), Box<dyn std::error::Error>> {
 /// デーモン稼働中は対象外（生きている実行と区別できないため停止してから使う）。
 /// `--apply` 無しでは一覧表示のみ（DBを触らない）。`--apply` でのみ幽霊を
 /// `failed` + 理由付きで確定する。自動確定はしない。
-pub fn handle_daemon_recover(apply: bool) -> Result<(), Box<dyn std::error::Error>> {
+pub fn handle_daemon_recover(apply: bool) -> Result<(), CmdError> {
     if daemon::is_running() {
         eprintln!("Cannot recover while the daemon is running. Run `agent-link daemon stop` first.");
-        return Err("Did not recover because the daemon is running.".into());
+        return Err(CmdError::conflict("Did not recover because the daemon is running."));
     }
-    let store = open_db()?;
+    let store = open_db().map_err(other_error)?;
     let orphans = agent_link_engine::daemon::list_orphaned_runs(&store);
     // pending 残量の表示
     let pending_dir = agent_link_engine::project::sai_path(".agent-link/engine/notifications/pending");
@@ -2358,7 +2075,8 @@ pub fn handle_daemon_recover(apply: bool) -> Result<(), Box<dyn std::error::Erro
         return Ok(());
     }
     for o in &orphans {
-        store.update_execution_error(o.run_id, "Manually finalized while the daemon was stopped (daemon recover).", 1)?;
+        store.update_execution_error(o.run_id, "Manually finalized while the daemon was stopped (daemon recover).", 1)
+            .map_err(other_error)?;
         println!("  ✅ run {} を failed に確定しました", o.run_id);
     }
     Ok(())
@@ -2442,6 +2160,18 @@ mod tests {
     #[test]
     fn test_format_elapsed_exact_minute() {
         assert_eq!(format_elapsed(Some(60000)), "1m 0s");
+    }
+
+    #[test]
+    fn test_format_elapsed_rounds_to_whole_seconds() {
+        // 119.6 秒は `1m 60s` ではなく `2m 0s`
+        assert_eq!(format_elapsed(Some(119_600)), "2m 0s");
+        assert_eq!(format_elapsed(Some(59_960)), "1m 0s");
+    }
+
+    #[test]
+    fn test_format_elapsed_negative_is_zero() {
+        assert_eq!(format_elapsed(Some(-5)), "0s");
     }
 
     // ---- truncate_str のテスト ----

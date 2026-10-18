@@ -314,11 +314,11 @@ fn check(kind: DefKind, text: &str) -> ViewResult<Vec<String>> {
 /// 標準入力を読む（256KB まで）。
 fn read_stdin() -> ViewResult<String> {
     let mut buf = Vec::new();
-    let mut stdin = std::io::stdin().lock();
+    let stdin = std::io::stdin().lock();
     let mut limited = stdin.take((MAX_STDIN_BYTES + 1) as u64);
     limited
         .read_to_end(&mut buf)
-        .map_err(|e| ViewError::usage(format!("Cannot read standard input: {}.", e)))?;
+        .map_err(|e| ViewError::internal(format!("Cannot read standard input: {}.", e)))?;
     if buf.len() > MAX_STDIN_BYTES {
         return Err(ViewError::usage("The body must be 256KB or less."));
     }
@@ -329,7 +329,7 @@ fn read_stdin() -> ViewResult<String> {
 fn save(path: &Path, text: &str) -> ViewResult<()> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)
-            .map_err(|e| ViewError::usage(format!("Cannot create the folder: {}.", e)))?;
+            .map_err(|e| ViewError::internal(format!("Cannot create the folder: {}.", e)))?;
     }
     let tmp = path.with_extension("md.tmp");
     let tmp = if tmp == *path {
@@ -338,10 +338,10 @@ fn save(path: &Path, text: &str) -> ViewResult<()> {
         tmp
     };
     std::fs::write(&tmp, text)
-        .map_err(|e| ViewError::usage(format!("Cannot save: {}.", e)))?;
+        .map_err(|e| ViewError::internal(format!("Cannot save: {}.", e)))?;
     std::fs::rename(&tmp, path).map_err(|e| {
         let _ = std::fs::remove_file(&tmp);
-        ViewError::usage(format!("Cannot save: {}.", e))
+        ViewError::internal(format!("Cannot save: {}.", e))
     })
 }
 
@@ -476,7 +476,7 @@ fn show(kind: DefKind, scope: Scope, name: &str) -> ViewResult<Value> {
     let exists = path.exists();
     let text = if exists {
         std::fs::read_to_string(&path)
-            .map_err(|e| ViewError::usage(format!("Cannot read: {}.", e)))?
+            .map_err(|e| ViewError::internal(format!("Cannot read: {}.", e)))?
     } else {
         match kind {
             DefKind::Settings => "{}\n".to_string(),
@@ -579,7 +579,7 @@ fn delete(kind: DefKind, scope: Scope, name: &str) -> ViewResult<Value> {
     // 消す前に「この定義を使っている block」を数える（消したら分からないため）
     let used = used_by(kind, name);
     std::fs::remove_file(&path)
-        .map_err(|e| ViewError::usage(format!("Cannot delete: {}.", e)))?;
+        .map_err(|e| ViewError::internal(format!("Cannot delete: {}.", e)))?;
     Ok(json!({
         "deleted": true,
         "kind": kind.as_str(),

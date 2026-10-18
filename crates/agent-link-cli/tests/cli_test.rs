@@ -119,7 +119,7 @@ fn test_cli_run_list_with_limit() {
     // 空の DB でも limit オプション付きで正常動作すること
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("実行履歴はありません"));
+    assert!(stdout.contains("No runs yet"));
 
     cleanup_temp_dir(&dir);
 }
@@ -143,7 +143,7 @@ fn test_cli_run_list_empty() {
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
-        stdout.contains("実行履歴はありません"),
+        stdout.contains("No runs yet"),
         "空の DB では「履歴なし」メッセージが表示されること"
     );
 
@@ -165,7 +165,7 @@ fn test_cli_run_list_default() {
 
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("実行履歴はありません"));
+    assert!(stdout.contains("No runs yet"));
 
     cleanup_temp_dir(&dir);
 }
@@ -241,6 +241,24 @@ fn last_stderr_line(out: &std::process::Output) -> String {
         .to_string()
 }
 
+/// プロジェクトの外では `daemon status` が終了コード 2 で止まり、`.agent-link` を作らない。
+#[test]
+fn test_cli_project_required_does_not_create_store() {
+    let dir = create_temp_dir();
+    let out = Command::new(sai_binary())
+        .args(["daemon", "status"])
+        .env_remove("AGENT_LINK_PROJECT_ROOT")
+        .env("HOME", &dir)
+        .env("AGENT_LINK_HOME", dir.join("home"))
+        .current_dir(&dir)
+        .output()
+        .expect("agent-link を起動できること");
+    assert_eq!(out.status.code(), Some(2));
+    assert!(out.stdout.is_empty());
+    assert!(!dir.join(".agent-link").exists());
+    cleanup_temp_dir(&dir);
+}
+
 /// `run rm --json` は JSON を返し、無い run は 3、実行中は 4（標準出力は空）。
 #[test]
 fn test_cli_run_rm_json_and_exit_codes() {
@@ -300,7 +318,7 @@ fn test_cli_doc_write_then_doc_list_without_daemon() {
     cleanup_temp_dir(&dir);
 }
 
-/// `run finalize`: 無い run は 3、実行中でない run は 1（標準出力は空）。
+/// `run finalize`: 無い run は 3、実行中でない run は 4（標準出力は空）。
 #[test]
 fn test_cli_run_finalize_rejects_missing_and_finished() {
     let dir = create_temp_dir();
@@ -312,7 +330,7 @@ fn test_cli_run_finalize_rejects_missing_and_finished() {
     assert_eq!(last_stderr_line(&out), "Run 999 not found.");
 
     let out = run_cli(&dir, &["run", "finalize", &done.to_string(), "--json"], None);
-    assert_eq!(out.status.code(), Some(1));
+    assert_eq!(out.status.code(), Some(4));
     assert!(out.stdout.is_empty());
     assert_eq!(
         last_stderr_line(&out),
@@ -534,9 +552,19 @@ fn test_cli_card_options_returns_json() {
 fn test_cli_task_wait_counts() {
     let dir = create_temp_project();
     // 0 件は clap が弾く
+    // run の外は 2（task list と同じ確認）
+    let outside = Command::new(sai_binary())
+        .args(["task", "wait", "1"])
+        .env("AGENT_LINK_PROJECT_ROOT", &dir)
+        .env_remove("AGENT_LINK_PARENT_RUN_ID")
+        .current_dir(&dir)
+        .output()
+        .unwrap();
+    assert_eq!(outside.status.code(), Some(2), "run の外は 2");
     let zero = Command::new(sai_binary())
         .args(["task", "wait"])
         .env("AGENT_LINK_PROJECT_ROOT", &dir)
+        .env("AGENT_LINK_PARENT_RUN_ID", "1")
         .current_dir(&dir)
         .output()
         .unwrap();
@@ -549,6 +577,7 @@ fn test_cli_task_wait_counts() {
     let many = Command::new(sai_binary())
         .args(&args)
         .env("AGENT_LINK_PROJECT_ROOT", &dir)
+        .env("AGENT_LINK_PARENT_RUN_ID", "1")
         .current_dir(&dir)
         .output()
         .unwrap();
@@ -558,6 +587,7 @@ fn test_cli_task_wait_counts() {
     let two = Command::new(sai_binary())
         .args(["task", "wait", "1", "2", "--timeout-ms", "0"])
         .env("AGENT_LINK_PROJECT_ROOT", &dir)
+        .env("AGENT_LINK_PARENT_RUN_ID", "1")
         .current_dir(&dir)
         .output()
         .unwrap();

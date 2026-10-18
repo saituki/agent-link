@@ -65,7 +65,7 @@ pub fn project_root() -> PathBuf {
     std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
 }
 
-/// プロジェクトルートを解決し、見つからなければ理由（日本語 1 行）を返す。
+/// プロジェクトルートを解決し、見つからなければ理由（英語 1 行）を返す。
 ///
 /// 順序は CLI 共通の約束 5 のとおり。
 /// - 環境変数 `AGENT_LINK_PROJECT_ROOT`（空でない値）があればそれを使う。

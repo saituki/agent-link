@@ -127,9 +127,7 @@ pub(crate) fn run(cmd: RunCmd) -> Result<(), CmdError> {
             }
             print_view(ViewCmd::Rm { run_id })
         }
-        RunCmd::Export { run, dry_run } => {
-            crate::cli::handle_run_export(run, dry_run).map_err(other_error)
-        }
+        RunCmd::Export { run, dry_run } => crate::cli::handle_run_export(run, dry_run),
     }
 }
 

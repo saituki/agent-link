@@ -49,18 +49,19 @@ fn main() {
         Err(e) => handle_clap_error(e),
     };
 
-    // 新しい木はプロジェクトを要る（`init`・`schema` は要らない）。
-    // 見つからなければ終了コード 2 で止める（`.agent-link/` を勝手に作らない）。
-    let needs_project = matches!(
+    // プロジェクトを要る命令は、見つからなければ終了コード 2 で止める（`.agent-link/` を勝手に作らない）。
+    // 要らないのは `init`・`schema`・`remote`・`remote-gate`。cc のフック（`cc-*`）は、
+    // 失敗すると cc の操作を止めるので、今のまま検査せずに動かす。
+    let needs_project = !matches!(
         &cli.cmd,
-        Cmd::Card { .. }
-            | Cmd::Run { .. }
-            | Cmd::Doc { .. }
-            | Cmd::Task { .. }
-            | Cmd::Def { .. }
-            | Cmd::Project { .. }
-            | Cmd::Session { .. }
-            | Cmd::Workflow { .. }
+        Cmd::Init { .. }
+            | Cmd::Schema { .. }
+            | Cmd::Remote { .. }
+            | Cmd::RemoteGate
+            | Cmd::CcPromptHook
+            | Cmd::CcStateHook { .. }
+            | Cmd::CcPermissionHook
+            | Cmd::CcStatusline
     );
     if needs_project {
         if let Err(msg) = agent_link_engine::project::project_root_checked() {
@@ -84,20 +85,20 @@ fn main() {
         Cmd::Schema { json } => run_new(cmd_schema::run(json)),
         Cmd::Task { cmd } => run_new(cmd_task::run(cmd)),
         Cmd::Daemon { cmd } => match cmd {
-            DaemonCmd::Start => cli::handle_daemon_start(),
-            DaemonCmd::Stop { force } => cli::handle_daemon_stop(force),
-            DaemonCmd::Status => cli::handle_daemon_status(),
-            DaemonCmd::Reload => cli::handle_daemon_reload(),
-            DaemonCmd::Recover { apply } => cli::handle_daemon_recover(apply),
-            DaemonCmd::Run => cli::handle_daemon_run(),
+            DaemonCmd::Start => run_new(cli::handle_daemon_start()),
+            DaemonCmd::Stop { force } => run_new(cli::handle_daemon_stop(force)),
+            DaemonCmd::Status => run_new(cli::handle_daemon_status()),
+            DaemonCmd::Reload => run_new(cli::handle_daemon_reload()),
+            DaemonCmd::Recover { apply } => run_new(cli::handle_daemon_recover(apply)),
+            DaemonCmd::Run => run_new(cli::handle_daemon_run()),
         },
         Cmd::Usage { cmd } => match cmd {
             UsageCmd::Backfill { dry_run } => {
-                usage::run_usage_backfill(usage::BackfillArgs { dry_run })
+                run_new(usage::run_usage_backfill(usage::BackfillArgs { dry_run }))
             }
         },
         Cmd::Waggle { cmd } => match cmd {
-            WaggleCmd::Resolve { token } => cli::handle_waggle_resolve(&token),
+            WaggleCmd::Resolve { token } => run_new(cli::handle_waggle_resolve(&token)),
         },
         Cmd::CcPromptHook => cli::handle_cc_prompt_hook(),
         Cmd::CcStateHook { state } => cli::handle_cc_state_hook(&state),
@@ -111,10 +112,12 @@ fn main() {
     }
 }
 
-/// 新しい木のハンドラを走らせ、失敗なら契約の終了コードで終わる。
-fn run_new(result: Result<(), cmd_common::CmdError>) -> Result<(), Box<dyn std::error::Error>> {
+/// ハンドラを走らせ、失敗なら契約の終了コードで終わる（`Fatal error:` は付けない）。
+fn run_new<E: Into<cmd_common::CmdError>>(
+    result: Result<(), E>,
+) -> Result<(), Box<dyn std::error::Error>> {
     if let Err(e) = result {
-        cmd_common::exit(e);
+        cmd_common::exit(e.into());
     }
     Ok(())
 }

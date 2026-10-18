@@ -425,6 +425,8 @@ fn remote_child_runs_from_launch_to_completion() {
     let done = loop {
         let mut c = w.mac_cmd(&["task", "wait", &task_id, "--timeout-ms", "20000", "--json"]);
         envs(&mut c);
+        // task wait は run の中（親の run）でしか使えない
+        c.env("AGENT_LINK_PARENT_RUN_ID", &run_s);
         let out = c.output().unwrap();
         assert_eq!(out.status.code(), Some(0), "task wait: {}", stderr_of(&out));
         let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();

@@ -24,6 +24,12 @@ pub(crate) fn run(cmd: DocCmd) -> Result<(), CmdError> {
                 run_id,
             ))?;
             if json {
+                // settings.json の読めなかった項目は、あるときだけ warnings で返す
+                let (_, warnings) = agent_link_engine::settings::load_settings_quiet();
+                let mut v = v;
+                if !warnings.is_empty() {
+                    v["warnings"] = serde_json::json!(warnings);
+                }
                 print_json(&v)
             } else {
                 let path = v.get("path").and_then(|x| x.as_str()).unwrap_or("");
