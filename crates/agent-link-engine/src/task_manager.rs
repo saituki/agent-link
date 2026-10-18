@@ -21,7 +21,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 
@@ -727,8 +727,15 @@ impl TaskManager {
             seq,
             run_targets.len()
         );
+        // 途中の失敗で、起動済みの ID を捨てない（個々の Err は記録して次へ進む）
         for tid in run_targets {
-            results.push(self.process_task_execute(tid)?);
+            match self.process_task_execute(tid) {
+                Ok(r) => results.push(r),
+                Err(e) => eprintln!(
+                    "[task_manager] 実行バッチ {}: task_id={} の起動に失敗: {}",
+                    run_batch_id, tid, e
+                ),
+            }
         }
         Ok(results)
     }
@@ -818,8 +825,16 @@ impl TaskManager {
         match action {
             "delete" => {
                 // 実行中なら AgentPool からキャンセル + pane 強制終了
+                let mut started = Vec::new();
+                // 待ち行列の子は、プールから外さないと、あとで昇格して起動してしまう（枠は持っていない）。
+                // 外せなかった queued は、DB が追いつく前に昇格して枠を持っている。その枠を返す
+                let removed_from_queue =
+                    task.status == "queued" && self.agent_pool.remove_queued(task_id);
+                if !removed_from_queue && matches!(task.status.as_str(), "in_progress" | "queued") {
+                    // 枠が空いて昇格した子は、ワーカーに渡して起動させる
+                    started.extend(self.agent_pool.cancel(task_id));
+                }
                 if task.status == "in_progress" {
-                    self.agent_pool.cancel(task_id);
                     if let Some(exec_id) = task.execution_id {
                         if let Ok(exec) = self.store.get_execution_by_id(exec_id) {
                             if let Some(pane_id) = exec.herdr_pane_id {
@@ -839,13 +854,13 @@ impl TaskManager {
                     crate::run_dir::sync_run_owner_by_execution_id(&self.store, exec_id);
                 }
                 // U2・R4 案X: pane が解放されたため、waiting_pane タスクを再評価して昇格させる
-                let mut started = self.promote_waiting_pane_tasks(task.parent_run_id)?;
+                started.extend(self.promote_waiting_pane_tasks(task.parent_run_id)?);
                 Ok(PollEvent {
                     message: format!(
-                        "task_manage(delete): task_id={} を削除しました（deleted_by=main）。waiting_pane 再評価={:?}",
+                        "task_manage(delete): task_id={} を削除しました（deleted_by=main）。起動する子={:?}",
                         task_id, started
                     ),
-                    started_task_ids: std::mem::take(&mut started),
+                    started_task_ids: started,
                     turn_task_ids: Vec::new(),
                 })
             }
@@ -1070,21 +1085,24 @@ impl TaskManager {
             return Ok(PromoteResult::WaitingDependency { task_id });
         }
 
-        // 3. 実行上限（AgentPool）判定
+        // 3. 実行上限（AgentPool）判定。
+        // DB を先に更新してから投入する（DB 更新が失敗したとき、枠だけ取られて残らないため）。
+        self.store
+            .update_task_status(task_id, "in_progress")
+            .map_err(|e| TaskManagerError::Db(e.to_string()))?;
         match self.agent_pool.enqueue(task_id) {
-            EnqueueResult::Started => {
-                self.store
-                    .update_task_status(task_id, "in_progress")
-                    .map_err(|e| TaskManagerError::Db(e.to_string()))?;
-                Ok(PromoteResult::Started { task_id })
-            }
+            EnqueueResult::Started => Ok(PromoteResult::Started { task_id }),
             EnqueueResult::Queued { position } => {
                 self.store
                     .update_task_status(task_id, "queued")
                     .map_err(|e| TaskManagerError::Db(e.to_string()))?;
                 Ok(PromoteResult::Queued { task_id, position })
             }
-            EnqueueResult::QueueFull => Err(TaskManagerError::QueueFull),
+            EnqueueResult::QueueFull => {
+                // 投入できなかったので、元の状態へ戻す
+                let _ = self.store.update_task_status(task_id, &task.status);
+                Err(TaskManagerError::QueueFull)
+            }
         }
     }
 
@@ -1251,9 +1269,6 @@ impl TaskManager {
         task_id: i64,
         watcher_map: Option<&RunningExecutions>,
     ) -> Vec<i64> {
-        // ステータスを in_progress に更新（Started は既に更新済み、昇格タスクは未更新）
-        let _ = self.store.update_task_status(task_id, "in_progress");
-
         // タスク情報を取得
         let task = match self.store.get_task_by_id(task_id) {
             Ok(t) => t,
@@ -1264,6 +1279,19 @@ impl TaskManager {
                     .unwrap_or_default();
             }
         };
+
+        // 削除済み・完了済みは起動しない（待ち行列から外したはずでも、昇格の遅れで届くことがある）。
+        // 枠を返して、次の子を昇格させる
+        if matches!(task.status.as_str(), "deleted" | "completed") {
+            eprintln!(
+                "[task_manager] タスク {} は {} のため起動しません",
+                task_id, task.status
+            );
+            return self.agent_pool.complete(task_id).into_iter().collect();
+        }
+
+        // ステータスを in_progress に更新（Started は既に更新済み、昇格タスクは未更新）
+        let _ = self.store.update_task_status(task_id, "in_progress");
 
         // 6.8 の修正: block_type 未指定の場合は明確なエラーにしてから終了する。
         // （"default" に補完すると存在しないブロック定義ファイルとして汎用エラーになる）
@@ -1432,6 +1460,12 @@ impl TaskManager {
                 return Vec::new();
             }
         };
+
+        // 削除済みには送らない（枠は削除時に返してある）。完了済みへの追加指示は許す
+        if task.status == "deleted" {
+            eprintln!("[task_manager] ターン送信: タスク {} は deleted のため送りません", task_id);
+            return self.agent_pool.complete(task_id).into_iter().collect();
+        }
 
         // 2. 実行レコードと pane の取得
         let Some(exec_id) = task.execution_id else {
@@ -1612,11 +1646,9 @@ impl TaskManager {
             next.push(p);
         }
 
-        // 依存待ちタスクの再評価・昇格
-        next.extend(self.promote_waiting_tasks(task_id)?);
-
         if !deleted {
-            // 完了結果通知を書き込む（最終ラウンドの waggle トークン・round 付き）
+            // 完了結果通知を書き込む（最終ラウンドの waggle トークン・round 付き）。
+            // 書けなくても、昇格済みの ID を捨てないため戻らない（ログだけ残す）
             let completed = TaskCompletedResult {
                 notification_type: "task_completed".to_string(),
                 task_id,
@@ -1630,7 +1662,15 @@ impl TaskManager {
                 round: task.round,
             };
 
-            self.write_result_notification(task_id, &completed)?;
+            if let Err(e) = self.write_result_notification(task_id, &completed) {
+                eprintln!("[task_manager] task_id={} の完了通知の書き込みに失敗: {}", task_id, e);
+            }
+        }
+
+        // 依存待ちタスクの再評価・昇格（失敗は通知のあとにログだけ）
+        match self.promote_waiting_tasks(task_id) {
+            Ok(ids) => next.extend(ids),
+            Err(e) => eprintln!("[task_manager] task_id={} の依存昇格に失敗: {}", task_id, e),
         }
 
         Ok(next)
@@ -1663,11 +1703,8 @@ impl TaskManager {
             next.push(p);
         }
 
-        // 依存待ちタスクの再評価・昇格
-        next.extend(self.promote_waiting_tasks(task_id)?);
-
         if !deleted {
-            // 失敗結果通知を書き込む
+            // 失敗結果通知を書き込む。書けなくても、昇格済みの ID を捨てないため戻らない
             let failed = TaskFailedResult {
                 notification_type: "task_failed".to_string(),
                 task_id,
@@ -1676,10 +1713,67 @@ impl TaskManager {
                 error: error.to_string(),
             };
 
-            self.write_result_notification(task_id, &failed)?;
+            if let Err(e) = self.write_result_notification(task_id, &failed) {
+                eprintln!("[task_manager] task_id={} の失敗通知の書き込みに失敗: {}", task_id, e);
+            }
+        }
+
+        // 依存待ちタスクの再評価・昇格（失敗は通知のあとにログだけ）
+        match self.promote_waiting_tasks(task_id) {
+            Ok(ids) => next.extend(ids),
+            Err(e) => eprintln!("[task_manager] task_id={} の依存昇格に失敗: {}", task_id, e),
         }
 
         Ok(next)
+    }
+
+    /// daemon 起動時に、前の daemon が途中で止めた子を片付ける。
+    ///
+    /// - `in_progress` で実行記録が無い、または `running` でない → `fail_task`（理由付き・通知あり）
+    /// - `queued` → `approved`（プールはメモリだけにあり、再起動で消えている。親が `task execute` で選び直す）
+    ///
+    /// 起動直後は枠が空く（プールが空）。失敗した子に依存する子は起動しない（`dependencies_completed`）。
+    /// そのため、この関数の中で起動される子は無い。
+    ///
+    /// # 戻り値
+    ///
+    /// 片付けた子の数。
+    pub fn recover_orphan_tasks(&self) -> usize {
+        let tasks = match self.store.list_tasks_by_status(&["in_progress", "queued"]) {
+            Ok(t) => t,
+            Err(e) => {
+                eprintln!("[task_manager] 起動時の子タスクの片付けに失敗: {}", e);
+                return 0;
+            }
+        };
+
+        let mut count = 0;
+        for task in tasks {
+            let Some(task_id) = task.id else { continue };
+
+            if task.status == "queued" {
+                match self.store.update_task_status(task_id, "approved") {
+                    Ok(()) => count += 1,
+                    Err(e) => eprintln!("[task_manager] task_id={} の approved への差し戻しに失敗: {}", task_id, e),
+                }
+                continue;
+            }
+
+            // in_progress: 実行記録が生きていれば（running）触らない
+            let running = task
+                .execution_id
+                .and_then(|eid| self.store.get_execution_by_id(eid).ok())
+                .is_some_and(|e| e.status == "running");
+            if running {
+                continue;
+            }
+
+            match self.fail_task(task_id, "Interrupted because the daemon restarted") {
+                Ok(_) => count += 1,
+                Err(e) => eprintln!("[task_manager] task_id={} の失敗への確定に失敗: {}", task_id, e),
+            }
+        }
+        count
     }
 
     // -----------------------------------------------------------------------
@@ -2170,6 +2264,7 @@ pub enum TaskManagerError {
 mod tests {
     use super::*;
     use std::sync::Arc;
+    use std::time::Duration;
 
     fn test_results_dir() -> PathBuf {
         // テスト用の一時ディレクトリ。
@@ -2440,6 +2535,61 @@ mod tests {
         task.host = Some("wsl-server".into());
         let remote_dir = place(&manager, &task);
         assert!(!remote_dir.join("cwd.txt").exists(), "遠隔のパスを cwd.txt に書かない");
+
+        std::env::remove_var("AGENT_LINK_PROJECT_ROOT");
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    /// 削除済みの子は起動しない（実行に入らず、状態も `deleted` のまま）。
+    #[test]
+    fn execute_subtask_does_not_start_deleted_task() {
+        let (manager, store) = create_test_manager();
+        let parent_run_id = create_dummy_execution(&store, 45);
+        let mut task = Task::new(parent_run_id, "削除された子".into(), "説明".into(), Some("sai-code".into()), None, None, "".into(), None, Some("D".into()));
+        task.status = "deleted".into();
+        let task_id = store.insert_task(&task).unwrap();
+
+        assert!(manager.execute_subtask(task_id, None).is_empty());
+        assert_eq!(store.get_task_by_id(task_id).unwrap().status, "deleted");
+    }
+
+    /// daemon 起動時の片付け: 実行記録が終わった `in_progress` は `failed`、
+    /// `running` の実行は触らず、`queued` は `approved` に戻す。
+    #[test]
+    fn recover_orphan_tasks_fails_dead_and_requeues_queued() {
+        let _lock = crate::common::AGENT_LINK_ENV_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let root = std::env::temp_dir().join(format!("agent-link-tm-recover-{}", std::process::id()));
+        fs::create_dir_all(&root).unwrap();
+        std::env::set_var("AGENT_LINK_PROJECT_ROOT", &root);
+
+        let (manager, store) = create_test_manager();
+        let parent_run_id = create_dummy_execution(&store, 42);
+
+        let dead_exec = create_dummy_execution(&store, 43);
+        store.update_execution_status(dead_exec, "failed").unwrap();
+        let live_exec = create_dummy_execution(&store, 44);
+        store.update_execution_status(live_exec, "running").unwrap();
+
+        let mut dead = Task::new(parent_run_id, "死んだ子".into(), "説明".into(), None, None, None, "".into(), None, Some("A".into()));
+        dead.status = "in_progress".into();
+        let dead_id = store.insert_task(&dead).unwrap();
+        store.update_task_execution_id(dead_id, dead_exec).unwrap();
+
+        let mut live = Task::new(parent_run_id, "動いている子".into(), "説明".into(), None, None, None, "".into(), None, Some("B".into()));
+        live.status = "in_progress".into();
+        let live_id = store.insert_task(&live).unwrap();
+        store.update_task_execution_id(live_id, live_exec).unwrap();
+
+        let mut queued = Task::new(parent_run_id, "待ち行列の子".into(), "説明".into(), None, None, None, "".into(), None, Some("C".into()));
+        queued.status = "queued".into();
+        let queued_id = store.insert_task(&queued).unwrap();
+
+        assert_eq!(manager.recover_orphan_tasks(), 2);
+        assert_eq!(store.get_task_by_id(dead_id).unwrap().status, "failed");
+        assert_eq!(store.get_task_by_id(live_id).unwrap().status, "in_progress");
+        assert_eq!(store.get_task_by_id(queued_id).unwrap().status, "approved");
 
         std::env::remove_var("AGENT_LINK_PROJECT_ROOT");
         let _ = fs::remove_dir_all(&root);

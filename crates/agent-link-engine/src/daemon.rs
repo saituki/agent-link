@@ -857,7 +857,10 @@ impl Daemon {
             "last_heartbeat": unix_millis(),
         });
 
-        std::fs::write(&status_path, serde_json::to_string_pretty(&status)?)?;
+        // 読み手が途中の内容を読まないよう、一時ファイルに書いてから rename する
+        let tmp_path = status_path.with_extension("status.tmp");
+        std::fs::write(&tmp_path, serde_json::to_string_pretty(&status)?)?;
+        std::fs::rename(&tmp_path, &status_path)?;
         Ok(())
     }
 
@@ -1010,6 +1013,7 @@ impl Daemon {
             );
         }
         let _ = self.write_status_file();
+        let _ = std::fs::remove_file(daemon_lock_path());
         eprintln!("[agent-link] 停止時確定処理が完了しました");
     }
 }
@@ -1031,6 +1035,7 @@ pub fn run_foreground(project_root: &Path) -> Result<(), Box<dyn std::error::Err
     // 環境変数と cwd をプロジェクトルートに固定（D15・§7.1.7）
     std::env::set_var("AGENT_LINK_PROJECT_ROOT", project_root);
     std::env::set_current_dir(project_root)?;
+    acquire_daemon_lock(&daemon_lock_path())?;
 
     let db_path = crate::project::db_path();
     if let Some(parent) = db_path.parent() {
@@ -1058,6 +1063,11 @@ pub fn run_foreground(project_root: &Path) -> Result<(), Box<dyn std::error::Err
     let swept = crate::headless::sweep_dead_panes();
     if swept > 0 {
         eprintln!("[agent-link] 起動時の掃除: 終わった pane の置き場を {} 件消しました", swept);
+    }
+    // 前の daemon が止めた子（in_progress・queued）を片付ける。プールは空なので、起動はされない
+    let recovered = daemon.task_manager.recover_orphan_tasks();
+    if recovered > 0 {
+        eprintln!("[agent-link] 起動時の子タスクの片付け: {} 件", recovered);
     }
     // 起動直後の `daemon status` に幽霊を載せる（P1-4 即時書込）。
     let _ = daemon.write_status_file();
@@ -1167,9 +1177,8 @@ pub fn write_block_run_request_full(
         reserved_run_id,
     };
 
-    let filename = format!("{}-block_run_request.json", unix_millis());
-    let path = pending.join(filename);
-    std::fs::write(&path, serde_json::to_string_pretty(&req)?)?;
+    let body = serde_json::to_string_pretty(&req)?;
+    let path = write_notification_atomic(&pending, "block_run_request", &body)?;
     eprintln!(
         "[agent-link] block_run_request を書き込みました: {}",
         path.display()
@@ -1195,9 +1204,7 @@ pub fn write_finalize_request(run_id: i64) -> Result<(), Box<dyn std::error::Err
         "timestamp": crate::common::iso_8601_timestamp(),
     });
 
-    let filename = format!("{}-finalize_request.json", unix_millis());
-    let path = pending.join(filename);
-    std::fs::write(&path, serde_json::to_string_pretty(&body)?)?;
+    let path = write_notification_atomic(&pending, "finalize_request", &serde_json::to_string_pretty(&body)?)?;
     eprintln!(
         "[agent-link] finalize_request を書き込みました: {}",
         path.display()
@@ -1242,6 +1249,33 @@ fn dir_has_finalize_request(dir: &Path, run_id: i64) -> bool {
 /// PID ファイルのパスを取得する。
 pub fn pid_file_path() -> PathBuf {
     crate::project::engine_dir(&crate::project::project_root()).join("daemon.pid")
+}
+
+/// 二重起動を防ぐロックファイルのパス（中身は起動した daemon の pid）。
+fn daemon_lock_path() -> PathBuf {
+    crate::project::engine_dir(&crate::project::project_root()).join("daemon.lock")
+}
+
+/// daemon.lock を取る。既に生きた daemon の pid が入っていれば `Err`。
+/// 死んだ pid（または読めない中身）なら上書きする。
+fn acquire_daemon_lock(path: &Path) -> Result<(), Box<dyn std::error::Error>> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    if let Ok(content) = std::fs::read_to_string(path) {
+        if let Ok(pid) = content.trim().parse::<i32>() {
+            if process_alive(pid) && is_daemon_process(pid) {
+                return Err(format!("Another daemon is already running (pid {}).", pid).into());
+            }
+        }
+        // 死んだ pid の残り: 消して取り直す
+        std::fs::remove_file(path)?;
+    }
+    // create_new で取る（同時に 2 つ起動しても、片方だけが作れる）
+    let mut file = std::fs::OpenOptions::new().write(true).create_new(true).open(path)?;
+    use std::io::Write;
+    writeln!(file, "{}", std::process::id())?;
+    Ok(())
 }
 
 /// PID ファイルからデーモンの PID を読み取る。
@@ -1339,6 +1373,34 @@ fn unix_millis() -> u64 {
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis() as u64
+}
+
+/// 乱数の 16 進 8 桁（通知ファイル名の一意化用）。`agent_api.rs` の `random_hex8` と同じ作り方。
+fn random_hex8() -> String {
+    let mut bytes = [0u8; 4];
+    if getrandom::getrandom(&mut bytes).is_err() {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        let mix = (nanos as u64) ^ ((std::process::id() as u64) << 32);
+        bytes.copy_from_slice(&mix.to_le_bytes()[..4]);
+    }
+    bytes.iter().map(|b| format!("{:02x}", b)).collect()
+}
+
+/// 通知を C-NOTIFY の形で `dir` に書く。
+///
+/// `.{名前}.tmp` に書いてから rename して `{名前}.json` にする（読み手は `.json` だけを見る）。
+/// 名前は `{unix_millis}-{乱数 8 桁}-{kind}`。戻り値は書いた `.json` のパス。
+fn write_notification_atomic(dir: &Path, kind: &str, body: &str) -> std::io::Result<PathBuf> {
+    std::fs::create_dir_all(dir)?;
+    let name = format!("{}-{}-{}", unix_millis(), random_hex8(), kind);
+    let tmp_path = dir.join(format!(".{}.tmp", name));
+    let path = dir.join(format!("{}.json", name));
+    std::fs::write(&tmp_path, body)?;
+    std::fs::rename(&tmp_path, &path)?;
+    Ok(path)
 }
 
 /// リネームを安全に実行する（Windows では上書き不可のため削除してから）。
