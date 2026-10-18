@@ -35,19 +35,6 @@ pub fn format_tokens(n: u64) -> String {
     }
 }
 
-/// 3 桁区切りの数値文字列（例: `12345` → `12,345`）。
-pub fn format_num(n: u64) -> String {
-    let s = n.to_string();
-    let mut out = String::new();
-    for (i, c) in s.chars().enumerate() {
-        if i > 0 && (s.len() - i) % 3 == 0 {
-            out.push(',');
-        }
-        out.push(c);
-    }
-    out
-}
-
 /// `creation_date`（`YYYY/MM/DD HH:MM:SS`）を Kanban todo 表示用
 /// `MM/DD HH:MM:SS` に変換する（他レーンと同一書式・A4）。形式外はそのまま返す。
 ///
@@ -67,15 +54,7 @@ pub fn format_creation_date_short(date: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{format_cost, format_num, format_tokens};
-
-    #[test]
-    fn test_format_num() {
-        assert_eq!(format_num(0), "0");
-        assert_eq!(format_num(999), "999");
-        assert_eq!(format_num(12_345), "12,345");
-        assert_eq!(format_num(45_600_000), "45,600,000");
-    }
+    use super::{format_cost, format_tokens};
 
     #[test]
     fn test_format_cost() {

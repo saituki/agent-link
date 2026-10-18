@@ -386,45 +386,6 @@ pub struct WaggleDoc {
     pub path: Option<PathBuf>,
 }
 
-/// waggle トークンの内容を解決する（元ファイルが無ければ Blob ストアから復元）。
-///
-/// エラー文字列は旧 `load_waggle_token_view` のメッセージと同一。
-pub fn load_waggle_token(token: &str) -> Result<WaggleDoc, String> {
-    let db_path = agent_link_engine::project::resolve_db_path();
-    let integrator = agent_link_engine::waggle_integration::WaggleIntegrator::open(&db_path)
-        .map_err(|e| format!("waggle: failed to start the integrator: {}", e))?;
-    let view = integrator
-        .resolve_token(token)
-        .map_err(|e| format!("waggle: resolve error: {}", e))?;
-    let content = integrator
-        .resolve_content(token)
-        .map_err(|e| format!("waggle: failed to resolve the content: {}", e))?;
-    let target = view.manifest.target.as_str();
-    let file_name = target
-        .strip_prefix("file://")
-        .and_then(|p| p.rsplit('/').next())
-        .unwrap_or("")
-        .to_string();
-    // 元ファイルの絶対パスを取り出す。
-    let path = target
-        .strip_prefix("file://localhost")
-        .or_else(|| target.strip_prefix("file://"))
-        .map(|p| PathBuf::from(p.replace("%20", " ")));
-    Ok(WaggleDoc {
-        token: token.to_string(),
-        file_name,
-        description: view.manifest.meta.description.clone().unwrap_or_default(),
-        block_name: view
-            .manifest
-            .labels
-            .get("block_name")
-            .cloned()
-            .unwrap_or_default(),
-        content,
-        path,
-    })
-}
-
 // ============================================================================
 // テスト
 // ============================================================================

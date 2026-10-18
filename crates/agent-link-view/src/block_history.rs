@@ -39,18 +39,6 @@ pub struct HistoryViewData {
 }
 
 impl HistoryViewData {
-    /// 種別の近似トークン合計を取得する。
-    pub fn tokens_of(&self, kind: &str) -> u64 {
-        match kind {
-            "user" => self.type_tokens.user,
-            "agent" => self.type_tokens.agent,
-            "toolCall" => self.type_tokens.tool_call,
-            "toolResult" => self.type_tokens.tool_result,
-            "thinking" => self.type_tokens.thinking,
-            _ => 0,
-        }
-    }
-
     /// `run history` 用の JSON 表現を返す。
     ///
     /// 項目名は仕様のとおり（`toolCall` / `toolResult` / `time` / `type`）。

@@ -8,7 +8,6 @@ use std::collections::HashMap;
 use petgraph::{
     graph::{DiGraph, NodeIndex},
     visit::EdgeRef,
-    Direction,
 };
 
 /// ノード ID 型。agent-link のブロック ID を u64 として扱う。
@@ -75,13 +74,6 @@ impl<N> DagGraph<N> {
     /// ノード ID から NodeIndex を取得する。
     pub fn index_of(&self, id: NodeId) -> Option<NodeIndex> {
         self.id_to_index.get(&id).copied()
-    }
-
-    /// 指定ノードからの出力エッジを走査する。
-    pub fn edges_from(&self, idx: NodeIndex) -> impl Iterator<Item = (NodeIndex, &EdgeData)> + '_ {
-        self.graph
-            .edges_directed(idx, Direction::Outgoing)
-            .map(|e| (e.target(), e.weight()))
     }
 
     /// 全エッジを「(元ノード, 先ノード, 辺データ)」の一覧で返す。

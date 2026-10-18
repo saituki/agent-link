@@ -7,14 +7,14 @@
 //! ## 検索の流れ
 //!
 //! 1. [`parse_query`] — 生入力（`RawSearchForm`）を解析し [`SearchQuery`] を生成
-//! 2. [`run_search`] — DB で実行履歴を絞り込み（§5.1）→ メイン jsonl を特定
+//! 2. [`run_search_verbose`] — DB で実行履歴を絞り込み（§5.1）→ メイン jsonl を特定
 //!    （§5.2）→ type / word 条件でマッチ抽出（§4）
 //!
 //! ## 使用例
 //!
 //! ```no_run
 //! use agent_link_engine::db::SaiStore;
-//! use agent_link_engine::search::{parse_query, run_search, RawSearchForm};
+//! use agent_link_engine::search::{parse_query, run_search_verbose, RawSearchForm};
 //!
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! let store = SaiStore::open(std::path::Path::new(".agent-link/engine/agent-link.db"))?;
@@ -27,7 +27,7 @@
 //!     word: "llm, agent-link".to_string(),
 //! };
 //! let query = parse_query(&raw)?;
-//! let hits = run_search(&store, &query)?;
+//! let (hits, _skipped) = run_search_verbose(&store, &query)?;
 //! for hit in &hits {
 //!     println!("ID{} | {} | {} | {}", hit.block_id, hit.type_.as_str(), hit.turn, hit.snippet);
 //! }
@@ -740,14 +740,7 @@ fn extract_snippet_line(text: &str, words: &[String], max_chars: usize) -> Strin
 ///    旧形式は run の `session_dir`、cc は `~/.claude/projects/…`）→
 /// 3. type / word でマッチ抽出。結果は `(block_id, exec_id, turn)` 昇順で返す。
 ///
-/// 会話ファイルが見つからない実行はスキップする
-/// （エラーにはしない。スキップ件数が必要な場合は [`run_search_verbose`] を使う）。
-pub fn run_search(store: &SaiStore, q: &SearchQuery) -> Result<Vec<SearchHit>, SearchError> {
-    run_search_verbose(store, q).map(|(hits, _)| hits)
-}
-
-/// [`run_search`] に読み飛ばした実行件数の報告を加えた版。
-///
+/// 会話ファイルが見つからない実行はスキップする（エラーにはしない）。
 /// 戻り値は `(ヒット一覧, スキップした実行数)`。警告表示用。
 pub fn run_search_verbose(
     store: &SaiStore,
@@ -786,7 +779,7 @@ pub fn run_search_verbose(
 /// 条件絞り込み → jsonl 走査 → ヒットを日時降順（実行開始時刻の新しい順・同一実行内は
 /// turn 昇順）でマージする。DB が存在しない・開けないプロジェクトはスキップする。
 ///
-/// agent-link 単体では [`run_search`]（自プロジェクト 1 件・後方互換）を使用する。
+/// agent-link 単体では [`run_search_verbose`]（自プロジェクト 1 件・後方互換）を使用する。
 pub fn run_search_projects(
     projects: &[ProjectSource],
     q: &SearchQuery,
@@ -842,6 +835,11 @@ pub fn run_search_projects(
 mod tests {
     use super::*;
     use crate::db::models::BlockMetadata;
+
+    /// 件数の報告が要らないテスト用の検索（`run_search_verbose` のヒットだけを返す）。
+    fn run_search(store: &SaiStore, q: &SearchQuery) -> Result<Vec<SearchHit>, SearchError> {
+        run_search_verbose(store, q).map(|(hits, _)| hits)
+    }
 
     // -----------------------------------------------------------------------
     // 数値範囲パーサ

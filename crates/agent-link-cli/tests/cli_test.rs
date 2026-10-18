@@ -553,16 +553,17 @@ fn test_cli_task_wait_counts() {
         .output()
         .unwrap();
     assert_eq!(many.status.code(), Some(2), "51 件は 2");
-    // 2 件・待たない: pending 付きの JSON
+    // 2 件だが存在しない: 待たずに「見つからない」（終了コード 3・stdout 空）
+    // （pending 付きの JSON は agent_api の task_output_ids の試験で確かめる）
     let two = Command::new(sai_binary())
         .args(["task", "wait", "1", "2", "--timeout-ms", "0"])
         .env("AGENT_LINK_PROJECT_ROOT", &dir)
         .current_dir(&dir)
         .output()
         .unwrap();
-    assert!(two.status.success(), "task wait 1 2: {}", String::from_utf8_lossy(&two.stderr));
-    let value: serde_json::Value = serde_json::from_slice(&two.stdout).expect("JSON であること");
-    assert!(value.get("pending").is_some(), "pending が付く: {value:?}");
+    assert_eq!(two.status.code(), Some(3), "task wait 1 2: {}", String::from_utf8_lossy(&two.stderr));
+    assert!(two.stdout.is_empty(), "stdout は空");
+    assert!(String::from_utf8_lossy(&two.stderr).contains("Task 1 not found."), "{}", String::from_utf8_lossy(&two.stderr));
     cleanup_temp_dir(&dir);
 }
 
