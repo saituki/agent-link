@@ -487,7 +487,7 @@ async function onDaemonClick() {
   const question = action === "stop"
     ? `Stop the daemon for ${dashName}?`
     : `Start the daemon for ${dashName}?`;
-  if (!confirm(question)) return;
+  if (!(await saiConfirm({ title: question, danger: action === "stop" }))) return;
   daemonBusy = true;
   renderDashboard();
   try {
@@ -808,8 +808,7 @@ async function onRunCardClick(c) {
   if (runBusy || c.run_id == null) return;
   const label = c.label || `ID${c.run_id}`;
   // 確認は既存の動きと同じ（実行はエージェントを動かすため必ず聞く）
-  const question = `Run this card?\n\n${label}`;
-  if (!confirm(question)) return;
+  if (!(await saiConfirm({ title: "Run this card?", body: label }))) return;
   runBusy = true;
   renderTodo(); // 送信中はボタンを押せない
   try {

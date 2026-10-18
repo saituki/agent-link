@@ -740,12 +740,6 @@ function wfToolBtn(label, onClick, title) {
   return b;
 }
 
-/** 赤い 1 行（読めなかったときの文言）。前の表示は残す。 */
-function wfSetError(text) {
-  wfError = text || "";
-  wfRenderError();
-}
-
 function wfRenderError() {
   const box = document.getElementById("wf-error");
   if (!box) return;

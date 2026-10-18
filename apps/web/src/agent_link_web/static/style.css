@@ -129,8 +129,6 @@
   }
 }
 
-/* 画面の幅が広いとき（900px 以上）。ui.js の saiIsWide() と同じ境目。 */
-body.sai-wide { --wide: 1; }
 
 * { box-sizing: border-box; }
 
@@ -213,11 +211,6 @@ html, body {
 /* 一覧のグループ */
 .groups { padding: 0 16px 32px; }
 
-.group-title {
-  margin: 20px 0 8px;
-  font-size: 13px;
-  color: var(--text-soft);
-}
 
 /* --- 日付一覧（iPhone のカレンダー風） --- */
 
@@ -293,7 +286,6 @@ html, body {
 .run-row .rid { font-size: 13px; color: var(--text-soft); flex: none; }
 .run-row .rblock { font-size: 13px; color: var(--text-soft); flex: none; max-width: 6em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .run-row .rdesc { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.run-row .rrunner { font-size: 12px; color: var(--text-soft); flex: none; }
 .run-row .rstatus { font-size: 13px; flex: none; white-space: nowrap; }
 .run-row .rstatus.st-running { color: var(--accent); }
 .run-row .rstatus.st-failed { color: var(--danger); }
@@ -548,7 +540,6 @@ html, body {
 .question-card .q-option:disabled { opacity: 0.5; }
 .question-card .q-option.selected { border-color: var(--accent); background: var(--bubble-user); }
 .question-card .q-desc { font-size: 13px; color: var(--text-soft); margin-top: 2px; }
-.question-card .q-hint { font-size: 12px; color: var(--text-soft); }
 .question-card .q-block { display: flex; flex-direction: column; gap: 8px; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
 .question-card .q-block:last-of-type { border-bottom: none; padding-bottom: 0; }
 .question-card .q-free {
@@ -873,10 +864,6 @@ body.tabbar-hidden:not(.mini-visible) .inputbar {
   background: var(--bubble-user);
 }
 
-/* 拒否の理由欄（拒否を選んだときだけ app.js が出す） */
-.question-card .q-reason {
-  margin-top: 4px;
-}
 
 /* --- 下部の重ね部：再生バー＋タブバー --- */
 .bottom-stack {
@@ -1215,12 +1202,6 @@ body.tabbar-hidden .mini-player { padding-bottom: env(safe-area-inset-bottom); }
   font-size: 12px;
   color: var(--text-soft);
 }
-.dash-tag {
-  background: var(--input-bg);
-  border-radius: 6px;
-  padding: 1px 7px;
-  color: var(--text-soft);
-}
 .dash-run-btn {
   border: none;
   border-radius: 999px;
@@ -1236,8 +1217,6 @@ body.tabbar-hidden .mini-player { padding-bottom: env(safe-area-inset-bottom); }
 /* --- Workflow・Usage の切り替えの行と小さな部品（旧 Papers タブの規則のうち残した物） ---
    切り替えは .dash-seg を使い回す。 */
 
-/* 見出しの下の切り替え */
-.papers-seg-row { padding: 10px 16px 0; }
 
 /* 空・読み込み中の1行（dash-empty と同じ役割） */
 .lib-empty {
@@ -1247,7 +1226,6 @@ body.tabbar-hidden .mini-player { padding-bottom: env(safe-area-inset-bottom); }
   color: var(--text-soft);
   text-align: center;
 }
-.lib-empty.note-none { text-align: left; }
 .paper-btn {
   border: none;
   border-radius: 10px;
@@ -1581,22 +1559,7 @@ button.lv-tl-preview { cursor: pointer; }
   padding: 10px 12px;
 }
 .cf-choice.active { border-color: var(--accent); background: var(--bubble-user); color: var(--accent); font-weight: 600; }
-.cf-field-head { display: flex; align-items: center; gap: 8px; padding: 4px 0 2px; }
-.cf-field-label { font-size: 15px; font-weight: 600; }
-.cf-required { font-size: 11px; border-radius: 999px; background: var(--danger); color: var(--on-accent); padding: 2px 8px; }
 .cf-run-label { font-size: 12px; color: var(--text-soft); padding-top: 8px; }
-.cf-input-row { display: flex; align-items: center; gap: 10px; padding: 6px 0; }
-.cf-input-label { flex: 0 0 110px; font-size: 13px; color: var(--text-soft); }
-.cf-input-row input {
-  flex: 1;
-  min-width: 0;
-  border: none;
-  border-radius: 8px;
-  background: var(--input-bg);
-  color: var(--text);
-  font-size: 15px;
-  padding: 10px;
-}
 .cf-textarea {
   width: 100%;
   box-sizing: border-box;
@@ -1656,44 +1619,8 @@ button.lv-tl-preview { cursor: pointer; }
    カード・切り替え・グラフは 06 の .dash-* をそのまま使い回す。
    ここは Usage だけの細かい見た目（メーター・1 行の文言・Logs の行）。 */
 .usage-line { margin-top: 6px; font-size: 14px; font-variant-numeric: tabular-nums; }
-.usage-line.muted { font-size: 13px; color: var(--text-soft); }
-.usage-danger { color: var(--danger); }
 .usage-meter-row { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
 .usage-meter-row .dash-bar-track { flex: 1; height: 12px; }
-.usage-meter-pct {
-  min-width: 3.5em;
-  text-align: right;
-  font-size: 15px;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-}
-.usage-log {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  padding: 9px 0;
-  border-bottom: 1px solid var(--line);
-  font-size: 13px;
-}
-.usage-log:last-child { border-bottom: none; padding-bottom: 0; }
-.usage-log-time { flex: none; color: var(--text-soft); font-variant-numeric: tabular-nums; }
-.usage-log-model {
-  flex: 1;
-  min-width: 0;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.usage-log-num { flex: none; color: var(--text-soft); font-variant-numeric: tabular-nums; }
-.usage-log-cost {
-  flex: none;
-  min-width: 4.5em;
-  text-align: right;
-  font-variant-numeric: tabular-nums;
-}
-.dash-seg.small.usage-seg3 { width: 168px; }
-.usage-model-row { flex-wrap: wrap; row-gap: 4px; }
-.usage-model-row .dash-bar-name { width: 100%; white-space: normal; overflow-wrap: anywhere; }
 #usage-updated { padding: 8px 16px 0; margin-bottom: 0; }
 
 /* --- 質問カードの読み上げ・音声回答 --- */
@@ -1914,7 +1841,7 @@ button.lv-tl-preview { cursor: pointer; }
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.25);
 }
 .sai-panel-title { margin: 0; font-size: 17px; }
-.sai-panel-body { margin: 0; font-size: 14px; line-height: 1.7; color: var(--text-soft); }
+.sai-panel-body { margin: 0; font-size: 14px; line-height: 1.7; color: var(--text-soft); white-space: pre-line; }
 .sai-panel-row { display: flex; justify-content: flex-end; gap: var(--sp-2); margin-top: var(--sp-2); }
 .sai-panel-danger .sai-panel-title { color: var(--danger); }
 .sai-input {
@@ -2036,20 +1963,6 @@ button.lv-tl-preview { cursor: pointer; }
   #view-stats { max-width: 900px; margin-left: auto; margin-right: auto; width: 100%; }
 }
 
-/* 使用量のカード（広い画面では 2〜3 列に並べる） */
-.usage-cards { display: flex; flex-direction: column; gap: 12px; }
-@media (min-width: 900px) {
-  .usage-cards {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: var(--sp-3);
-    align-items: start;
-    max-width: 1200px;
-  }
-}
-@media (min-width: 1280px) {
-  .usage-cards { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-}
 
 /* 広い画面の「その日の実行」の左にある日付一覧。
    いま見ている日は背景で示し、1 行の高さを 44px にする。 */
@@ -2141,9 +2054,3 @@ button.lv-tl-preview { cursor: pointer; }
 .nc-loading { color: var(--text-soft); font-size: 14px; padding: 8px 0; }
 .nc-start { align-self: flex-start; }
 
-/* --- Usage の区画の枠 --- */
-/* 画面の幅に応じて中央に寄せる。iPhone では 1 列，PC では少し広げる。 */
-.ac-body { max-width: 760px; margin: 0 auto; padding: 16px; }
-.ac-card-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
-.ac-card-head .ac-title { flex: 1; }
-.ac-title { margin: 0; font-size: 16px; }
