@@ -30,4 +30,21 @@ assert.strictEqual(E.extPickProject(["a", "b"], "z"), "a", "最後の物が無�
 assert.strictEqual(E.extPickProject(["a", "b"], null), "a", "最後の物が無ければ先頭（null）");
 assert.strictEqual(E.extPickProject([], "a"), null, "1 つも無ければ null");
 
+// --- ctx.cli：input があるときだけ本文に入れる
+const sent = [];
+global.saiApi = (url, opts) => {
+  sent.push({ url, opts });
+  return Promise.resolve({});
+};
+const ctx = E.extCtx("hello", { project: "p q" });
+ctx.cli(["greet", "x"]);
+ctx.cli(["save", "A1"], { input: "# 見出し\n本文" });
+assert.strictEqual(sent[0].url, "/api/projects/p%20q/ext/hello/cli", "住所");
+assert.deepStrictEqual(sent[0].opts, { method: "POST", body: { args: ["greet", "x"] } }, "input 無しは args だけ");
+assert.deepStrictEqual(
+  sent[1].opts.body,
+  { args: ["save", "A1"], input: "# 見出し\n本文" },
+  "input 付きは本文に入る",
+);
+
 console.log("test_ext: すべて通りました");

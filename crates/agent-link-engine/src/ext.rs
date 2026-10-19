@@ -54,6 +54,26 @@ pub struct Manifest {
     pub ui: Option<UiSpec>,
     #[serde(default)]
     pub service: Option<ServiceSpec>,
+    #[serde(default)]
+    pub hooks: Option<HooksSpec>,
+    /// 拡張が読む設定値の名前（`agent-link ext config` で読む。値は `config_var` の規則）。
+    #[serde(default)]
+    pub config: Vec<String>,
+}
+
+/// `config` の名前の最大数。
+const CONFIG_MAX_NAMES: usize = 32;
+
+/// `hooks`: base が決まった時点で呼ぶ命令（`cli.bin` に渡す引数）。
+#[derive(Debug, Clone, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+pub struct HooksSpec {
+    #[serde(default)]
+    pub context: Option<Vec<String>>,
+    #[serde(default)]
+    pub write_check: Option<Vec<String>>,
+    #[serde(default)]
+    pub question: Option<Vec<String>>,
 }
 
 /// `cli`: 拡張の実行ファイルと、Web から呼んでよいサブ命令。
@@ -319,8 +339,35 @@ fn listed_json(l: &Listed) -> Value {
             "post": s.post,
             "ready": service_ready(&s.url_env),
         })),
+        "hooks": m.hooks.as_ref().map(|h| json!({
+            "context": h.context,
+            "write_check": h.write_check,
+            "question": h.question,
+        })),
+        "config": m.config.iter()
+            .map(|n| json!({"name": n, "set": config_var(n).is_some()}))
+            .collect::<Vec<_>>(),
         "enabled_in": l.enabled_in,
     })
+}
+
+/// 拡張が宣言した設定値を宣言の順に読む（環境変数 → `settings.json` の `config` → 無し）。
+///
+/// 宣言していない名前は読めない。置き場に無ければ `NotFound`。
+pub fn config_values(
+    ext_dir: &Path,
+    name: &str,
+) -> Result<Vec<(String, Option<String>)>, ExtError> {
+    let inst = load_installed(ext_dir, name)?;
+    Ok(inst
+        .manifest
+        .config
+        .into_iter()
+        .map(|n| {
+            let v = config_var(&n);
+            (n, v)
+        })
+        .collect())
 }
 
 /// 宛先の環境変数（`config_var`）が `http://` か `https://` で始まれば ready。
@@ -582,6 +629,7 @@ pub fn run_cli(
     args: &[String],
     exe: &str,
     timeout: Duration,
+    stdin_text: Option<&str>,
 ) -> Result<RunOutput, ExtError> {
     let installed = load_installed(ext_dir, name)?;
     if !has(&enabled_names(root), name) {
@@ -592,7 +640,136 @@ pub fn run_cli(
     if installed.manifest.cli.is_none() {
         return Err(ExtError::Input(format!("Extension {name} has no cli.")));
     }
-    run_command(&installed, root, args, exe, timeout)
+    run_command(&installed, root, args, exe, timeout, &[], stdin_text)
+}
+
+/// hook を呼ぶ時点。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HookPoint {
+    Context,
+    WriteCheck,
+    Question,
+}
+
+impl HookPoint {
+    fn args(self, h: &HooksSpec) -> Option<&Vec<String>> {
+        match self {
+            Self::Context => h.context.as_ref(),
+            Self::WriteCheck => h.write_check.as_ref(),
+            Self::Question => h.question.as_ref(),
+        }
+    }
+}
+
+/// hook の結果。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum HookOutcome {
+    /// 持ち主が無い（有効な拡張が無い・その点を宣言していない・block が当てはまらない）。
+    NoOwner,
+    /// 子が終わった。`code` は終了コード（シグナルで終われば 1）。
+    /// `stderr` は標準エラーの全文（前後の空白を除く・4000 文字まで）、`stderr_last` はその最後の空でない行。
+    Done {
+        ext: String,
+        code: i32,
+        stdout: String,
+        stderr: String,
+        stderr_last: String,
+    },
+    /// 起動できない・時間切れ。
+    Broken { ext: String, reason: String },
+}
+
+/// `Done` の標準出力の上限（文字数）。
+const HOOK_STDOUT_CHARS: usize = 200_000;
+/// `Done` の標準エラーの上限（文字数）。
+const HOOK_STDERR_CHARS: usize = 4_000;
+
+/// block の id から hook の持ち主の拡張を選ぶ。
+///
+/// 条件: このプロジェクトで有効・`point` を宣言している・`block` が `<name>` か `<name>-` で始まる。
+/// 複数あれば name の長い方。読めない拡張は飛ばす。
+pub fn hook_owner(ext_dir: &Path, root: &Path, block: &str, point: HookPoint) -> Option<Installed> {
+    enabled_names(root)
+        .iter()
+        .filter(|n| valid_name(n))
+        .filter(|n| {
+            block == n.as_str()
+                || block
+                    .strip_prefix(n.as_str())
+                    .is_some_and(|rest| rest.starts_with('-'))
+        })
+        .filter_map(|n| load(&ext_dir.join(n)).ok())
+        .filter(|i| {
+            i.manifest.cli.is_some() && i.manifest.hooks.as_ref().and_then(|h| point.args(h)).is_some()
+        })
+        .max_by_key(|i| i.manifest.name.len())
+}
+
+/// 持ち主の hook を呼ぶ。引数の `{run_id}`・`{block}`・`{filename}` を置き換える
+/// （`filename` が `None` なら `{filename}` は空文字）。
+#[allow(clippy::too_many_arguments)]
+pub fn call_hook(
+    ext_dir: &Path,
+    root: &Path,
+    point: HookPoint,
+    block: &str,
+    run_id: i64,
+    filename: Option<&str>,
+    extra_env: &[(&str, String)],
+    stdin_text: Option<&str>,
+    exe: &str,
+    timeout: Duration,
+) -> HookOutcome {
+    let Some(owner) = hook_owner(ext_dir, root, block, point) else {
+        return HookOutcome::NoOwner;
+    };
+    let ext = owner.manifest.name.clone();
+    let args: Vec<String> = owner
+        .manifest
+        .hooks
+        .as_ref()
+        .and_then(|h| point.args(h))
+        .map(|a| {
+            a.iter()
+                .map(|x| {
+                    x.replace("{run_id}", &run_id.to_string())
+                        .replace("{block}", block)
+                        .replace("{filename}", filename.unwrap_or(""))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    let mut envs = vec![
+        ("AGENT_LINK_PARENT_RUN_ID", run_id.to_string()),
+        ("AGENT_LINK_BLOCK_NAME", block.to_string()),
+    ];
+    envs.extend(extra_env.iter().cloned());
+    match run_command(&owner, root, &args, exe, timeout, &envs, stdin_text) {
+        Err(e) => HookOutcome::Broken {
+            ext,
+            reason: e.message().to_string(),
+        },
+        Ok(out) => {
+            let stderr_text = String::from_utf8_lossy(&out.stderr);
+            let stderr_last = stderr_text
+                .lines()
+                .rev()
+                .map(str::trim)
+                .find(|l| !l.is_empty())
+                .unwrap_or("")
+                .to_string();
+            HookOutcome::Done {
+                ext,
+                code: out.code,
+                stdout: String::from_utf8_lossy(&out.stdout)
+                    .chars()
+                    .take(HOOK_STDOUT_CHARS)
+                    .collect(),
+                stderr: stderr_text.trim().chars().take(HOOK_STDERR_CHARS).collect(),
+                stderr_last,
+            }
+        }
+    }
 }
 
 /// プロジェクトで有効で `cli` を持つ拡張の、実行ファイルのフォルダ（PATH に足す物）。
@@ -662,6 +839,21 @@ fn check_manifest(m: &Manifest, dir: &Path) -> Result<(), String> {
         }
     }
 
+    if let Some(h) = &m.hooks {
+        if m.cli.is_none() {
+            return bad("hooks needs cli".to_string());
+        }
+        for (point, args) in [
+            ("context", &h.context),
+            ("write_check", &h.write_check),
+            ("question", &h.question),
+        ] {
+            if args.as_ref().is_some_and(Vec::is_empty) {
+                return bad(format!("hooks.{point} must not be empty"));
+            }
+        }
+    }
+
     if let Some(ui) = &m.ui {
         if let Some(icon) = &ui.icon {
             check_ui_file(dir, "ui.icon", icon, "svg")?;
@@ -674,6 +866,16 @@ fn check_manifest(m: &Manifest, dir: &Path) -> Result<(), String> {
         }
         for s in &ui.styles {
             check_ui_file(dir, "ui.styles", s, "css")?;
+        }
+    }
+
+    if m.config.len() > CONFIG_MAX_NAMES {
+        return bad(format!("config must have at most {CONFIG_MAX_NAMES} names"));
+    }
+    for (i, n) in m.config.iter().enumerate() {
+        check_env_name(n)?;
+        if m.config[..i].contains(n) {
+            return bad(format!("config '{n}' is listed twice"));
         }
     }
 
@@ -818,7 +1020,7 @@ fn run_hook(
     timeout: Duration,
     what: &str,
 ) -> Result<(), ExtError> {
-    let out = run_command(installed, root, args, exe, timeout)?;
+    let out = run_command(installed, root, args, exe, timeout, &[], None)?;
     if out.code == 0 {
         return Ok(());
     }
@@ -834,13 +1036,16 @@ fn run_hook(
     )))
 }
 
-/// 拡張の `cli.bin` を、シェルを通さずに起こす。cwd は `root`、`AGENT_LINK_BIN` を足す。
+/// 拡張の `cli.bin` を、シェルを通さずに起こす。cwd は `root`、`AGENT_LINK_BIN` と `extra_env` を足す。
+/// `stdin_text` が `None` なら子の標準入力は閉じる。
 fn run_command(
     installed: &Installed,
     root: &Path,
     args: &[String],
     exe: &str,
     timeout: Duration,
+    extra_env: &[(&str, String)],
+    stdin_text: Option<&str>,
 ) -> Result<RunOutput, ExtError> {
     let Some(cli) = &installed.manifest.cli else {
         return Err(ExtError::Input(format!(
@@ -851,14 +1056,10 @@ fn run_command(
     let bin = absolute(&installed.path.join(&cli.bin))?;
     let mut cmd = vec![bin.to_string_lossy().to_string()];
     cmd.extend(args.iter().cloned());
-    let (status, stdout, stderr) = run_child(
-        &cmd,
-        root,
-        &[("AGENT_LINK_BIN", exe.to_string())],
-        None,
-        timeout,
-    )
-    .map_err(ExtError::Other)?;
+    let mut envs = vec![("AGENT_LINK_BIN", exe.to_string())];
+    envs.extend(extra_env.iter().cloned());
+    let (status, stdout, stderr) =
+        run_child(&cmd, root, &envs, stdin_text, timeout).map_err(ExtError::Other)?;
     match status {
         None => Err(ExtError::Other(format!(
             "Extension command timed out after {} seconds.",

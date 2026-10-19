@@ -125,7 +125,7 @@ pub fn validate(config: &BlockConfig) -> ValidationResult {
             errors.push(ParseError::InvalidValue {
                 field: "timeout".to_string(),
                 value: timeout.to_string(),
-                expected: "an integer from 1 to 3600".to_string(),
+                expected: "a positive integer (seconds)".to_string(),
             });
         }
     }

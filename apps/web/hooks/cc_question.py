@@ -18,6 +18,7 @@ Web の質問カードに登録し，利用者が答えるまで待つ．答え�
 - 認証: 付けない（Web は localhost からの呼び出しを通す）
 - 待つ間は `state.json` が `blocked`（Rust の PreToolUse フックが書く）．待ちを抜けたら `working` に戻す
   （取り下げ・打ち切りでは cc がツールを動かさず PostToolUse が来ないため）．
+- 答えが届いたら `agent-link ext hook question` に渡す（拡張の hook。失敗しても答えは返す）．
 - 標準ライブラリだけで書く．登録できなければ何も出さずに終了コード 0
   （cc はそのままツールを動かす）．
 """
@@ -189,6 +190,36 @@ def mark_working() -> None:
         pass
 
 
+def pass_answer_to_extension(qid: str, questions: list, answers: dict) -> None:
+    """答えを `agent-link ext hook question` に渡す。持ち主の拡張が無ければ何も起きない。失敗は無視する．"""
+    exe = shutil.which("agent-link")
+    run_id = os.environ.get("AGENT_LINK_PARENT_RUN_ID", "")
+    block = os.environ.get("AGENT_LINK_BLOCK_NAME", "")
+    if not exe or not run_id.isdigit() or not block:
+        return
+    body = {
+        "run_id": int(run_id),
+        "block": block,
+        "qid": qid,
+        "questions": questions,
+        "answers": answers,
+        "answered_by": "user",
+    }
+    try:
+        # 標準出力は cc が JSON として読むので、子の出力は捨てる
+        subprocess.run(
+            [exe, "ext", "hook", "question", "--json"],
+            input=json.dumps(body, ensure_ascii=False),
+            text=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=15,
+            check=False,
+        )
+    except Exception:
+        pass
+
+
 def main() -> int:
     if not os.environ.get("AGENT_LINK_PARENT_RUN_ID"):
         return 0
@@ -244,6 +275,8 @@ def main() -> int:
     if withdrawn is not None:
         out = withdrawn_output(withdrawn)
     else:
+        if answers:
+            pass_answer_to_extension(qid, questions, answers)
         out = hook_output(questions, answers)
     sys.stdout.write(json.dumps(out, ensure_ascii=False))
     sys.stdout.write("\n")

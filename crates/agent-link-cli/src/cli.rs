@@ -253,6 +253,23 @@ pub enum ExtCmd {
         /// Arguments for the extension CLI (after `--`)
         #[arg(last = true)]
         args: Vec<String>,
+        /// Pass this command's stdin (UTF-8, up to 1000000 bytes) to the extension CLI
+        #[arg(long, default_value_t = false)]
+        stdin: bool,
+        #[arg(long, default_value_t = false)]
+        json: bool,
+    },
+    /// Call the extension hook for a point (stdin: JSON). Only `question` is supported
+    Hook {
+        point: String,
+        #[arg(long, default_value_t = false)]
+        json: bool,
+    },
+    /// Read the config values an extension declared (env var, then settings.json `config`)
+    ///
+    /// Without --json, only "set" or "not set" is printed, never the value.
+    Config {
+        name: String,
         #[arg(long, default_value_t = false)]
         json: bool,
     },
@@ -447,6 +464,25 @@ pub enum CardCmd {
         /// 実行予定時刻（`YYYY-MM-DD HH:MM`）
         #[arg(long)]
         at: Option<String>,
+        #[arg(long, default_value_t = false)]
+        json: bool,
+    },
+
+    /// todo のカードに待ち条件の命令を付ける（`--clear` で外す）
+    ///
+    /// 常駐が予定の時刻ごとに命令を呼ぶ。終了コード 0 でカードを実行し、1 なら待ち続ける。
+    Wait {
+        #[arg(value_name = "RUN_ID")]
+        run_id: i64,
+        /// 命令を呼ぶ間隔（分・1〜1440・既定 10）
+        #[arg(long)]
+        every: Option<i64>,
+        /// 待ち条件を外す
+        #[arg(long, default_value_t = false)]
+        clear: bool,
+        /// 待ち条件の命令と引数（`--` の後ろ。シェルは通さない）
+        #[arg(last = true)]
+        command: Vec<String>,
         #[arg(long, default_value_t = false)]
         json: bool,
     },
@@ -1016,6 +1052,31 @@ pub enum ViewCardCmd {
         /// 実行予定時刻（`YYYY-MM-DD HH:MM`）
         #[arg(long)]
         at: Option<String>,
+    },
+
+    /// todo のカードに待ち条件の命令を付ける（常駐が予定の時刻ごとに呼ぶ）
+    ///
+    /// 命令が 0 で終われば実行し、1 なら `--every` 分後にもう一度見る。`--clear` で外す。
+    Wait {
+        /// 対象の予約 run ID
+        #[arg(value_name = "RUN_ID")]
+        run_id: i64,
+
+        /// 命令を呼ぶ間隔（分・1〜1440・既定 10）
+        #[arg(long)]
+        every: Option<i64>,
+
+        /// 待ち条件を外す
+        #[arg(long, default_value_t = false)]
+        clear: bool,
+
+        /// 待ち条件の命令と引数（`--` の後ろ）
+        #[arg(last = true)]
+        command: Vec<String>,
+
+        /// JSON で出す（無ければ英語の 1 行）
+        #[arg(long, default_value_t = false)]
+        json: bool,
     },
 
     /// todo の未実行カード（`outputs/todo/<run_id>/task.md`）を実行する（非対話）

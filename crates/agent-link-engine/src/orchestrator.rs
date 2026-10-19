@@ -581,6 +581,84 @@ impl PipelineHandle {
     }
 }
 
+/// 拡張の `context` hook の時間の上限。
+const EXT_CONTEXT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(20);
+/// `context` の節の本文の上限（文字数）。
+const EXT_CONTEXT_MAX_CHARS: usize = 200_000;
+
+/// block の持ち主の拡張の `context` を、最初の文の末尾に足す。
+/// `run_id` が無い（`block preview` など）・置き場が無いときは何もしない。
+fn append_ext_context(first_message: String, block: &str, run_id: Option<i64>) -> String {
+    use crate::ext::{call_hook, HookOutcome, HookPoint};
+    let (Some(run_id), Some(ext_dir)) = (run_id, crate::ext::extensions_dir()) else {
+        return first_message;
+    };
+    let exe = std::env::current_exe()
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_else(|_| "agent-link".to_string());
+    let outcome = call_hook(
+        &ext_dir,
+        &crate::project::project_root(),
+        HookPoint::Context,
+        block,
+        run_id,
+        None,
+        &[],
+        None,
+        &exe,
+        EXT_CONTEXT_TIMEOUT,
+    );
+    let failed = !matches!(
+        outcome,
+        HookOutcome::NoOwner | HookOutcome::Done { code: 0, .. }
+    );
+    match context_section(&outcome) {
+        Some(section) => {
+            if failed {
+                eprintln!("[agent-link] 警告: {}", section.trim());
+            }
+            format!("{first_message}{section}")
+        }
+        None => first_message,
+    }
+}
+
+/// `context` の結果から、最初の文に足す節を作る。足す物が無ければ `None`。
+fn context_section(outcome: &crate::ext::HookOutcome) -> Option<String> {
+    use crate::ext::HookOutcome;
+    let failed = |ext: &str, reason: &str| {
+        Some(format!(
+            "\n\n# context\n\n（拡張 {ext} の context を作れなかった: {reason}）"
+        ))
+    };
+    match outcome {
+        HookOutcome::NoOwner => None,
+        HookOutcome::Done {
+            code: 0, stdout, ..
+        } => {
+            if stdout.trim().is_empty() {
+                return None;
+            }
+            let body = stdout.strip_suffix('\n').unwrap_or(stdout);
+            let body: String = body.chars().take(EXT_CONTEXT_MAX_CHARS).collect();
+            Some(format!("\n\n# context\n\n{body}"))
+        }
+        HookOutcome::Done {
+            ext,
+            code,
+            stderr_last,
+            ..
+        } => {
+            if stderr_last.is_empty() {
+                failed(ext, &format!("exit code {code}"))
+            } else {
+                failed(ext, stderr_last)
+            }
+        }
+        HookOutcome::Broken { ext, reason } => failed(ext, reason),
+    }
+}
+
 // ============================================================================
 // Public API 1: prepare_pipeline — ユーザー確認前の準備
 // ============================================================================
@@ -629,6 +707,9 @@ pub fn prepare_pipeline(config: &PipelineConfig) -> Result<PreparedPipeline, Orc
     // 起動コマンドのフラグで渡す。最初の文には入力値だけが入る。
     let (mut system_prompt, first_message) =
         split_fixed_and_variable(&config.block_body, &resolved_values);
+    // 拡張の context を最初の文の末尾に足す（遠隔の run も同じ文になるよう variable_part の前）
+    let first_message =
+        append_ext_context(first_message, &config.block_config.block_id(), config.run_id);
     // 遠隔の run は固定部分を遠隔に置くので、最初の文は入力値だけにする
     let variable_part = first_message.clone();
 
@@ -880,6 +961,8 @@ struct RemoteScriptParts<'a> {
     home: &'a str,
     /// `claude --session-id …`（`CcCommandBuilder` の出力）
     cc_command: &'a str,
+    /// 拡張の中継のフォルダ（`stage_ext_shims` の戻り値）。あれば PATH の先頭に足す
+    ext_bin: Option<&'a str>,
 }
 
 /// 遠隔の shell で走らせる 1 行。
@@ -901,9 +984,11 @@ fn remote_script(p: &RemoteScriptParts) -> String {
     if let Some(h) = p.agent_link_home {
         s.push_str(&format!("AGENT_LINK_HOME={} ", q(h)));
     }
+    let ext_prefix = p.ext_bin.map(|d| format!("{}:", q(d))).unwrap_or_default();
     s.push_str(&format!(
-        "AGENT_LINK_HOST={} PATH={}:{}:\"$PATH\" {}",
+        "AGENT_LINK_HOST={} PATH={}{}:{}:\"$PATH\" {}",
         q(p.host),
+        ext_prefix,
         q(&format!("{}/{}/bin", home, crate::remote::REMOTE_DIR)),
         q(&format!("{}/.local/bin", home)),
         p.cc_command,
@@ -979,9 +1064,21 @@ fn prepare_remote_command(
         .build()
         .map_err(|e| err(format!("Failed to build the cc command: {}", e)))?;
 
-    let root = crate::project::project_root().to_string_lossy().to_string();
+    let project_root = crate::project::project_root();
+    let root = project_root.to_string_lossy().to_string();
+    // 有効で `cli` を持つ拡張の中継を置く（読めない拡張は飛ばす）
+    let ext_names: Vec<String> = match crate::ext::extensions_dir() {
+        Some(dir) => crate::ext::enabled_names(&project_root)
+            .into_iter()
+            .filter(|n| crate::ext::load(&dir.join(n)).is_ok_and(|i| i.manifest.cli.is_some()))
+            .collect(),
+        None => Vec::new(),
+    };
+    let ext_bin = crate::remote::stage_ext_shims(&rt.host, &home, run_id, &ext_names)
+        .map_err(|e| err(e.to_string()))?;
     let agent_link_home = std::env::var("AGENT_LINK_HOME").ok().filter(|v| !v.trim().is_empty());
     let script = remote_script(&RemoteScriptParts {
+        ext_bin: ext_bin.as_deref(),
         cwd_abs: &cwd_abs,
         pane,
         root: &root,
@@ -4196,6 +4293,79 @@ mod tests {
         assert_eq!(subtask_setting(None, None), None);
     }
 
+    fn hook_done(code: i32, stdout: &str, stderr_last: &str) -> crate::ext::HookOutcome {
+        crate::ext::HookOutcome::Done {
+            ext: "hello".to_string(),
+            code,
+            stdout: stdout.to_string(),
+            stderr: stderr_last.to_string(),
+            stderr_last: stderr_last.to_string(),
+        }
+    }
+
+    #[test]
+    fn context_section_cases() {
+        use crate::ext::HookOutcome;
+        assert_eq!(context_section(&HookOutcome::NoOwner), None);
+        assert_eq!(
+            context_section(&hook_done(0, "範囲 A\n\n", "")).as_deref(),
+            Some("\n\n# context\n\n範囲 A\n")
+        );
+        assert_eq!(context_section(&hook_done(0, " \n", "")), None);
+        assert_eq!(
+            context_section(&hook_done(3, "", "boom")).as_deref(),
+            Some("\n\n# context\n\n（拡張 hello の context を作れなかった: boom）")
+        );
+        assert!(context_section(&hook_done(3, "", ""))
+            .unwrap()
+            .contains("exit code 3"));
+        let broken = HookOutcome::Broken {
+            ext: "hello".to_string(),
+            reason: "timed out".to_string(),
+        };
+        assert!(context_section(&broken).unwrap().contains("timed out"));
+    }
+
+    /// `append_ext_context` が、持ち主の拡張の block の run にだけ `# context` を足すこと
+    /// （`run_id` が無ければ足さない）。
+    #[test]
+    fn append_ext_context_only_for_owner_block_with_run_id() {
+        use std::os::unix::fs::PermissionsExt;
+        let _env_lock = finalize_env_lock();
+        let root = finalize_test_temp_dir("ext-context");
+        let ext_dir = root.join("exts");
+        let hello = ext_dir.join("hello");
+        std::fs::create_dir_all(hello.join("bin")).unwrap();
+        std::fs::write(
+            hello.join("extension.json"),
+            r#"{"name":"hello","title":"Hello","version":"0.1.0","description":"d",
+                "cli":{"bin":"bin/hello"},"hooks":{"context":["context","{run_id}"]}}"#,
+        )
+        .unwrap();
+        let bin = hello.join("bin/hello");
+        std::fs::write(&bin, "#!/bin/sh\necho \"scope for run $2\"\n").unwrap();
+        std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o755)).unwrap();
+        std::fs::create_dir_all(root.join(".agent-link")).unwrap();
+        std::fs::write(
+            root.join(".agent-link/settings.json"),
+            r#"{"extensions":["hello"]}"#,
+        )
+        .unwrap();
+        std::env::set_var("AGENT_LINK_PROJECT_ROOT", &root);
+        std::env::set_var("AGENT_LINK_EXTENSIONS_DIR", &ext_dir);
+
+        let own = append_ext_context("first".to_string(), "hello-agent", Some(7));
+        let other = append_ext_context("first".to_string(), "plan", Some(7));
+        let no_run = append_ext_context("first".to_string(), "hello-agent", None);
+
+        std::env::remove_var("AGENT_LINK_PROJECT_ROOT");
+        std::env::remove_var("AGENT_LINK_EXTENSIONS_DIR");
+        std::fs::remove_dir_all(&root).ok();
+        assert_eq!(own, "first\n\n# context\n\nscope for run 7");
+        assert_eq!(other, "first");
+        assert_eq!(no_run, "first");
+    }
+
     // ---- StallDetector（U3: 停止検知） ----
 
     /// long_run に十分大きい値（working では LongRunning が出ないようにする）
@@ -5867,7 +6037,45 @@ mod tests {
             host: "wsl-server",
             home: "/home/u",
             cc_command: "claude --session-id 'x' --settings '/home/u/.agent-link-remote/runs/21/cc-settings.json'",
+            ext_bin: None,
         }
+    }
+
+    /// `stage_ext_shims` が、遠隔の run フォルダの `ext-bin/<name>` に実行できる中継を置くこと。
+    #[test]
+    fn stage_ext_shims_writes_executable_relays() {
+        use std::os::unix::fs::PermissionsExt;
+        let _env_lock = finalize_env_lock();
+        let (_g_path, _g_home, rhome) = fake_ssh_env("ext-shims");
+        let home = rhome.to_string_lossy().to_string();
+        let names = vec!["demo-a".to_string(), "demo-b".to_string()];
+        let dir = crate::remote::stage_ext_shims("h", &home, 7, &names).unwrap().unwrap();
+        assert_eq!(dir, format!("{}/.agent-link-remote/runs/7/ext-bin", home));
+        for n in &names {
+            let f = std::path::Path::new(&dir).join(n);
+            assert_eq!(std::fs::read_to_string(&f).unwrap(), crate::remote::ext_shim_script(n));
+            assert_eq!(std::fs::metadata(&f).unwrap().permissions().mode() & 0o777, 0o755);
+        }
+        std::fs::remove_dir_all(rhome.parent().unwrap()).ok();
+    }
+
+    /// `ext_bin` ありなら PATH の先頭に足し、無しなら今と同じ文になること。
+    #[test]
+    fn remote_script_puts_ext_bin_first_on_path() {
+        let base = remote_script(&remote_parts());
+        let mut p = remote_parts();
+        p.ext_bin = Some("/home/u/.agent-link-remote/runs/21/ext-bin");
+        let s = remote_script(&p);
+        assert!(
+            s.contains(
+                "PATH='/home/u/.agent-link-remote/runs/21/ext-bin':'/home/u/.agent-link-remote/bin':'/home/u/.local/bin':\"$PATH\" claude"
+            ),
+            "{s}"
+        );
+        assert_eq!(
+            s.replace("'/home/u/.agent-link-remote/runs/21/ext-bin':", ""),
+            base
+        );
     }
 
     /// 遠隔の命令は、C5 の並びで、値が単引用符で包まれ、`claude` が最後に来ること。

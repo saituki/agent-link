@@ -178,7 +178,7 @@ iPhone / PC のブラウザ
 |---|---|---|
 | `GET /api/ext` | 拡張の一覧（`{"extensions": [{"name", "title", "icon", "ui", "service", "ready", "web", "enabled_in"}]}`）。10 秒覚える | `agent-link ext list --json` |
 | `GET /ext/{name}/{path}` | 拡張の `ui/` の中のファイル（画面の JS・CSS・アイコン）。`ui` を持つ拡張だけ。`..`・空の区切り・先頭の `/` や `\` を含む道、`ui/` の外へ出る道は 404 | —（ファイルを返す） |
-| `POST /api/projects/{name}/ext/{ext_name}/cli` | 拡張の CLI を呼ぶ（body `{"args": [...]}`。そのプロジェクトで有効で、`args[0]` が `cli.web` にあること。通らなければ 400・403・404） | `agent-link ext run <ext_name> -- <args…>` |
+| `POST /api/projects/{name}/ext/{ext_name}/cli` | 拡張の CLI を呼ぶ（body `{"args": [...], "input"?: "…"}`。そのプロジェクトで有効で、`args[0]` が `cli.web` にあること。`input` は文字列で 1,000,000 文字まで（超えたら・文字列でなければ 400）。通らなければ 400・403・404） | `input` が無ければ `agent-link ext run <ext_name> -- <args…>`。あれば `agent-link ext run <ext_name> --stdin -- <args…>`（`input` を標準入力に渡す） |
 | `GET /api/ext/{ext_name}/svc/{path}` / `POST /api/ext/{ext_name}/svc/{path}` | 拡張の service へ中継する（宛先は `service.url_env` の値）。POST は `service.post` にある道だけ（先頭の `/` なしで書く。無ければ 403）。宛先が未設定なら 404 | —（HTTP で中継） |
 | `GET /` / `GET /index.html` | 画面の HTML。拡張の目印（`<!-- ext:styles -->`・`<!-- ext:tabs -->`・`<!-- ext:scripts -->`）を、画面に出す拡張の物に差し替える（拡張が 0 個なら目印を消すだけ） | — |
 

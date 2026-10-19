@@ -166,7 +166,7 @@ fn value_type(arg: &clap::Arg) -> String {
 /// 標準入力の受け取り方（clap に無い情報）。
 fn stdin_kind(path: &[String]) -> &'static str {
     match path.join(" ").as_str() {
-        "card create" | "task create" => "json",
+        "card create" | "task create" | "ext hook" => "json",
         "doc write" | "def write" | "task report" | "run md" | "run send" => "text",
         _ => "none",
     }
@@ -186,7 +186,7 @@ fn web_default(path: &[String]) -> bool {
         "task report",
         "task question",
     ];
-    const LOWER_LEVEL: [&str; 9] = [
+    const LOWER_LEVEL: [&str; 11] = [
         "init",
         "daemon recover",
         "usage backfill",
@@ -196,6 +196,8 @@ fn web_default(path: &[String]) -> bool {
         "remote check",
         "ext install",
         "ext uninstall",
+        "ext hook",
+        "ext config",
     ];
     let joined = path.join(" ");
     !AGENT_ONLY.contains(&joined.as_str()) && !LOWER_LEVEL.contains(&joined.as_str())
@@ -234,6 +236,7 @@ mod tests {
             "card options\tjson",
             "card run\tjson,run_id",
             "card schedule\tat,json,run_id",
+            "card wait\tclear,command,every,json,run_id",
             "cc-permission-hook\t",
             "cc-prompt-hook\t",
             "cc-state-hook\tstate",
@@ -253,11 +256,13 @@ mod tests {
             "doc read\tjson,token",
             "doc search\tblock,category,from_id,json,limit,since,to_id,until,word",
             "doc write\tdescription,filename,json,run_id",
+            "ext config\tjson,name",
             "ext disable\tjson,name",
             "ext enable\tjson,name",
+            "ext hook\tjson,point",
             "ext install\tdir,json,link",
             "ext list\tjson",
-            "ext run\targs,json,name",
+            "ext run\targs,json,name,stdin",
             "ext uninstall\tjson,name",
             "ext update\tjson,name",
             "init\tname,update",

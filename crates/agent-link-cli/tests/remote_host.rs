@@ -272,6 +272,58 @@ fn gate_refuses_other_commands_through_the_relay() {
     assert_eq!(last_stderr(&out), "Remote gate does not allow this command: task create");
 }
 
+#[test]
+fn ext_relay_runs_the_mac_extension_cli_through_the_gate() {
+    if !ssh_keygen_usable() {
+        eprintln!("skip: ssh-keygen が使えないため中継を確かめません");
+        return;
+    }
+    let w = World::new();
+    w.setup();
+    // Mac に拡張 `relay-demo`（標準入力をそのまま返す・引数を返す・失敗する）を入れて有効にする
+    let ext = w.al_home.join("src/relay-demo");
+    write_exec(
+        &ext.join("bin/demo"),
+        "#!/bin/sh\ncase \"$1\" in\n  cat) cat ;;\n  arg) echo \"arg:$2\" ;;\n  fail) echo boom >&2; exit 3 ;;\nesac\n",
+    );
+    std::fs::write(
+        ext.join("extension.json"),
+        r#"{"name":"relay-demo","title":"Relay demo","version":"0.1.0","description":"relay test","cli":{"bin":"bin/demo"}}"#,
+    )
+    .unwrap();
+    let out = w.mac(&["ext", "install", &ext.to_string_lossy()]);
+    assert_eq!(out.status.code(), Some(0), "{}", stderr_of(&out));
+    // 有効にする前は、門番は通すが `ext run` が断る
+    let shim = w.remote_home.join("ext-bin/relay-demo");
+    write_exec(&shim, &agent_link_engine::remote::ext_shim_script("relay-demo"));
+    let root = w.project.to_string_lossy().to_string();
+    let al_home = w.al_home.to_string_lossy().to_string();
+    let env = [("AGENT_LINK_PROJECT_ROOT", root.as_str()), ("AGENT_LINK_HOME", al_home.as_str())];
+    let run = |script: &str| {
+        let s = format!("PATH=\"{}:$PATH\"; {}", w.remote_home.join("ext-bin").display(), script);
+        w.remote_sh(&env, &s)
+    };
+    let out = run("relay-demo arg x </dev/null");
+    assert_eq!(out.status.code(), Some(4), "{}", stderr_of(&out));
+
+    let out = w.mac(&["ext", "enable", "relay-demo"]);
+    assert_eq!(out.status.code(), Some(0), "{}", stderr_of(&out));
+    let out = run("relay-demo arg x");
+    assert_eq!(out.status.code(), Some(0), "{}", stderr_of(&out));
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "arg:x");
+    // 標準入力は --stdin で届く
+    let out = run("relay-demo cat <<'EOF'\n日本語の本文\nEOF");
+    assert_eq!(out.status.code(), Some(0), "{}", stderr_of(&out));
+    assert_eq!(String::from_utf8_lossy(&out.stdout), "日本語の本文\n");
+    // 拡張の終了コードがそのまま返る
+    let out = run("relay-demo fail </dev/null");
+    assert_eq!(out.status.code(), Some(3), "{}", stderr_of(&out));
+    // ext のほかの命令は通らない
+    let out = run("agent-link ext install /tmp </dev/null");
+    assert_eq!(out.status.code(), Some(2), "{}", stderr_of(&out));
+    assert_eq!(last_stderr(&out), "Remote gate does not allow this command: ext install");
+}
+
 // ----------------------------------------------------------------------------
 // 4. 状態のフック
 // ----------------------------------------------------------------------------

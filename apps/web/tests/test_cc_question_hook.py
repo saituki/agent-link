@@ -302,7 +302,74 @@ def test_mark_working_is_silent_without_agent_link() -> None:
             os.environ["PATH"] = old
 
 
+def fake_agent_link(exit_code: int = 0):
+    """`ext hook question` の標準入力と引数を記録する偽の `agent-link`。（一時フォルダ, 記録のファイル）を返す。"""
+    import tempfile
+
+    tmp = Path(tempfile.mkdtemp())
+    record = tmp / "record"
+    exe = tmp / "agent-link"
+    exe.write_text(
+        '#!/bin/sh\n'
+        f'if [ "$1" = ext ]; then echo "$@" > "{record}.args"; cat > "{record}"; '
+        f'echo noise-on-stdout; exit {exit_code}; fi\n'
+    )
+    exe.chmod(0o755)
+    return tmp, record
+
+
+def run_with_fake(states: list[dict], exit_code: int = 0) -> tuple[str, Path, Path]:
+    """偽の agent-link を PATH に置いてフックを走らせる。（標準出力, 記録のファイル, 一時フォルダ）を返す。"""
+    tmp, record = fake_agent_link(exit_code)
+    web = FakeWeb(states)
+    try:
+        code, out = run_hook(
+            web.port,
+            extra_env={"PATH": f"{tmp}:/usr/bin:/bin", "AGENT_LINK_BLOCK_NAME": "blk-1"},
+        )
+    finally:
+        web.close()
+    assert code == 0, code
+    return out, record, tmp
+
+
+def test_answer_is_passed_to_extension_hook() -> None:
+    """答えがあれば `agent-link ext hook question --json` が C3 の JSON を標準入力にして呼ばれる。子の出力は hook の出力に混ざらない。"""
+    import shutil
+
+    out, record, tmp = run_with_fake([OPEN_STATE, ANSWERED_STATE], exit_code=1)
+    try:
+        value = json.loads(out)  # 子の標準出力・失敗は影響しない
+        assert value["hookSpecificOutput"]["permissionDecision"] == "allow", out
+        assert Path(f"{record}.args").read_text().split() == ["ext", "hook", "question", "--json"]
+        assert json.loads(record.read_text()) == {
+            "run_id": 7,
+            "block": "blk-1",
+            "qid": "q-test",
+            "questions": QUESTIONS,
+            "answers": {"好きな色は？": "青"},
+            "answered_by": "user",
+        }
+    finally:
+        shutil.rmtree(tmp)
+
+
+def test_extension_hook_not_called_without_answer() -> None:
+    """取り下げと打ち切りでは拡張の hook を呼ばない。"""
+    import shutil
+
+    for states in ([OPEN_STATE, WITHDRAWN_STATE], [RESOLVED_STATE]):
+        out, record, tmp = run_with_fake(states)
+        try:
+            assert json.loads(out)["hookSpecificOutput"]["permissionDecision"] == "deny", out
+            assert not record.exists(), "答えが無いのに拡張の hook を呼んだ"
+        finally:
+            shutil.rmtree(tmp)
+
+
 if __name__ == "__main__":
+    test_answer_is_passed_to_extension_hook()
+    test_extension_hook_not_called_without_answer()
     test_answered_returns_allow_with_updated_input()
     test_deny_mode_returns_reason_with_answer()
     test_no_token_has_no_authorization()

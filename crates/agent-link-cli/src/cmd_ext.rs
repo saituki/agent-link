@@ -28,6 +28,9 @@ impl From<ExtError> for CmdError {
 
 /// `agent-link ext <sub>` のハンドラ。
 pub(crate) fn run(cmd: ExtCmd) -> Result<(), CmdError> {
+    if let ExtCmd::Hook { point, .. } = &cmd {
+        return hook(point, &current_exe_string());
+    }
     let ext_dir = ext::extensions_dir().ok_or_else(|| {
         CmdError::input(
             "Cannot find the extensions folder. Set AGENT_LINK_HOME or AGENT_LINK_EXTENSIONS_DIR.",
@@ -93,10 +96,95 @@ pub(crate) fn run(cmd: ExtCmd) -> Result<(), CmdError> {
         ExtCmd::Run {
             name,
             args,
+            stdin,
             json: _,
-        } => run_cli(&ext_dir, &name, &args, &exe),
+        } => {
+            let input = if stdin { Some(read_stdin()?) } else { None };
+            run_cli(&ext_dir, &name, &args, &exe, input.as_deref())
+        }
+        ExtCmd::Config { name, json } => {
+            let values = ext::config_values(&ext_dir, &name)?;
+            if json {
+                let map: serde_json::Map<String, serde_json::Value> =
+                    values.into_iter().map(|(n, v)| (n, json!(v))).collect();
+                return print_json(&json!({"name": name, "values": map}));
+            }
+            // 値は出さない（端末や記録に秘密を残さないため）
+            for (n, v) in &values {
+                println!("{n}: {}", if v.is_some() { "set" } else { "not set" });
+            }
+            Ok(())
+        }
+        ExtCmd::Hook { .. } => unreachable!("handled before the extensions folder is resolved"),
     }
 }
+
+/// 標準入力の上限（バイト）。
+const STDIN_MAX_BYTES: u64 = 1_000_000;
+
+/// 自分の標準入力を最後まで読む。上限を超える・UTF-8 でないときは入力の誤り（終了コード 2）。
+fn read_stdin() -> Result<String, CmdError> {
+    use std::io::Read;
+    let mut buf = Vec::new();
+    std::io::stdin()
+        .take(STDIN_MAX_BYTES + 1)
+        .read_to_end(&mut buf)
+        .map_err(|e| CmdError::other(format!("Cannot read stdin: {e}")))?;
+    if buf.len() as u64 > STDIN_MAX_BYTES {
+        return Err(CmdError::input(format!(
+            "Input is larger than {STDIN_MAX_BYTES} bytes."
+        )));
+    }
+    String::from_utf8(buf).map_err(|_| CmdError::input("Input must be UTF-8 text."))
+}
+
+/// `ext hook <point>`。いまは `question` だけ。持ち主が無い・子が失敗しても終了コードは 0
+/// （呼び出し側は失敗を無視する）。入力の誤りだけ 2。
+fn hook(point: &str, exe: &str) -> Result<(), CmdError> {
+    use ext::{HookOutcome, HookPoint};
+    if point != "question" {
+        return Err(CmdError::input(format!(
+            "Unknown hook point: {point}. Use question."
+        )));
+    }
+    let text = read_stdin()?;
+    let value: serde_json::Value = serde_json::from_str(&text)
+        .map_err(|e| CmdError::input(format!("stdin is not valid JSON: {e}")))?;
+    let run_id = value.get("run_id").and_then(serde_json::Value::as_i64);
+    let block = value.get("block").and_then(serde_json::Value::as_str);
+    let (Some(run_id), Some(block)) = (run_id, block) else {
+        return Err(CmdError::input(
+            "stdin JSON needs run_id (integer) and block (string).",
+        ));
+    };
+    let outcome = match ext::extensions_dir() {
+        Some(ext_dir) => ext::call_hook(
+            &ext_dir,
+            &project::project_root(),
+            HookPoint::Question,
+            block,
+            run_id,
+            None,
+            &[],
+            Some(&text),
+            exe,
+            QUESTION_HOOK_TIMEOUT,
+        ),
+        None => HookOutcome::NoOwner,
+    };
+    let v = match outcome {
+        HookOutcome::NoOwner => json!({"ext": null, "ran": false, "code": null}),
+        HookOutcome::Done { ext, code, .. } => json!({"ext": ext, "ran": true, "code": code}),
+        HookOutcome::Broken { ext, reason } => {
+            eprintln!("Extension {ext} question hook did not run: {reason}");
+            json!({"ext": ext, "ran": false, "code": null})
+        }
+    };
+    print_json(&v)
+}
+
+/// `question` hook の時間の上限。
+const QUESTION_HOOK_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 
 /// `ext list`。`errors` は人向けのとき標準エラーに出す（終了コードは 0）。
 fn list(ext_dir: &Path, registry: Option<&Path>, json: bool) -> Result<(), CmdError> {
@@ -143,7 +231,13 @@ fn install(ext_dir: &Path, dir: &Path, link: bool, json: bool) -> Result<(), Cmd
 
 /// `ext run`。成功なら子の標準出力・標準エラーをそのまま流す。失敗なら標準出力は空にし、
 /// 子の終了コードが 2・3・4 ならそれ、ほかは 1 で終わる。
-fn run_cli(ext_dir: &Path, name: &str, args: &[String], exe: &str) -> Result<(), CmdError> {
+fn run_cli(
+    ext_dir: &Path,
+    name: &str,
+    args: &[String],
+    exe: &str,
+    stdin_text: Option<&str>,
+) -> Result<(), CmdError> {
     let out = ext::run_cli(
         ext_dir,
         &project::project_root(),
@@ -151,6 +245,7 @@ fn run_cli(ext_dir: &Path, name: &str, args: &[String], exe: &str) -> Result<(),
         args,
         exe,
         RUN_TIMEOUT,
+        stdin_text,
     )?;
     if out.code == 0 {
         write_raw(std::io::stdout(), &out.stdout)?;
